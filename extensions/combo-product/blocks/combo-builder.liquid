@@ -10,7 +10,7 @@
   data-cb-instance="{{ block.id }}"
   data-currency="{{ cart.currency.iso_code }}"
   data-currency-symbol="{{ cart.currency.symbol }}"
-  data-api-base="https://combo-product-ten.vercel.app"
+  data-api-base="https://combo-product.vercel.app"
   data-layout-mode="{{ block.settings.layout_mode | default: 'grid' }}"
   data-enable-sticky-cart="{{ block.settings.enable_sticky_cart | default: true, allow_false: true }}"
   data-cart-btn-label="{{ block.settings.cart_btn_label | default: 'Add To Cart' | escape }}"
@@ -57,7 +57,7 @@
     shop:           '{{ shop.permanent_domain }}',
     currency:       '{{ cart.currency.iso_code }}',
     currencySymbol: '{{ cart.currency.symbol }}',
-    apiBase:        'https://combo-product-ten.vercel.app',
+    apiBase:        'https://combo-product.vercel.app',
     productHandle:  '{{ product.handle }}',
     layoutMode:        '{{ block.settings.layout_mode | default: "grid" }}',
     enableStickyCart:  {{ block.settings.enable_sticky_cart | default: true, allow_false: true | json }},
