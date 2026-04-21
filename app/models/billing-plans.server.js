@@ -104,12 +104,14 @@ export const PLANS = {
 };
 
 /** Ordered lowest → highest so index = tier level */
-export const PLAN_HIERARCHY = ["FREE", "STARTER", "GROWTH", "PRO"];
+export const PLAN_HIERARCHY = ["FREE", "BASIC", "ADVANCE", "PLUS"];
 
 /** Resolve a plan key from a Shopify subscription name (stored as plan.name) */
 export function planKeyFromName(subscriptionName) {
   if (!subscriptionName) return "FREE";
   const upper = subscriptionName.toUpperCase();
+  // Legacy alias
+  if (upper.includes("PRO")) return "PLUS";
   for (const key of PLAN_HIERARCHY) {
     if (upper.includes(key)) return key;
   }
@@ -336,8 +338,7 @@ export async function createSubscription(admin, planKey, returnUrl, currentPlanK
   // In skip-billing mode, redirect directly to returnUrl — no Shopify billing page
   if (SKIP_BILLING) return returnUrl;
 
-  // test:true = no real charge; controlled by BILLING_TEST; defaults to true for safety
-  const isTest    = process.env.BILLING_TEST !== "false";
+  const isTest    = process.env.BILLING_TEST === "true";
   const upgrading = isUpgrade(currentPlanKey, planKey);
 
   const resp = await admin.graphql(CREATE_SUBSCRIPTION_MUTATION, {
