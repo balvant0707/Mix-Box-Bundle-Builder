@@ -52,7 +52,5 @@ scopes = "write_products,read_products,read_orders,read_inventory,read_themes,wr
 
 [auth]
 redirect_urls = [
-  "https://combo-product.vercel.app/auth/callback",
-  "https://combo-product.vercel.app/shopify/callback",
-  "https://combo-product.vercel.app/api/auth/callback"
+  "https://combo-product.vercel.app/auth/callback"
 ]
