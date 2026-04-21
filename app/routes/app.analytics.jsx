@@ -1,22 +1,43 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLoaderData, useLocation, useNavigate } from "react-router";
+import { useLoaderData, useLocation, useNavigate, useRevalidator } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { AdminIcon } from "../components/admin-icons";
 import { getAnalytics } from "../models/orders.server";
+import { getShopCurrencyCode } from "../models/shop.server";
 import { withEmbeddedAppParams } from "../utils/embedded-app";
+import { formatCurrencyAmount } from "../utils/currency";
+import { fetchOrderLabelsByOrderIds } from "../utils/shopify-orders.server";
+import { fetchProductIdsByLabels, normalizeProductLookupLabel } from "../utils/shopify-products.server";
+import {
+  BlockStack,
+  Button,
+  Card,
+  InlineGrid,
+  InlineStack,
+  Modal,
+  Pagination,
+  Page,
+  Text,
+  Tooltip,
+} from "@shopify/polaris";
 
 export const loader = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
   const url = new URL(request.url);
   const period = url.searchParams.get("period") || "30";
   const customFrom = url.searchParams.get("from") || null;
   const customTo = url.searchParams.get("to") || null;
+  const comboTypeParam = String(url.searchParams.get("comboType") || "all").toLowerCase();
+  const comboType = comboTypeParam === "simple" || comboTypeParam === "specific" ? comboTypeParam : "all";
 
   let fromDate, toDate;
   if (customFrom && customTo) {
     fromDate = customFrom;
     toDate = customTo;
+  } else if (period === "all") {
+    fromDate = "1970-01-01";
+    toDate = new Date().toISOString().slice(0, 10);
   } else {
     const days = parseInt(period) || 30;
     const toD = new Date();
@@ -25,38 +46,162 @@ export const loader = async ({ request }) => {
     toDate = toD.toISOString().slice(0, 10);
   }
 
-  const analytics = await getAnalytics(session.shop, fromDate, toDate);
+  const [analytics, currencyCode] = await Promise.all([
+    getAnalytics(session.shop, fromDate, toDate, {
+      comboTypeFilter: comboType,
+      recentOrdersLimit: null, // show full order list for selected period
+    }),
+    getShopCurrencyCode(session.shop),
+  ]);
+
+  const orderLabelsFromAdmin = await fetchOrderLabelsByOrderIds(
+    admin,
+    (analytics?.recentOrders || []).map((order) => order.orderId),
+  );
+  const hydratedRecentOrders = (analytics?.recentOrders || []).map((order) => {
+    const normalizedOrderId = String(order.orderId || "").replace(/\D/g, "");
+    const adminLabel = orderLabelsFromAdmin.get(normalizedOrderId);
+    return {
+      ...order,
+      orderName: order.orderName || adminLabel?.orderName || null,
+      orderNumber: order.orderNumber ?? adminLabel?.orderNumber ?? null,
+    };
+  });
+  const selectedProductLabels = hydratedRecentOrders.flatMap((order) =>
+    parseOrderSelectedProducts(order.selectedProducts),
+  );
+  const productIdByLabel = await fetchProductIdsByLabels(admin, selectedProductLabels);
+  const enrichedRecentOrders = hydratedRecentOrders.map((order) => {
+    const selected = parseOrderSelectedProducts(order.selectedProducts);
+    return {
+      ...order,
+      selectedProductEntries: selected.map((label) => ({
+        label,
+        productId: productIdByLabel.get(normalizeProductLookupLabel(label)) || null,
+      })),
+    };
+  });
+
   return {
-    analytics,
+    analytics: {
+      ...analytics,
+      recentOrders: enrichedRecentOrders,
+    },
+    currencyCode,
+    shopDomain: session.shop,
     period: customFrom ? "custom" : period,
     fromDate,
     toDate,
+    comboType,
   };
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-function fmtCurrency(val) {
-  if (val >= 100000) return `₹${(val / 100000).toFixed(1)}L`;
-  if (val >= 1000) return `₹${(val / 1000).toFixed(1)}k`;
-  return `₹${Math.round(val)}`;
+function fmtCurrency(val, currencyCode) {
+  const numericValue = Number(val) || 0;
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: currencyCode || "USD",
+      notation: "compact",
+      maximumFractionDigits: 0,
+    }).format(numericValue);
+  } catch {
+    return formatCurrencyAmount(numericValue, currencyCode || "USD", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    });
+  }
 }
 
 function fmtShortDate(isoStr) {
   if (!isoStr) return "";
   const d = new Date(isoStr + "T00:00:00");
-  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
 function fmtDate(isoStr) {
-  return new Date(isoStr).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+  return new Date(isoStr).toLocaleDateString(undefined, { day: "2-digit", month: "short" });
+}
+
+function parseOrderSelectedProducts(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry || "").trim()).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.map((entry) => String(entry || "").trim()).filter(Boolean);
+      }
+    } catch {
+      return [trimmed];
+    }
+    return [trimmed];
+  }
+  return [];
+}
+
+function formatOrderPrefixLabel(orderName, orderNumber, orderId) {
+  const name = String(orderName || "").trim();
+  if (/^#\d+/.test(name)) return name;
+
+  const parsedOrderNumber = Number.parseInt(String(orderNumber), 10);
+  if (Number.isFinite(parsedOrderNumber) && parsedOrderNumber > 0) {
+    return `#${parsedOrderNumber}`;
+  }
+
+  return "-";
+}
+
+function buildAdminOrderLink(shopDomain, orderId) {
+  const shop = String(shopDomain || "").trim();
+  const rawOrderId = String(orderId || "").trim();
+  if (!shop || !rawOrderId) return null;
+  const storeHandle = shop.replace(/\.myshopify\.com$/i, "");
+  if (!storeHandle) return null;
+  return `https://admin.shopify.com/store/${storeHandle}/orders/${rawOrderId}`;
+}
+
+function buildAdminProductLink(shopDomain, productId) {
+  const shop = String(shopDomain || "").trim();
+  const numericProductId = String(productId || "").replace(/\D/g, "");
+  if (!shop || !numericProductId) return null;
+  const storeHandle = shop.replace(/\.myshopify\.com$/i, "");
+  if (!storeHandle) return null;
+  return `https://admin.shopify.com/store/${storeHandle}/products/${numericProductId}`;
+}
+
+function EyeIcon({ size = 16, color = "#000000", fill = "#ffffff" }) {
+  return (
+    <svg
+      width={`${size}px`}
+      height={`${size}px`}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M1.5 12s3.75-6.75 10.5-6.75S22.5 12 22.5 12s-3.75 6.75-10.5 6.75S1.5 12 1.5 12Z"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="3.25" fill={fill} stroke={color} strokeWidth="2" />
+    </svg>
+  );
 }
 
 // ─── Date Range Picker ────────────────────────────────────────────────────────
 const MONTH_NAMES = [
-  "January","February","March","April","May","June",
-  "July","August","September","October","November","December",
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
 ];
-const DAY_LABELS = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+const DAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 function toISO(year, month, day) {
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -85,7 +230,7 @@ function CalendarMonth({ year, month, fromDate, toDate, hoverDate, pickingEnd, o
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "1px", marginBottom: "4px" }}>
         {DAY_LABELS.map((d) => (
-          <div key={d} style={{ textAlign: "center", fontSize: "11px", color: "#6b7280", fontWeight: "600", padding: "3px 0" }}>
+          <div key={d} style={{ textAlign: "center", fontSize: "11px", color: "#000000", fontWeight: "600", padding: "3px 0" }}>
             {d}
           </div>
         ))}
@@ -152,14 +297,15 @@ function DateRangePicker({ period, fromDate: initFrom, toDate: initTo }) {
   const triggerRef = useRef(null);
   const popoverRef = useRef(null);
   const [open, setOpen] = useState(false);
-  const [popoverPos, setPopoverPos] = useState({ top: 0, right: 0 });
+  const [popoverStyle, setPopoverStyle] = useState({ top: 0, left: 0, width: 580 });
 
   const todayStr = new Date().toISOString().slice(0, 10);
 
   const presets = [
     { key: "7", label: "Last 7 days" },
-    { key: "30", label: "Last 30 days" },
+    { key: "30", label: "Last 30 Days" },
     { key: "90", label: "Last 90 days" },
+    { key: "all", label: "All time" },
     { key: "custom", label: "Custom range" },
   ];
 
@@ -188,20 +334,51 @@ function DateRangePicker({ period, fromDate: initFrom, toDate: initTo }) {
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    function updatePopoverPosition() {
+      const triggerEl = triggerRef.current;
+      if (!triggerEl) return;
+      const rect = triggerEl.getBoundingClientRect();
+      const viewportPadding = 16;
+      const idealWidth = 580;
+      const maxWidth = Math.max(280, window.innerWidth - viewportPadding * 2);
+      const width = Math.min(idealWidth, maxWidth);
+      const left = Math.max(
+        viewportPadding,
+        Math.min(rect.right - width, window.innerWidth - viewportPadding - width),
+      );
+      setPopoverStyle({
+        top: rect.bottom + 8,
+        left,
+        width,
+      });
+    }
+
+    updatePopoverPosition();
+    window.addEventListener("resize", updatePopoverPosition);
+    window.addEventListener("scroll", updatePopoverPosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePopoverPosition);
+      window.removeEventListener("scroll", updatePopoverPosition, true);
+    };
+  }, [open]);
+
   const activeLabel = (() => {
     if (period === "custom") {
-      if (initFrom && initTo) return `${fmtShortDate(initFrom)} – ${fmtShortDate(initTo)}`;
+      if (initFrom && initTo) return `${fmtShortDate(initFrom)} - ${fmtShortDate(initTo)}`;
     }
-    return presets.find((p) => p.key === period)?.label || "Last 30 days";
+    return presets.find((p) => p.key === period)?.label || "Last 30 Days";
   })();
 
   function handlePresetChange(key) {
     setSelectedPreset(key);
     setPickingEnd(false);
     if (key !== "custom") {
-      const days = parseInt(key);
       const to = todayStr;
-      const from = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+      const from = key === "all"
+        ? "1970-01-01"
+        : new Date(Date.now() - (parseInt(key) || 30) * 86400000).toISOString().slice(0, 10);
       setFromDate(from);
       setToDate(to);
       const d = new Date(from + "T00:00:00");
@@ -231,20 +408,19 @@ function DateRangePicker({ period, fromDate: initFrom, toDate: initTo }) {
   function handleApply() {
     setOpen(false);
     setPickingEnd(false);
+    const currentParams = new URLSearchParams(location.search);
+    const comboType = currentParams.get("comboType");
+    const nextParams = new URLSearchParams();
+    if (comboType && comboType !== "all") nextParams.set("comboType", comboType);
     if (selectedPreset !== "custom") {
-      navigate(
-        withEmbeddedAppParams(
-          `${location.pathname}?period=${selectedPreset}`,
-          location.search,
-        ),
-      );
+      nextParams.set("period", selectedPreset);
+      const nextQuery = nextParams.toString();
+      navigate(withEmbeddedAppParams(`${location.pathname}${nextQuery ? `?${nextQuery}` : ""}`, location.search));
     } else if (fromDate && toDate) {
-      navigate(
-        withEmbeddedAppParams(
-          `${location.pathname}?from=${fromDate}&to=${toDate}`,
-          location.search,
-        ),
-      );
+      nextParams.set("from", fromDate);
+      nextParams.set("to", toDate);
+      const nextQuery = nextParams.toString();
+      navigate(withEmbeddedAppParams(`${location.pathname}${nextQuery ? `?${nextQuery}` : ""}`, location.search));
     }
   }
 
@@ -279,18 +455,37 @@ function DateRangePicker({ period, fromDate: initFrom, toDate: initTo }) {
   };
 
   function handleToggle() {
-    if (!open && triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      setPopoverPos({
-        top: rect.bottom + window.scrollY + 8,
-        right: window.innerWidth - rect.right,
-      });
-    }
     setOpen((o) => !o);
   }
 
   return (
-    <div style={{ display: "inline-block" }}>
+    <div style={{ display: "inline-block", position: "relative" }}>
+      <style>{`
+        .an-date-popover {
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 5px;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.13);
+          z-index: 99999;
+          padding: 16px;
+        }
+        .an-cal-pair {
+          display: flex;
+          align-items: flex-start;
+          gap: 0;
+        }
+        @media (max-width: 640px) {
+          .an-date-popover {
+            min-width: 0 !important;
+            max-width: none !important;
+            width: auto !important;
+          }
+          .an-cal-pair {
+            flex-direction: column;
+            gap: 16px;
+          }
+        }
+      `}</style>
       {/* Trigger */}
       <button
         ref={triggerRef}
@@ -312,26 +507,20 @@ function DateRangePicker({ period, fromDate: initFrom, toDate: initTo }) {
         }}
       >
         {activeLabel}
-        <svg width="10" height="6" viewBox="0 0 10 6" fill="none">
-          <path d="M1 1l4 4 4-4" stroke="#6b7280" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <AdminIcon type="chevron-down" size="small" style={{ color: "#6b7280" }} />
       </button>
 
       {/* Popover — fixed so it escapes any overflow:hidden parent */}
       {open && (
         <div
           ref={popoverRef}
+          className="an-date-popover"
           style={{
             position: "fixed",
-            top: `${popoverPos.top}px`,
-            right: `${popoverPos.right}px`,
-            background: "#ffffff",
-            border: "1px solid #e5e7eb",
-            borderRadius: "5px",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.13)",
-            zIndex: 9999,
-            padding: "16px",
-            minWidth: "520px",
+            top: `${popoverStyle.top}px`,
+            left: `25%`,
+            width: `${popoverStyle.width}px`,
+            maxWidth: "calc(100vw - 32px)",
           }}
         >
           {/* Preset select */}
@@ -364,7 +553,7 @@ function DateRangePicker({ period, fromDate: initFrom, toDate: initTo }) {
               onChange={(e) => { setFromDate(e.target.value); setSelectedPreset("custom"); }}
               style={{ flex: 1, padding: "8px 10px", borderRadius: "5px", border: "1.5px solid #e5e7eb", fontSize: "13px", color: "#374151" }}
             />
-            <span style={{ color: "#9ca3af", fontSize: "16px" }}>→</span>
+            <AdminIcon type="arrow-right" size="small" style={{ color: "#9ca3af", flexShrink: 0 }} />
             <input
               type="date"
               value={toDate}
@@ -374,11 +563,11 @@ function DateRangePicker({ period, fromDate: initFrom, toDate: initTo }) {
           </div>
 
           {/* Calendars */}
-          <div style={{ display: "flex", alignItems: "flex-start", gap: "0" }}>
+          <div className="an-cal-pair">
             {/* Left calendar with left nav arrow */}
             <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
               <div style={{ display: "flex", alignItems: "center", marginBottom: "8px" }}>
-                <button onClick={prevMonth} style={navBtnStyle}>←</button>
+                <button onClick={prevMonth} style={navBtnStyle}><AdminIcon type="chevron-left" size="small" /></button>
                 <div style={{ flex: 1 }} />
               </div>
               <CalendarMonth
@@ -400,7 +589,7 @@ function DateRangePicker({ period, fromDate: initFrom, toDate: initTo }) {
             <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
               <div style={{ display: "flex", alignItems: "center", marginBottom: "8px" }}>
                 <div style={{ flex: 1 }} />
-                <button onClick={nextMonth} style={navBtnStyle}>→</button>
+                <button onClick={nextMonth} style={navBtnStyle}><AdminIcon type="chevron-right" size="small" /></button>
               </div>
               <CalendarMonth
                 year={rightYear}
@@ -437,6 +626,61 @@ function DateRangePicker({ period, fromDate: initFrom, toDate: initTo }) {
   );
 }
 
+function ComboTypeFilter({ value = "all" }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  function handleChange(nextValue) {
+    const normalized = nextValue === "simple" || nextValue === "specific" ? nextValue : "all";
+    // Build params from current search to preserve date / period params
+    const params = new URLSearchParams(location.search);
+    if (normalized === "all") params.delete("comboType");
+    else params.set("comboType", normalized);
+    // Remove embedded-only params — withEmbeddedAppParams will re-add them
+    for (const key of ["embedded", "host", "shop", "locale"]) {
+      if (params.has(key)) params.delete(key);
+    }
+    const nextQuery = params.toString();
+    navigate(
+      withEmbeddedAppParams(
+        `${location.pathname}${nextQuery ? `?${nextQuery}` : ""}`,
+        location.search,
+      ),
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+      <label
+        htmlFor="combo-type-filter"
+        style={{ fontSize: "12px", color: "#4b5563", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}
+      >
+        Type Filter
+      </label>
+      <select
+        id="combo-type-filter"
+        aria-label="Filter analytics by type"
+        value={value}
+        onChange={(e) => handleChange(e.target.value)}
+        style={{
+          minWidth: "190px",
+          padding: "7px 12px",
+          borderRadius: "5px",
+          border: "1.5px solid #e5e7eb",
+          fontSize: "13px",
+          fontWeight: "600",
+          color: "#374151",
+          cursor: "pointer",
+        }}
+      >
+        <option value="all">All Box</option>
+        <option value="simple">Simple</option>
+        <option value="specific">Specific</option>
+      </select>
+    </div>
+  );
+}
+
 // ─── KPI Card ────────────────────────────────────────────────────────────────
 function KpiCard({ label, value, subLabel, change, accentColor, iconType, subtitle }) {
   const isUp = change === null ? null : change >= 0;
@@ -453,28 +697,25 @@ function KpiCard({ label, value, subLabel, change, accentColor, iconType, subtit
         transition: "box-shadow 0.2s",
       }}
     >
-      {/* Top accent line */}
-      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "3px", background: accentColor, borderRadius: "5px 5px 0 0" }} />
-
-      {/* Icon bubble */}
-      <div
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: "36px",
-          height: "36px",
-          borderRadius: "5px",
-          background: `${accentColor}15`,
-          fontSize: "18px",
-          marginBottom: "12px",
-        }}
-      >
-        <AdminIcon type={iconType} size="base" style={{ color: accentColor }} />
-      </div>
-
-      <div style={{ fontSize: "11px", color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.8px", fontWeight: "600", marginBottom: "6px" }}>
-        {label}
+      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "36px",
+            height: "36px",
+            borderRadius: "5px",
+            background: `${accentColor}15`,
+            fontSize: "18px",
+            flexShrink: 0,
+          }}
+        >
+          <AdminIcon type={iconType} size="base" style={{ color: accentColor }} />
+        </div>
+        <div style={{ fontSize: "11px", color: "#000000", textTransform: "uppercase", letterSpacing: "0.8px", fontWeight: "600" }}>
+          {label}
+        </div>
       </div>
       <div style={{ fontSize: "28px", fontWeight: "800", color: "#111827", lineHeight: 1, letterSpacing: "-0.5px", marginBottom: "10px" }}>
         {value}
@@ -495,7 +736,7 @@ function KpiCard({ label, value, subLabel, change, accentColor, iconType, subtit
               borderRadius: "5px",
             }}
           >
-            {isUp ? "↑" : "↓"} {Math.abs(change).toFixed(1)}%
+            <AdminIcon type={isUp ? "arrow-up" : "arrow-down"} size="small" /> {Math.abs(change).toFixed(0)}%
           </span>
         ) : null}
         {subLabel && (
@@ -527,7 +768,8 @@ function LineChart({
   const [hoverIdx, setHoverIdx] = useState(null);
   const svgRef = useRef(null);
 
-  const W = 760, H = 200, ML = 52, MR = 20, MB = 36, MT = 18;
+  const showYAxisLabels = false;
+  const W = 760, H = 200, ML = showYAxisLabels ? 52 : 16, MR = 20, MB = 36, MT = 18;
   const chartW = W - ML - MR;
   const chartH = H - MB - MT;
   const n = data.length;
@@ -634,7 +876,7 @@ function LineChart({
               borderRadius: "5px",
             }}
           >
-            {isUp ? "↑" : "↓"} {Math.abs(change).toFixed(1)}% vs prev period
+            <AdminIcon type={isUp ? "arrow-up" : "arrow-down"} size="small" /> {Math.abs(change).toFixed(0)}% vs prev period
           </div>
         ) : null}
       </div>
@@ -685,9 +927,11 @@ function LineChart({
                   strokeWidth={i === 0 ? 1.5 : 1}
                   strokeDasharray={i === 0 ? "none" : "4,4"}
                 />
-                <text x={ML - 8} y={y + 4} textAnchor="end" fontSize="9.5" fill="#9ca3af" fontFamily="monospace">
-                  {formatY(tick)}
-                </text>
+                {showYAxisLabels ? (
+                  <text x={ML - 8} y={y + 4} textAnchor="end" fontSize="9.5" fill="#9ca3af">
+                    {formatY(tick)}
+                  </text>
+                ) : null}
               </g>
             );
           })}
@@ -722,7 +966,7 @@ function LineChart({
           {xLabels.map((idx) => {
             if (!data[idx]) return null;
             return (
-              <text key={idx} x={xPos(idx, n)} y={H - 8} textAnchor="middle" fontSize="9.5" fill="#9ca3af" fontFamily="monospace">
+              <text key={idx} x={xPos(idx, n)} y={H - 8} textAnchor="middle" fontSize="9.5" fill="#9ca3af" >
                 {fmtShortDate(data[idx].date)}
               </text>
             );
@@ -776,23 +1020,23 @@ function LineChart({
                       stroke="#374151"
                       strokeWidth="1"
                     />
-                    <text x={tx + 10} y={ty + 18} fontSize="10" fill="#9ca3af" fontFamily="monospace" fontWeight="600">
+                    <text x={tx + 10} y={ty + 18} fontSize="10" fill="#ffffff" fontWeight="600">
                       {fmtShortDate(data[hoverIdx].date)}
                     </text>
                     <circle cx={tx + 10} cy={ty + 32} r="3.5" fill={color} />
-                    <text x={tx + 18} y={ty + 36} fontSize="11" fill="#f9fafb" fontFamily="monospace">
+                    <text x={tx + 18} y={ty + 36} fontSize="11" fill="#f9fafb" >
                       {formatY(data[hoverIdx].value)}
                     </text>
-                    <text x={tx + TW - 10} y={ty + 36} textAnchor="end" fontSize="9" fill="#6b7280" fontFamily="monospace">
+                    <text x={tx + TW - 10} y={ty + 36} textAnchor="end" fontSize="9" fill="#ffffff" >
                       {periodLabel.slice(0, 16)}
                     </text>
                     {prevArr[hoverIdx] && (
                       <>
                         <line x1={tx + 8} y1={ty + 44} x2={tx + 18} y2={ty + 44} stroke="#6b7280" strokeWidth="1.5" strokeDasharray="3,2" />
-                        <text x={tx + 22} y={ty + 49} fontSize="11" fill="#9ca3af" fontFamily="monospace">
+                        <text x={tx + 22} y={ty + 49} fontSize="11" fill="#ffffff" >
                           {formatY(prevArr[hoverIdx].value)}
                         </text>
-                        <text x={tx + TW - 10} y={ty + 49} textAnchor="end" fontSize="9" fill="#4b5563" fontFamily="monospace">
+                        <text x={tx + TW - 10} y={ty + 49} textAnchor="end" fontSize="9" fill="#ffffff" >
                           prev period
                         </text>
                       </>
@@ -806,7 +1050,7 @@ function LineChart({
       </div>
 
       {/* Legend */}
-      <div style={{ display: "flex", gap: "20px", marginTop: "12px", fontSize: "12px", color: "#6b7280" }}>
+      <div style={{ display: "flex", gap: "20px", marginTop: "12px", fontSize: "12px", color: "#000000" }}>
         <span style={{ display: "flex", alignItems: "center", gap: "7px" }}>
           <svg width="24" height="4" style={{ verticalAlign: "middle" }}>
             <defs>
@@ -872,7 +1116,7 @@ function TopProductsChart({ data }) {
           <div key={p.productId} style={{ display: "grid", gridTemplateColumns: "28px 1fr 130px 48px", gap: "8px", alignItems: "center", marginBottom: "10px" }}>
             <div style={{ fontSize: "11px", fontWeight: "700", color: "#d1d5db", textAlign: "right" }}>{i + 1}</div>
             <div
-              style={{ fontSize: "11px", color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "monospace" }}
+              style={{ fontSize: "11px", color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
               title={p.productId}
             >
               #{shortId}
@@ -893,11 +1137,11 @@ function TopProductsChart({ data }) {
                 }}
               >
                 {pct > 22 && (
-                  <span style={{ color: "#fff", fontSize: "9px", fontWeight: "700" }}>{p.count}×</span>
+                  <span style={{ color: "#fff", fontSize: "9px", fontWeight: "700" }}>{p.count}x</span>
                 )}
               </div>
             </div>
-            <div style={{ fontSize: "11px", fontWeight: "700", color, textAlign: "right", fontFamily: "monospace" }}>{sharePct}%</div>
+            <div style={{ fontSize: "11px", fontWeight: "700", color, textAlign: "right" }}>{sharePct}%</div>
           </div>
         );
       })}
@@ -906,7 +1150,7 @@ function TopProductsChart({ data }) {
 }
 
 // ─── Box Performance Chart ────────────────────────────────────────────────────
-function BoxPerformanceChart({ data }) {
+function BoxPerformanceChart({ data, currencyCode }) {
   if (!data || data.length === 0) {
     return (
       <div style={{ padding: "40px 0", textAlign: "center", color: "#9ca3af", fontSize: "13px" }}>
@@ -932,7 +1176,7 @@ function BoxPerformanceChart({ data }) {
           <div key={b.boxId} style={{ marginBottom: "18px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "7px" }}>
               <div style={{ fontSize: "13px", fontWeight: "700", color: "#111827" }}>{b.boxTitle}</div>
-              <div style={{ display: "flex", gap: "10px", fontSize: "11px", color: "#6b7280", fontFamily: "monospace" }}>
+              <div style={{ display: "flex", gap: "10px", fontSize: "11px", color: "#000000" }}>
                 <span style={{ color: "#2A7A4F", fontWeight: "700" }}>{shareRev}% rev</span>
                 <span>{b.orders} orders</span>
               </div>
@@ -949,13 +1193,158 @@ function BoxPerformanceChart({ data }) {
                 }}
               />
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#9ca3af", fontFamily: "monospace" }}>
-              <span>{fmtCurrency(b.revenue)}</span>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#9ca3af" }}>
+              <span>{fmtCurrency(b.revenue, currencyCode)}</span>
               <span>{shareOrders}% of orders</span>
             </div>
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function RecentOrdersTable({ data, currencyCode, onOpenItemsPopup, shopDomain }) {
+  if (!data || data.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "40px 0", color: "#9ca3af", fontSize: "13px" }}>
+        <AdminIcon type="order" size="large" style={{ marginBottom: "8px", color: "#9ca3af" }} />
+        No bundle orders in this period.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+        <thead>
+          <tr>
+            {["Order ID", "Name", "Type", "Products", "Revenue", "Date"].map((h) => (
+              <th
+                key={h}
+                style={{
+                  textAlign: "left",
+                  padding: "12px 14px",
+                  borderBottom: "1px solid #e5e7eb",
+                  color: "#6b7280",
+                  fontSize: "10px",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  fontWeight: "700",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((order, index) => {
+            const selected = parseOrderSelectedProducts(order.selectedProducts);
+            const comboTypeText = String(order.comboTypeLabel || order.comboType || "")
+              .replace(/\s*Bundle\b/gi, "")
+              .trim() || "—";
+            const detailsText = selected.length > 0
+              ? selected[0]
+              : `${order.itemCount || 0} step${Number(order.itemCount || 0) === 1 ? "" : "s"}`;
+            const moreCount = Math.max(0, selected.length - 1);
+            return (
+              <tr
+                key={order.id || `${order.orderId}-${index}`}
+                style={{ background: index % 2 === 0 ? "#fff" : "#fafafa" }}
+              >
+                <td style={{ padding: "12px 14px", borderBottom: "1px solid #f3f4f6" }}>
+                  {(() => {
+                    const orderUrl = buildAdminOrderLink(shopDomain, order.orderId);
+                    const label = formatOrderPrefixLabel(order.orderName, order.orderNumber, order.orderId);
+                    if (!orderUrl) return label;
+                    return (
+                      <a
+                        href={orderUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          fontWeight: "700",
+                          color: "#111827",
+                          background: "#f3f4f6",
+                          padding: "2px 8px",
+                          borderRadius: "5px",
+                          textDecoration: "none",
+                        }}
+                      >
+                        {label}
+                      </a>
+                    );
+                  })()}
+                </td>
+                <td style={{ padding: "12px 14px", borderBottom: "1px solid #f3f4f6", color: "#374151", fontWeight: "600" }}>
+                  {(() => {
+                    const orderUrl = buildAdminOrderLink(shopDomain, order.orderId);
+                    if (!orderUrl) return order.boxTitle;
+                    return (
+                      <a
+                        href={orderUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: "#111827", fontWeight: 600, textDecoration: "none" }}
+                      >
+                        {order.boxTitle}
+                      </a>
+                    );
+                  })()}
+                </td>
+                <td style={{ padding: "12px 14px", borderBottom: "1px solid #f3f4f6" }}>
+                  <span
+                    style={{
+                      display: "inline-block",
+                      background: order.comboType === "specific" ? "#eef2ff" : "#ecfdf5",
+                      border: `1px solid ${order.comboType === "specific" ? "#c7d2fe" : "#bbf7d0"}`,
+                      borderRadius: "5px",
+                      padding: "2px 8px",
+                      fontSize: "11px",
+                      fontWeight: "700",
+                      color: order.comboType === "specific" ? "#4338ca" : "#166534",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {comboTypeText}
+                  </span>
+                </td>
+                <td
+                  style={{
+                    padding: "12px 14px",
+                    borderBottom: "1px solid #f3f4f6",
+                    color: "#374151",
+                    maxWidth: "320px",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                  title={selected.join(", ")}
+                >
+                  <InlineStack gap="100" blockAlign="center">
+                    <span>{detailsText}</span>
+                    {moreCount > 0 && (
+                      <Button variant="plain" onClick={() => onOpenItemsPopup?.(order)}>
+                        +{moreCount} more
+                      </Button>
+                    )}
+                  </InlineStack>
+                </td>
+                <td style={{ padding: "12px 14px", borderBottom: "1px solid #f3f4f6" }}>
+                  <span style={{ fontWeight: "800", color: "#2A7A4F", background: "#f0fdf4", padding: "2px 8px", borderRadius: "5px" }}>
+                    {formatCurrencyAmount(Number(order.bundlePrice || 0), currencyCode)}
+                  </span>
+                </td>
+                <td style={{ padding: "12px 14px", borderBottom: "1px solid #f3f4f6", color: "#9ca3af", fontSize: "12px" }}>
+                  {new Date(order.orderDate).toLocaleDateString(undefined)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -967,7 +1356,7 @@ function ComparisonBanner({ period, prevPeriod }) {
     <div
       style={{
         display: "flex",
-        alignItems: "center",
+        alignItems: "flex-start",
         gap: "12px",
         padding: "12px 16px",
         background: "linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%)",
@@ -976,23 +1365,105 @@ function ComparisonBanner({ period, prevPeriod }) {
         marginBottom: "20px",
         fontSize: "12px",
         color: "#374151",
+        flexWrap: "wrap",
       }}
     >
       <AdminIcon type="calendar" size="base" />
       <div style={{ lineHeight: 1.6 }}>
         <span style={{ fontWeight: "700", color: "#1d4ed8" }}>Current: </span>
-        <span style={{ fontFamily: "monospace", color: "#374151" }}>{fmtDate(period.from)} → {fmtDate(period.to)}</span>
+        <span style={{ color: "#374151" }}>{fmtDate(period.from)} - {fmtDate(period.to)}</span>
         <span style={{ margin: "0 14px", color: "#d1d5db" }}>vs</span>
-        <span style={{ fontWeight: "700", color: "#6b7280" }}>Previous: </span>
-        <span style={{ fontFamily: "monospace", color: "#6b7280" }}>{fmtDate(prevPeriod.from)} → {fmtDate(prevPeriod.to)}</span>
+        <span style={{ fontWeight: "700", color: "#000000" }}>Previous: </span>
+        <span style={{ color: "#000000" }}>{fmtDate(prevPeriod.from)} - {fmtDate(prevPeriod.to)}</span>
       </div>
+    </div>
+  );
+}
+
+// ─── Sync Orders Button ───────────────────────────────────────────────────────
+function SyncOrdersButton() {
+  const { revalidate } = useRevalidator();
+  const [state, setState] = useState("idle"); // idle | loading | success | error
+  const [result, setResult] = useState(null);
+
+  async function handleSync() {
+    setState("loading");
+    setResult(null);
+    try {
+      const resp = await fetch("/api/admin/sync-orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ days: 90 }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data?.error || "Sync failed");
+      setResult(data);
+      setState("success");
+      revalidate();
+    } catch (err) {
+      setResult({ error: err.message });
+      setState("error");
+    }
+  }
+
+  const isLoading = state === "loading";
+  const btnStyle = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    padding: "7px 14px",
+    borderRadius: "5px",
+    border: "1.5px solid #e5e7eb",
+    background: isLoading ? "#f3f4f6" : "#ffffff",
+    fontSize: "13px",
+    fontWeight: "600",
+    color: isLoading ? "#9ca3af" : "#374151",
+    cursor: isLoading ? "not-allowed" : "pointer",
+    whiteSpace: "nowrap",
+    transition: "background 0.15s",
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+      <button style={btnStyle} onClick={handleSync} disabled={isLoading}>
+        {isLoading ? (
+          <>
+            <span style={{ width: "12px", height: "12px", border: "2px solid #d1d5db", borderTopColor: "#2A7A4F", borderRadius: "50%", display: "inline-block", animation: "spin 0.7s linear infinite" }} />
+            Syncing…
+          </>
+        ) : (
+          <>
+            <AdminIcon type="refresh" size="small" />
+            Sync Orders
+          </>
+        )}
+      </button>
+      {state === "success" && result && (
+        <span style={{ fontSize: "12px", color: "#059669", fontWeight: "600" }}>
+          +{result.synced} new order{result.synced !== 1 ? "s" : ""} synced
+        </span>
+      )}
+      {state === "error" && (
+        <span style={{ fontSize: "12px", color: "#dc2626", fontWeight: "600" }}>
+          {result?.error || "Sync failed"}
+        </span>
+      )}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
 
 // ─── Main Analytics Page ──────────────────────────────────────────────────────
 export default function AnalyticsPage() {
-  const { analytics, period, fromDate, toDate } = useLoaderData();
+  const {
+    analytics,
+    period,
+    fromDate,
+    toDate,
+    comboType,
+    currencyCode,
+    shopDomain,
+  } = useLoaderData();
   const {
     totalOrders,
     totalRevenue,
@@ -1006,12 +1477,24 @@ export default function AnalyticsPage() {
     dailyTrend,
     prevDailyTrend,
     boxPerformance,
+    recentOrders,
     period: periodRange,
     prevPeriod,
   } = analytics;
 
-  const periodLabel = periodRange ? `${fmtDate(periodRange.from)} – ${fmtDate(periodRange.to)}` : "Current";
-  const prevPeriodLabel = prevPeriod ? `${fmtDate(prevPeriod.from)} – ${fmtDate(prevPeriod.to)}` : "Previous";
+  const periodLabel = periodRange ? `${fmtDate(periodRange.from)} - ${fmtDate(periodRange.to)}` : "Current";
+  const prevPeriodLabel = prevPeriod ? `${fmtDate(prevPeriod.from)} - ${fmtDate(prevPeriod.to)}` : "Previous";
+
+  const analyticsScopeLabel = comboType === "simple"
+    ? "Simple"
+    : comboType === "specific"
+      ? "Specific"
+      : "All";
+  const analyticsScopePluralLabel = comboType === "simple"
+    ? "Simple"
+    : comboType === "specific"
+      ? "Specific"
+      : "All";
 
   const revData = (dailyTrend || []).map((d) => ({ date: d.date, value: d.revenue }));
   const prevRevData = (prevDailyTrend || []).map((d) => ({ date: d.date, value: d.revenue }));
@@ -1022,53 +1505,90 @@ export default function AnalyticsPage() {
     prevTotalOrders > 0 && prevTotalRevenue > 0
       ? ((avgBundleValue - prevTotalRevenue / prevTotalOrders) / (prevTotalRevenue / prevTotalOrders)) * 100
       : null;
+  const [itemsPopup, setItemsPopup] = useState({
+    open: false,
+    boxTitle: "",
+    items: [],
+  });
+  const RECENT_ORDERS_PAGE_SIZE = 10;
+  const [recentOrdersPage, setRecentOrdersPage] = useState(1);
+  const recentOrdersTotalPages = Math.max(1, Math.ceil((recentOrders?.length || 0) / RECENT_ORDERS_PAGE_SIZE));
+  const safeRecentOrdersPage = Math.min(recentOrdersPage, recentOrdersTotalPages);
+  const paginatedRecentOrders = (recentOrders || []).slice(
+    (safeRecentOrdersPage - 1) * RECENT_ORDERS_PAGE_SIZE,
+    safeRecentOrdersPage * RECENT_ORDERS_PAGE_SIZE,
+  );
+
+  useEffect(() => {
+    setRecentOrdersPage(1);
+  }, [period, fromDate, toDate, comboType]);
+
+  function openItemsPopup(order) {
+    const items = Array.isArray(order?.selectedProductEntries)
+      ? order.selectedProductEntries
+      : parseOrderSelectedProducts(order?.selectedProducts).map((label) => ({
+        label,
+        productId: null,
+      }));
+    setItemsPopup({
+      open: true,
+      boxTitle: order?.boxTitle || "Order",
+      items,
+    });
+  }
 
   return (
-    <s-page heading="Analytics">
-      {/* Hero banner */}
-      <div style={{ marginBottom: "20px", borderRadius: "5px", background: "#ffffff", border: "1px solid #e5e7eb", boxShadow: "0 8px 24px rgba(15,23,42,0.08)", overflow: "hidden", position: "relative", padding: "24px 32px" }}>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#f3f4f6", borderRadius: "999px", padding: "4px 14px", fontSize: "10px", fontWeight: "800", letterSpacing: "0.10em", textTransform: "uppercase", color: "#000000", marginBottom: "10px" }}>
-          <AdminIcon type="chart-line" size="small" /> Analytics
-        </div>
-        <div style={{ fontSize: "18px", fontWeight: "800", color: "#000000", letterSpacing: "-0.5px" }}>Bundle Performance Overview</div>
-        <div style={{ fontSize: "13px", color: "#4b5563", marginTop: "4px" }}>Period-over-period comparison of revenue, orders, and top products.</div>
-      </div>
-
-      {/* ── Period Selector + Banner ── */}
-      <s-section>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexWrap: "wrap",
-            gap: "12px",
-            marginBottom: "20px",
-          }}
-        >
-          <div>
-            <div style={{ fontSize: "14px", color: "#111827", fontWeight: "700" }}>Performance Overview</div>
-            <div style={{ fontSize: "12px", color: "#9ca3af", marginTop: "2px" }}>
-              Bundle analytics · period-over-period comparison
-            </div>
-          </div>
-          <DateRangePicker period={period} fromDate={fromDate} toDate={toDate} />
-        </div>
-
-        <ComparisonBanner period={periodRange} prevPeriod={prevPeriod} />
+    <Page
+      title="Analytics"
+    >
+      <style>{`
+        .Polaris-InlineGrid {
+          z-index: 0;
+        }
+        .Polaris-ShadowBevel {
+          z-index: 1;
+        }
+        .Polaris-BlockStack {
+          z-index: 0;
+        }
+      `}</style>
+      <BlockStack gap="500">
+        {/* ── Period Selector + Comparison Banner ── */}
+        <Card>
+          <BlockStack gap="300">
+            <InlineStack align="space-between" blockAlign="center" wrap>
+              <BlockStack gap="100">
+                <Text as="h2" variant="headingMd">{analyticsScopeLabel} Performance Overview</Text>
+                <Text as="p" tone="subdued" variant="bodySm"></Text>
+              </BlockStack>
+              <InlineStack gap="300" wrap>
+                <ComboTypeFilter value={comboType} />
+                <DateRangePicker period={period} fromDate={fromDate} toDate={toDate} />
+                <SyncOrdersButton />
+              </InlineStack>
+            </InlineStack>
+            <ComparisonBanner period={periodRange} prevPeriod={prevPeriod} />
+          </BlockStack>
+        </Card>
 
         {/* ── KPI Cards ── */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "14px" }}>
+        <InlineGrid columns={{ xs: 2, md: 4 }} gap="400">
           <KpiCard
-            label="Bundle Revenue"
-            value={`₹${totalRevenue.toLocaleString("en-IN")}`}
-            subLabel={prevTotalRevenue ? `prev ₹${(prevTotalRevenue || 0).toLocaleString("en-IN")}` : null}
+            label={`Total ${analyticsScopeLabel} Revenue`}
+            value={formatCurrencyAmount(totalRevenue, currencyCode, {
+              minimumFractionDigits: 0,
+              maximumFractionDigits: 0,
+            })}
+            subLabel={prevTotalRevenue ? `prev ${formatCurrencyAmount(prevTotalRevenue || 0, currencyCode, {
+              minimumFractionDigits: 0,
+              maximumFractionDigits: 0,
+            })}` : null}
             change={revenueChange}
             accentColor="#3b82f6"
             iconType="money"
           />
           <KpiCard
-            label="Bundles Sold"
+            label={`Total ${analyticsScopePluralLabel} Sold`}
             value={totalOrders}
             subLabel={prevTotalOrders ? `prev ${prevTotalOrders}` : null}
             change={ordersChange}
@@ -1076,70 +1596,168 @@ export default function AnalyticsPage() {
             iconType="package"
           />
           <KpiCard
-            label="Avg Bundle Value"
-            value={`₹${avgBundleValue.toLocaleString("en-IN")}`}
+            label={`Average ${analyticsScopeLabel} Order Value`}
+            value={formatCurrencyAmount(avgBundleValue, currencyCode, {
+              minimumFractionDigits: 0,
+              maximumFractionDigits: 0,
+            })}
             subLabel={null}
             change={avgChange}
             accentColor="#8b5cf6"
             iconType="chart-line"
           />
           <KpiCard
-            label="Active Box Types"
+            label={`Active ${analyticsScopePluralLabel}`}
             value={activeBoxCount}
             subLabel={null}
             change={null}
             accentColor="#f59e0b"
             iconType="collection-list"
-            subtitle="Total live combo boxes"
+            subtitle={`Total live ${analyticsScopePluralLabel.toLowerCase()}`}
           />
-        </div>
-      </s-section>
+        </InlineGrid>
 
-      {/* ── Revenue Chart ── */}
-      <s-section heading="Revenue Over Time">
-        <LineChart
-          title="Total Bundle Revenue"
-          totalValue={`₹${totalRevenue.toLocaleString("en-IN")}`}
-          change={revenueChange}
-          data={revData}
-          prevData={prevRevData}
-          periodLabel={periodLabel}
-          prevPeriodLabel={prevPeriodLabel}
-          formatY={fmtCurrency}
-          color="#60a5fa"
-          color2="#818cf8"
-        />
-      </s-section>
+        {/* ── Top Products + Box Performance ── */}
+        <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">Most Picked {analyticsScopeLabel} Products</Text>
+              <TopProductsChart data={topProducts} />
+            </BlockStack>
+          </Card>
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">{analyticsScopeLabel} Box Performance</Text>
+              <BoxPerformanceChart data={boxPerformance} currencyCode={currencyCode} />
+            </BlockStack>
+          </Card>
+        </InlineGrid>
 
-      {/* ── Orders Chart ── */}
-      <s-section heading="Bundles Sold">
-        <LineChart
-          title="Bundles Sold"
-          totalValue={String(totalOrders)}
-          change={ordersChange}
-          data={ordData}
-          prevData={prevOrdData}
-          periodLabel={periodLabel}
-          prevPeriodLabel={prevPeriodLabel}
-          formatY={(v) => String(Math.round(v))}
-          color="#34d399"
-          color2="#059669"
-        />
-      </s-section>
+        {/* ── Revenue & Orders Charts ── */}
+        <BlockStack gap="400">
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">{analyticsScopeLabel} Revenue Over Time</Text>
+              <div style={{ height: "1px", background: "#e5e7eb", width: "100%" }} />
+              <LineChart
+                title={`Total Revenue from ${analyticsScopePluralLabel}`}
+                totalValue={formatCurrencyAmount(totalRevenue, currencyCode, {
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 0,
+                })}
+                change={revenueChange}
+                data={revData}
+                prevData={prevRevData}
+                periodLabel={periodLabel}
+                prevPeriodLabel={prevPeriodLabel}
+                formatY={(value) => fmtCurrency(value, currencyCode)}
+                color="#60a5fa"
+                color2="#818cf8"
+              />
+              <div style={{ height: "1px", background: "#e5e7eb", width: "100%" }} />
+            </BlockStack>
+          </Card>
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">{analyticsScopeLabel} Orders Over Time</Text>
+              <div style={{ height: "1px", background: "#e5e7eb", width: "100%" }} />
+              <LineChart
+                title={`${analyticsScopeLabel} Orders Over Time`}
+                totalValue={String(totalOrders)}
+                change={ordersChange}
+                data={ordData}
+                prevData={prevOrdData}
+                periodLabel={periodLabel}
+                prevPeriodLabel={prevPeriodLabel}
+                formatY={(v) => String(Math.round(v))}
+                color="#34d399"
+                color2="#059669"
+              />
+              <div style={{ height: "1px", background: "#e5e7eb", width: "100%" }} />
+            </BlockStack>
+          </Card>
+        </BlockStack>
 
-      {/* ── Two Column: Products + Box Performance ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-        <s-section heading="Top Products Picked">
-          <TopProductsChart data={topProducts} />
-        </s-section>
-        <s-section heading="Box Type Performance">
-          <BoxPerformanceChart data={boxPerformance} />
-        </s-section>
-      </div>
-    </s-page>
+        {/* ── Recent Orders ── */}
+        <Card>
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">Recent {analyticsScopeLabel} Orders</Text>
+            <RecentOrdersTable
+              data={paginatedRecentOrders}
+              currencyCode={currencyCode}
+              onOpenItemsPopup={openItemsPopup}
+              shopDomain={shopDomain}
+            />
+            <InlineStack align="space-between" blockAlign="center" wrap>
+              <Text as="p" variant="bodySm" tone="subdued">
+                Showing {recentOrders.length === 0 ? 0 : ((safeRecentOrdersPage - 1) * RECENT_ORDERS_PAGE_SIZE + 1)}–{Math.min(safeRecentOrdersPage * RECENT_ORDERS_PAGE_SIZE, recentOrders.length)} of {recentOrders.length} orders (Page {safeRecentOrdersPage} of {recentOrdersTotalPages})
+              </Text>
+              <Pagination
+                hasPrevious={safeRecentOrdersPage > 1}
+                hasNext={safeRecentOrdersPage < recentOrdersTotalPages}
+                onPrevious={() => setRecentOrdersPage((page) => Math.max(1, page - 1))}
+                onNext={() => setRecentOrdersPage((page) => Math.min(recentOrdersTotalPages, page + 1))}
+              />
+            </InlineStack>
+          </BlockStack>
+        </Card>
+      </BlockStack>
+
+      <Modal
+        open={itemsPopup.open}
+        onClose={() => setItemsPopup({ open: false, boxTitle: "", items: [] })}
+        title={`All Items � ${itemsPopup.boxTitle}`}
+        primaryAction={{
+          content: "Close",
+          onAction: () => setItemsPopup({ open: false, boxTitle: "", items: [] }),
+        }}
+      >
+        <Modal.Section>
+          <BlockStack gap="200">
+            <Text as="p" variant="bodySm" tone="subdued">
+              {itemsPopup.items.length} item{itemsPopup.items.length === 1 ? "" : "s"} in this order
+            </Text>
+            {itemsPopup.items.length === 0 ? (
+              <Text as="p" variant="bodySm" tone="subdued">No items found for this order.</Text>
+            ) : (
+              <BlockStack gap="100">
+                {itemsPopup.items.map((item, idx) => {
+                  const itemLabel = typeof item === "string" ? item : String(item?.label || "");
+                  const productUrl = buildAdminProductLink(
+                    shopDomain,
+                    typeof item === "string" ? null : item?.productId,
+                  );
+                  return (
+                    <InlineStack key={`${itemLabel}-${idx}`} align="space-between" blockAlign="center" wrap={false}>
+                      <Text as="span" variant="bodySm">{itemLabel}</Text>
+                      {productUrl ? (
+                        <Tooltip content={`Open ${itemLabel} product`}>
+                          <Button
+                            size="slim"
+                            url={productUrl}
+                            target="_blank"
+                            variant="plain"
+                            icon={<EyeIcon size={16} color="#000000" fill="#ffffff" />}
+                            accessibilityLabel={`Open ${itemLabel} product`}
+                          />
+                        </Tooltip>
+                      ) : (
+                        <Text as="span" variant="bodySm" tone="subdued">No link</Text>
+                      )}
+                    </InlineStack>
+                  );
+                })}
+              </BlockStack>
+            )}
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
+    </Page>
   );
 }
 
 export const headers = (headersArgs) => {
   return boundary.headers(headersArgs);
 };
+
+

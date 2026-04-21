@@ -1,0 +1,281 @@
+/**
+ * subscription.server.js
+ * All database operations for the Subscription table.
+ */
+
+import db from "../db.server";
+import {
+  ADVANCE_PRICE,
+  BILLING_CURRENCY_CODE,
+  BASIC_PRICE,
+  MONTHLY_PRICE,
+  ORDER_LIMITS,
+  PLUS_PRICE,
+  TRIAL_DAYS,
+} from "../config/billing";
+
+/* ─── Constants ────────────────────────────────────────────────────── */
+
+export const PLANS = {
+  FREE: {
+    key:      "FREE",
+    name:     "Free",
+    price:    0,
+    interval: null,
+    trialDays: 0,
+    get orderLimit() { return ORDER_LIMITS.FREE; },
+    boxLimit: Infinity,
+    get features() { return [
+      `${ORDER_LIMITS.FREE} orders/month`,
+      "Unlimited Simple Box",
+      "Unlimited Specific Box",
+      "Basic email support",
+    ]; },
+  },
+  BASIC: {
+    key:      "BASIC",
+    name:     "Basic",
+    price:    BASIC_PRICE,
+    currencyCode: BILLING_CURRENCY_CODE,
+    interval: "EVERY_30_DAYS",
+    trialDays: TRIAL_DAYS,
+    get orderLimit() { return ORDER_LIMITS.BASIC; },
+    boxLimit: Infinity,
+    get features() { return [
+      `${ORDER_LIMITS.BASIC} orders/month`,
+      "Unlimited Simple Box",
+      "Unlimited Specific Box",
+      "Email & live support",
+    ]; },
+  },
+  ADVANCE: {
+    key:      "ADVANCE",
+    name:     "Advance",
+    price:    ADVANCE_PRICE,
+    currencyCode: BILLING_CURRENCY_CODE,
+    interval: "EVERY_30_DAYS",
+    trialDays: TRIAL_DAYS,
+    get orderLimit() { return ORDER_LIMITS.ADVANCE; },
+    boxLimit: Infinity,
+    get features() { return [
+      `${ORDER_LIMITS.ADVANCE} orders/month`,
+      "Unlimited Simple Box",
+      "Unlimited Specific Box",
+      "Priority & developer support",
+    ]; },
+  },
+  PLUS: {
+    key:      "PLUS",
+    name:     "Plus",
+    price:    PLUS_PRICE,
+    currencyCode: BILLING_CURRENCY_CODE,
+    interval: "EVERY_30_DAYS",
+    trialDays: TRIAL_DAYS,
+    get orderLimit() { return ORDER_LIMITS.PLUS; },
+    boxLimit: Infinity,
+    get features() { return [
+      ORDER_LIMITS.PLUS === Infinity ? "Unlimited orders" : `${ORDER_LIMITS.PLUS} orders/month`,
+      "Unlimited Simple Box",
+      "Unlimited Specific Box",
+        "Setup Support",
+      "Highest-priority support",
+    ]; },
+  },
+  // Legacy alias — maps old PRO subs to PLUS
+  PRO: {
+    key:      "PLUS",
+    name:     "Plus",
+    price:    PLUS_PRICE,
+    currencyCode: BILLING_CURRENCY_CODE,
+    interval: "EVERY_30_DAYS",
+    trialDays: TRIAL_DAYS,
+    get orderLimit() { return ORDER_LIMITS.PLUS; },
+    boxLimit: Infinity,
+    get features() { return [
+      ORDER_LIMITS.PLUS === Infinity ? "Unlimited orders" : `${ORDER_LIMITS.PLUS} orders/month`,
+      "Unlimited Simple Box",
+      "Unlimited Specific Box",
+      "Setup Support",
+      "Highest Priority support",
+    ]; },
+  },
+};
+
+export const PLAN_KEYS = ["FREE", "BASIC", "ADVANCE", "PLUS"];
+
+function toDateOrNull(value) {
+  if (!value) return null;
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function normalizePlan(plan) {
+  return String(plan || "FREE").trim().toUpperCase();
+}
+
+/* ─── Status values ─────────────────────────────────────────────────── */
+// NONE    — not yet selected any plan (redirect to pricing)
+// ACTIVE  — paid plan active (or free plan chosen)
+// PENDING — Shopify charge not yet approved by merchant
+// CANCELLED — subscription was cancelled
+// EXPIRED   — subscription ended
+// FROZEN    — shop frozen (past due)
+// DECLINED  — merchant declined the charge
+
+/* ─── DB helpers ────────────────────────────────────────────────────── */
+
+/** Get the current subscription record for a shop, or null */
+export async function getSubscription(shop) {
+  return db.subscription.findUnique({ where: { shop } });
+}
+
+/** Delete the current subscription record for a shop */
+export async function deleteSubscription(shop) {
+  return db.subscription.deleteMany({ where: { shop } });
+}
+
+/** Upsert a subscription record */
+export async function saveSubscription(shop, data) {
+  const existing = await db.subscription.findUnique({ where: { shop } });
+  const nextPlan = normalizePlan(data?.plan ?? existing?.plan ?? "FREE");
+  const currentPlan = normalizePlan(existing?.plan ?? "FREE");
+  const planChanged = !!existing && currentPlan !== nextPlan;
+  const hasExplicitPlanStartedAt = Object.prototype.hasOwnProperty.call(data || {}, "planStartedAt");
+  const explicitPlanStartedAt = toDateOrNull(data?.planStartedAt);
+  const planStartedAt = hasExplicitPlanStartedAt
+    ? explicitPlanStartedAt
+    : (planChanged
+      ? new Date()
+      : (toDateOrNull(existing?.planStartedAt) || new Date()));
+
+  const payload = {
+    ...data,
+    plan: nextPlan,
+    planStartedAt,
+  };
+
+  return db.subscription.upsert({
+    where:  { shop },
+    create: { shop, ...payload },
+    update: payload,
+  });
+}
+
+/** Mark a shop as on the Free plan (ACTIVE, no Shopify subscription ID).
+ *  freeActivatedAt is set on the very first activation and never overwritten. */
+export async function activateFreePlan(shop) {
+  const existing = await db.subscription.findUnique({ where: { shop } });
+  const freeActivatedAt = existing?.freeActivatedAt ?? new Date();
+  const planStartedAt = normalizePlan(existing?.plan) === "FREE"
+    ? (existing?.planStartedAt ?? freeActivatedAt)
+    : new Date();
+  return db.subscription.upsert({
+    where:  { shop },
+    create: {
+      shop,
+      plan: "FREE",
+      status: "ACTIVE",
+      subscriptionId: null,
+      trialEndsAt: null,
+      currentPeriodEnd: null,
+      freeActivatedAt,
+      planStartedAt,
+    },
+    update: {
+      plan: "FREE",
+      status: "ACTIVE",
+      subscriptionId: null,
+      trialEndsAt: null,
+      currentPeriodEnd: null,
+      freeActivatedAt,
+      planStartedAt,
+    },
+  });
+}
+
+/** Save an ACTIVE paid subscription after Shopify billing is confirmed */
+export async function activatePaidPlan(shop, { plan, subscriptionId, trialEndsAt, currentPeriodEnd }) {
+  const existing = await db.subscription.findUnique({ where: { shop } });
+  const normalizedPlan = normalizePlan(plan);
+  const planChanged = normalizePlan(existing?.plan) !== normalizedPlan;
+  const subscriptionChanged = !!subscriptionId && subscriptionId !== existing?.subscriptionId;
+  const planStartedAt = (planChanged || subscriptionChanged)
+    ? new Date()
+    : (toDateOrNull(existing?.planStartedAt) || new Date());
+
+  return saveSubscription(shop, {
+    plan: normalizedPlan,
+    status:          "ACTIVE",
+    subscriptionId,
+    trialEndsAt:     trialEndsAt     ? new Date(trialEndsAt)     : null,
+    currentPeriodEnd: currentPeriodEnd ? new Date(currentPeriodEnd) : null,
+    planStartedAt,
+  });
+}
+
+export function hasRemainingBillingPeriod(subscription, now = new Date()) {
+  const currentPeriodEnd = toDateOrNull(subscription?.currentPeriodEnd);
+  return !!currentPeriodEnd && currentPeriodEnd.getTime() > now.getTime();
+}
+
+const PAID_PLAN_KEYS = new Set(["BASIC", "ADVANCE", "PLUS", "PRO"]);
+
+export function isPaidPlanActive(subscription, now = new Date()) {
+  if (!subscription || !PAID_PLAN_KEYS.has(subscription.plan)) return false;
+  if (subscription.status === "ACTIVE") return true;
+  return subscription.status === "CANCELLED" && hasRemainingBillingPeriod(subscription, now);
+}
+
+export function isFreePlanActive(subscription) {
+  return !!subscription && subscription.plan === "FREE" && subscription.status === "ACTIVE";
+}
+
+export function hasPlanAccess(subscription, now = new Date()) {
+  return isFreePlanActive(subscription) || isPaidPlanActive(subscription, now);
+}
+
+export function isCancellationScheduled(subscription, now = new Date()) {
+  return (
+    !!subscription &&
+    PAID_PLAN_KEYS.has(subscription.plan) &&
+    subscription.status === "CANCELLED" &&
+    hasRemainingBillingPeriod(subscription, now)
+  );
+}
+
+/** Mark subscription as CANCELLED, preserving paid access until currentPeriodEnd when available */
+export async function cancelPlan(shop, { subscriptionId = null, currentPeriodEnd = null, plan = "PLUS" } = {}) {
+  const endsAt = toDateOrNull(currentPeriodEnd);
+  if (!endsAt || endsAt.getTime() <= Date.now()) {
+    await deleteSubscription(shop);
+    return null;
+  }
+
+  return saveSubscription(shop, {
+    plan: PAID_PLAN_KEYS.has(plan) ? plan : "PLUS",
+    status: "CANCELLED",
+    subscriptionId,
+    trialEndsAt: null,
+    currentPeriodEnd: endsAt,
+  });
+}
+
+/** Check if the shop has an active plan (FREE or PRO) */
+export async function hasActivePlan(shop) {
+  const sub = await getSubscription(shop);
+  return hasPlanAccess(sub);
+}
+
+/** Get the box limit for the shop's current plan */
+export async function getBoxLimit(shop) {
+  const sub = await getSubscription(shop);
+  const plan = PLANS[sub?.plan] ?? PLANS.FREE;
+  return plan.boxLimit;
+}
+
+/** Get the order limit for the shop's current plan */
+export async function getOrderLimit(shop) {
+  const sub = await getSubscription(shop);
+  const plan = PLANS[sub?.plan] ?? PLANS.FREE;
+  return plan.orderLimit;
+}

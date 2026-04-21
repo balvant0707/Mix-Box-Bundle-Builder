@@ -1,27 +1,196 @@
 /* eslint-disable react/prop-types */
-import { useLoaderData, useLocation, useNavigate } from "react-router";
+import { useRef, useState } from "react";
+import { useLoaderData, useLocation, useNavigate, useNavigation } from "react-router";
+import {
+  Badge,
+  Banner,
+  BlockStack,
+  Box,
+  Button,
+  Card,
+  DataTable,
+  Divider,
+  InlineGrid,
+  InlineStack,
+  Modal,
+  Pagination,
+  Page,
+  Spinner,
+  Text,
+  Tooltip,
+} from "@shopify/polaris";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
+import { AdminIcon } from "../components/admin-icons";
 import { getActiveBoxCount } from "../models/boxes.server";
+import { getShopCurrencyCode, getShopOwnerDisplayName } from "../models/shop.server";
 import {
   getBundlesSoldCount,
   getBundleRevenue,
   getRecentOrders,
 } from "../models/orders.server";
-import { AdminIcon } from "../components/admin-icons";
-import { buildThemeEditorUrl, buildEmbedBlockUrl, getEmbedBlockStatus } from "../utils/theme-editor.server";
+import { getOrderCreditStatus } from "../models/order-credit.server";
+import {
+  buildThemeEditorUrl,
+  buildEmbedBlockUrl,
+  getEmbedBlockStatus,
+} from "../utils/theme-editor.server";
 import { withEmbeddedAppParams } from "../utils/embedded-app";
+import { formatCurrencyAmount } from "../utils/currency";
+import { fetchOrderLabelsByOrderIds } from "../utils/shopify-orders.server";
+import { fetchProductIdsByLabels, normalizeProductLookupLabel } from "../utils/shopify-products.server";
+
+function parseOrderSelectedProducts(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry || "").trim()).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.map((entry) => String(entry || "").trim()).filter(Boolean);
+      }
+    } catch {
+      return [trimmed];
+    }
+    return [trimmed];
+  }
+  return [];
+}
+
+function isSpecificComboFromBox(box) {
+  if (!box) return false;
+  const cfgType = Number.parseInt(box?.config?.comboType, 10);
+  if (Number.isFinite(cfgType) && cfgType > 0) return true;
+  const raw = typeof box?.comboStepsConfig === "string" ? box.comboStepsConfig.trim() : "";
+  if (!raw) return false;
+  try {
+    const parsed = JSON.parse(raw);
+    const parsedType = Number.parseInt(parsed?.comboType ?? parsed?.type, 10);
+    if (Number.isFinite(parsedType) && parsedType > 0) return true;
+    if (Array.isArray(parsed?.steps) && parsed.steps.length > 0) return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+async function getShopifyOrdersCount(admin, fromIso, toIso) {
+  const ORDERS_COUNT_QUERY = `#graphql
+    query OrdersCount($query: String!) {
+      ordersCount(query: $query)
+    }
+  `;
+
+  const fromDate = new Date(fromIso).toISOString().slice(0, 10);
+  const toDate = new Date(toIso).toISOString().slice(0, 10);
+  const query = `status:any created_at:>=${fromDate} created_at:<=${toDate}`;
+
+  try {
+    const response = await admin.graphql(ORDERS_COUNT_QUERY, { variables: { query } });
+    const json = await response.json();
+    const raw = json?.data?.ordersCount;
+    if (Array.isArray(json?.errors) && json.errors.length > 0) {
+      return await getShopifyOrdersCountByPagination(admin, query);
+    }
+
+    if (typeof raw === "number") return raw;
+    if (raw && typeof raw.count === "number") return raw.count;
+    const fallback = await getShopifyOrdersCountByPagination(admin, query);
+    return fallback == null ? 0 : fallback;
+  } catch {
+    return await getShopifyOrdersCountByPagination(admin, query);
+  }
+}
+
+async function getShopifyOrdersCountByPagination(admin, query) {
+  const ORDERS_PAGE_QUERY = `#graphql
+    query OrdersPage($query: String!, $after: String) {
+      orders(first: 250, query: $query, after: $after, sortKey: CREATED_AT, reverse: true) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id }
+      }
+    }
+  `;
+
+  try {
+    let total = 0;
+    let after = null;
+    let safety = 0;
+
+    do {
+      const response = await admin.graphql(ORDERS_PAGE_QUERY, {
+        variables: { query, after },
+      });
+      const json = await response.json();
+      if (Array.isArray(json?.errors) && json.errors.length > 0) return null;
+      const nodes = json?.data?.orders?.nodes || [];
+      const pageInfo = json?.data?.orders?.pageInfo;
+
+      total += nodes.length;
+      after = pageInfo?.endCursor || null;
+      safety += 1;
+
+      if (!pageInfo?.hasNextPage) break;
+      if (!after) break;
+      if (safety > 40) break; // Hard cap: 10k orders for dashboard KPI.
+    } while (true);
+
+    return total;
+  } catch {
+    return null;
+  }
+}
 
 export const loader = async ({ request }) => {
-  const { session, admin } = await authenticate.admin(request);
+  const { session, admin, billing } = await authenticate.admin(request);
   const shop = session.shop;
+  const url = new URL(request.url);
+  const rawWhatsappNumber =
+    process.env.WHATSAPP_NUMBER ||
+    process.env.WHATSAPP_PHONE ||
+    process.env.WHATSAPP_CONTACT_NUMBER ||
+    process.env.APP_WHATSAPP_NUMBER ||
+    "";
+  const whatsappDigits = String(rawWhatsappNumber).replace(/\D/g, "");
+  const whatsappLink = whatsappDigits ? `https://wa.me/${whatsappDigits}` : null;
+  const supportTicketLink = process.env.SUPPORT_TICKET_URL || null;
+  const knowledgeBaseLink = process.env.KNOWLEDGE_BASE_URL || null;
+  const reviewLink = process.env.REVIEW_LINK || process.env.APP_REVIEW_URL || null;
+  const reportIssueLink = process.env.REPORT_ISSUE_URL || null;
 
-  const [activeBoxCount, bundlesSold, bundleRevenue, recentOrders] =
+  if (url.searchParams.get("subscribed") === "1") {
+    const { syncSubscription } = await import("../models/billing.server.js");
+    const { activatePaidPlan } = await import("../models/subscription.server.js");
+    const { setShopPlanStatus } = await import("../models/shop.server.js");
+    const { subscription } = await syncSubscription(billing, shop);
+
+    if (subscription?.subscriptionId || process.env.SKIP_BILLING === "true") {
+      // Explicitly mark the plan ACTIVE in DB so hasPlanAccess works for all
+      // subsequent requests (without ?subscribed=1 in the URL).
+      await activatePaidPlan(shop, {
+        plan: subscription?.plan || "PLUS",
+        subscriptionId: subscription?.subscriptionId || `gid://shopify/AppSubscription/dev-${Date.now()}`,
+        currentPeriodEnd: subscription?.currentPeriodEnd ?? null,
+      }).catch(() => { });
+      await setShopPlanStatus(shop, "active").catch(() => { });
+    }
+  }
+
+  const now = new Date();
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  const [activeBoxCount, bundlesSold, bundleRevenue, recentOrders, currencyCode, totalStoreOrdersLast30Days, storeOwnerName] =
     await Promise.all([
       getActiveBoxCount(shop),
       getBundlesSoldCount(shop),
       getBundleRevenue(shop),
-      getRecentOrders(shop, 10),
+      getRecentOrders(shop, 100),
+      getShopCurrencyCode(shop),
+      getShopifyOrdersCount(admin, thirtyDaysAgo.toISOString(), now.toISOString()),
+      getShopOwnerDisplayName(shop),
     ]);
 
   const [themeEditorUrl, embedBlockUrl, embedBlockEnabled] = await Promise.all([
@@ -30,6 +199,42 @@ export const loader = async ({ request }) => {
     getEmbedBlockStatus({ shop, admin, session }),
   ]);
 
+  // Order limit tracking for upgrade prompt
+  const { getSubscription } = await import("../models/subscription.server.js");
+  const { PLANS } = await import("../models/subscription.server.js");
+  const { getActiveShopifySubscription } = await import("../models/billing.server.js");
+  const { getBillingCycleForPlanName } = await import("../config/billing.js");
+  const subscription = await getSubscription(shop);
+  const currentPlan = PLANS[subscription?.plan] ?? PLANS.FREE;
+  const activeShopifySubscription = await getActiveShopifySubscription(billing).catch(() => null);
+  const currentPlanDisplayName = activeShopifySubscription?.name || currentPlan.name;
+  const currentBillingCycle = activeShopifySubscription?.name
+    ? getBillingCycleForPlanName(activeShopifySubscription.name)
+    : "monthly";
+  const currentPlanKey = String(subscription?.plan || "FREE").trim().toUpperCase();
+  const nextPlanLabel = getNextPlanLabel(currentPlanKey);
+
+  const orderCredit = await getOrderCreditStatus({
+    shop,
+    subscription,
+    billingCycle: currentBillingCycle,
+    now,
+  });
+  const bundleConversionRate = totalStoreOrdersLast30Days == null
+    ? null
+    : totalStoreOrdersLast30Days > 0
+      ? (bundlesSold / totalStoreOrdersLast30Days) * 100
+      : 0;
+
+  const orderLabelsFromAdmin = await fetchOrderLabelsByOrderIds(
+    admin,
+    recentOrders.map((order) => order.orderId),
+  );
+  const selectedProductLabels = recentOrders.flatMap((order) =>
+    parseOrderSelectedProducts(order.selectedProducts),
+  );
+  const productIdByLabel = await fetchProductIdsByLabels(admin, selectedProductLabels);
+
   return {
     activeBoxCount,
     bundlesSold,
@@ -37,359 +242,179 @@ export const loader = async ({ request }) => {
     themeEditorUrl,
     embedBlockUrl,
     embedBlockEnabled,
-    recentOrders: recentOrders.map((order) => ({
+    whatsappLink,
+    supportTicketLink,
+    knowledgeBaseLink,
+    reviewLink,
+    reportIssueLink,
+    currentPlanName: currentPlanDisplayName,
+    orderLimit: orderCredit.orderLimit,
+    periodOrderCount: orderCredit.usedOrders,
+    orderCreditLeft: orderCredit.remainingOrderCredit,
+    orderLimitPeriodLabel: orderCredit.periodLabel,
+    nextPlanLabel,
+    orderLimitReached: orderCredit.orderLimitReached,
+    orderLimitWarning: orderCredit.orderLimitWarning,
+    currencyCode,
+    totalStoreOrdersLast30Days,
+    bundleConversionRate,
+    storeOwnerName,
+    shopDomain: shop,
+    recentOrders: recentOrders.map((order) => {
+      const normalizedOrderId = String(order.orderId || "").replace(/\D/g, "");
+      const adminLabel = orderLabelsFromAdmin.get(normalizedOrderId);
+      return {
       id: order.id,
       orderId: order.orderId,
+      orderName:
+        order.orderName ||
+        adminLabel?.orderName ||
+        null,
+      orderNumber:
+        order.orderNumber ??
+        adminLabel?.orderNumber ??
+        null,
       boxTitle: order.box?.displayTitle || "Unknown Box",
       itemCount: order.box?.itemCount || 0,
+      comboType: isSpecificComboFromBox(order.box) ? "specific" : "simple",
+      comboTypeLabel: isSpecificComboFromBox(order.box) ? "Specific" : "Simple",
+      selectedProducts: parseOrderSelectedProducts(order.selectedProducts),
+      selectedProductEntries: parseOrderSelectedProducts(order.selectedProducts).map((label) => ({
+        label,
+        productId: productIdByLabel.get(normalizeProductLookupLabel(label)) || null,
+      })),
       bundlePrice: parseFloat(order.bundlePrice),
       orderDate: order.orderDate.toISOString(),
-    })),
+    };
+    }),
   };
 };
 
-const STAT_CARDS = (activeBoxCount, bundlesSold, bundleRevenue) => [
+const createBoxActions = [
   {
-    label: "Active Boxes",
-    value: activeBoxCount,
-    icon: "BX",
-    accent: "#2A7A4F",
-    bg: "rgba(42,122,79,0.07)",
-    sub: "Live combo box types",
+    key: "create-box",
+    icon: "package",
+    label: "Create Simple Box",
+    sub: "Preconfigured Shopify product bundle to increase average order value faster.",
+    href: "/app/boxes/new",
   },
   {
-    label: "Bundles Sold",
-    value: bundlesSold,
-    icon: "SO",
-    accent: "#3b82f6",
-    bg: "rgba(59,130,246,0.07)",
-    sub: "Last 30 days",
-  },
-  {
-    label: "Bundle Revenue",
-    value: `\u20B9${Number(bundleRevenue).toLocaleString("en-IN")}`,
-    icon: "RV",
-    accent: "#8b5cf6",
-    bg: "rgba(139,92,246,0.07)",
-    sub: "Last 30 days",
-  },
-  {
-    label: "Conversion Rate",
-    value: "-",
-    icon: "CV",
-    accent: "#f59e0b",
-    bg: "rgba(245,158,11,0.07)",
-    sub: "Coming soon",
+    key: "create-specific-combo",
+    icon: "target",
+    label: "Create Specific Box",
+    sub: "Step-by-step bundle builder that lets shoppers create a personalized product box.",
+    href: "/app/boxes/specific-combo",
   },
 ];
 
-function StatCard({ label, value, accent, sub }) {
+const quickActions = [
+  { key: "manage-boxes", label: "Manage Boxes", sub: "Edit existing combos", href: "/app/boxes" },
+  { key: "analytics", label: "View Analytics", sub: "Sales and revenue", href: "/app/analytics" },
+  { key: "settings", label: "Widget Settings", sub: "Theme and appearance", href: "/app/settings" },
+];
+
+const promotedApps = [
+  {
+    key: "cartlift",
+    title: "CartLift: Cart Drawer and Upsell",
+    tag: "Upsell",
+    url: "https://apps.shopify.com/cartlift-cart-drawer-upsell",
+    image: "/images/cartlift.png",
+    description: "Grow average order value with cart drawer Upsells,Shipping,Discounts and smart cart offers.",
+  },
+  {
+    key: "fomoify",
+    title: "Fomoify Sales Popup and Proof",
+    tag: "Social Proof",
+    url: "https://apps.shopify.com/fomoify-sales-popup-proof",
+    image: "/images/fomoify.png",
+    description: "Increase trust using real-time sales popups and conversion proof nudges.",
+  },
+];
+function StatCard({ label, value, sub }) {
   return (
-    <div
-      style={{
-        background: "#fff",
-        border: "1px solid #e5e7eb",
-        borderRadius: "5px",
-        padding: "20px 22px 18px",
-        position: "relative",
-        overflow: "hidden",
-        boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
-      }}
+    <Card>
+      <BlockStack gap="100">
+        <Text as="p" variant="bodySm" tone="subdued">
+          {label}
+        </Text>
+        <Text as="p" variant="heading2xl">
+          {value}
+        </Text>
+        <Text as="p" variant="bodySm" tone="subdued">
+          {sub}
+        </Text>
+      </BlockStack>
+    </Card>
+  );
+}
+
+function EyeIcon({ size = 16, color = "#000000", fill = "#ffffff" }) {
+  return (
+    <svg
+      width={`${size}px`}
+      height={`${size}px`}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
     >
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          height: "3px",
-          background: accent,
-          borderRadius: "5px 5px 0 0",
-        }}
+      <path
+        d="M1.5 12s3.75-6.75 10.5-6.75S22.5 12 22.5 12s-3.75 6.75-10.5 6.75S1.5 12 1.5 12Z"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
-      <div
-        style={{
-          fontSize: "11px",
-          color: "#6b7280",
-          textTransform: "uppercase",
-          letterSpacing: "0.8px",
-          fontWeight: "600",
-          marginBottom: "6px",
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          fontSize: "30px",
-          fontWeight: "800",
-          color: "#111827",
-          lineHeight: 1,
-          letterSpacing: "-0.5px",
-          marginBottom: "8px",
-        }}
-      >
-        {value}
-      </div>
-      <div style={{ fontSize: "11px", color: "#9ca3af" }}>{sub}</div>
-    </div>
+      <circle cx="12" cy="12" r="3.25" fill={fill} stroke={color} strokeWidth="2" />
+    </svg>
   );
 }
 
-function EmbedBlockCard({ embedBlockUrl, enabled }) {
-  return (
-    <div style={{ marginBottom: "20px" }}>
-      <div
-        style={{
-          borderRadius: "5px",
-          overflow: "hidden",
-          background: "#ffffff",
-          border: "1px solid #e5e7eb",
-          boxShadow: "0 8px 24px rgba(15,23,42,0.08)",
-        }}
-      >
-        {/* Header */}
-        <div
-          style={{
-            padding: "18px 24px 16px",
-            borderBottom: "1px solid #e5e7eb",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "16px",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <div
-              style={{
-                width: "38px",
-                height: "38px",
-                borderRadius: "5px",
-                background: "#ffffff",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-                color: "#ffffff",
-                border: "2px solid #000000",
-              }}
-            >
-              <AdminIcon type="apps" size="large" color="#ffffff !important" />
-            </div>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span style={{ fontSize: "15px", fontWeight: "800", color: "#111827" }}>
-                  Theme App Embed Block
-                </span>
-                <span
-                  style={{
-                    background: enabled ? "#f0fdf4" : "#fef3c7",
-                    border: `1px solid ${enabled ? "#86efac" : "#fde68a"}`,
-                    color: enabled ? "#166534" : "#92400e",
-                    fontSize: "10px",
-                    fontWeight: "700",
-                    padding: "2px 10px",
-                    borderRadius: "999px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.08em",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "5px",
-                  }}
-                >
-                  <span style={{
-                    width: "6px",
-                    height: "6px",
-                    borderRadius: "50%",
-                    background: enabled ? "#22c55e" : "#f59e0b",
-                    display: "inline-block",
-                  }} />
-                  {enabled ? "Enabled" : "Not Enabled"}
-                </span>
-              </div>
-              <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#6b7280" }}>
-                The embed block loads Combo Builder scripts globally on your storefront.
-              </p>
-            </div>
-          </div>
-
-          <a
-            href={embedBlockUrl}
-            target="_blank"
-            rel="noreferrer"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              textDecoration: "none",
-              borderRadius: "5px",
-              padding: "10px 20px",
-              background: "#111827",
-              color: "#ffffff",
-              fontSize: "13px",
-              fontWeight: "700",
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-              flexShrink: 0,
-              boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
-              transition: "background 0.12s, box-shadow 0.12s",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "#000000";
-              e.currentTarget.style.boxShadow = "0 4px 14px rgba(0,0,0,0.30)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "#111827";
-              e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.18)";
-            }}
-          >
-            {enabled ? "Active" : "Enable Embed Block"}
-          </a>
-        </div>
-      </div>
-    </div>
-  );
+function formatRecentOrderItems(selectedProducts) {
+  const items = Array.isArray(selectedProducts)
+    ? selectedProducts.map((entry) => String(entry || "").trim()).filter(Boolean)
+    : [];
+  if (items.length === 0) return "—";
+  return items[0];
 }
 
-function ThemeCustomizationCard({ themeEditorUrl }) {
-  const steps = [
-    { iconType: "desktop", text: "Opens Theme Customization on your live product template." },
-    { iconType: "apps", text: "Combo Builder block is auto-added to the Apps section." },
-    { iconType: "drag-handle", text: "Drag the block to the right position." },
-    { iconType: "save", text: "Click Save and your storefront is live." },
-  ];
-  return (
-    <div style={{ marginBottom: "20px" }}>
-      <div
-        style={{
-          borderRadius: "5px",
-          overflow: "hidden",
-          background: "#ffffff",
-          border: "1px solid #e5e7eb",
-          boxShadow: "0 8px 24px rgba(15,23,42,0.08)",
-          position: "relative",
-        }}
-      >
+function getNextPlanLabel(planKey) {
+  const normalized = String(planKey || "FREE").trim().toUpperCase();
+  if (normalized === "FREE") return "Basic";
+  if (normalized === "BASIC") return "Advance";
+  if (normalized === "ADVANCE") return "Plus";
+  return null;
+}
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr auto",
-            alignItems: "center",
-            padding: "15px 15px",
-          }}
-        >
-          {/* Left: label + headline + steps + CTA */}
-          <div>
-            {/* Badge */}
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                background: "#f3f4f6",
-                borderRadius: "999px",
-                padding: "5px 16px",
-                fontSize: "11px",
-                fontWeight: "700",
-                letterSpacing: "0.10em",
-                textTransform: "uppercase",
-                color: "#000000",
-                marginBottom: "16px",
-                backdropFilter: "blur(4px)",
-              }}
-            >
-              <AdminIcon type="bolt" size="small" /> Guided Setup
-            </div>
+function formatOrderPrefixLabel(orderName, orderNumber, orderId) {
+  const name = String(orderName || "").trim();
+  if (/^#\d+/.test(name)) return name;
 
-            {/* Headline */}
-            <h2
-              style={{
-                margin: "0 0 8px",
-                fontSize: "18px",
-                fontWeight: "800",
-                color: "#000000",
-                lineHeight: 1.15,
-                letterSpacing: "-0.5px",
-              }}
-            >
-              Add Combo Builder to Your Theme
-            </h2>
-            <p
-              style={{
-                margin: "0 0 8px",
-                fontSize: "14px",
-                color: "#4b5563",
-                lineHeight: "normal",
-              }}
-            >
-              One click opens the theme editor with the block pre-loaded — just drag, drop, and save.
-            </p>
+  const parsedOrderNumber = Number.parseInt(String(orderNumber), 10);
+  if (Number.isFinite(parsedOrderNumber) && parsedOrderNumber > 0) {
+    return `#${parsedOrderNumber}`;
+  }
 
-            {/* Steps — 4 equal columns */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2, 1fr)",
-                gap: "12px",
-                marginBottom: "32px",
-              }}
-            >
-              {steps.map((step, i) => (
-                <div
-                  key={i}
-                  style={{
-                    background: "#f9fafb",
-                    border: "1px solid #e5e7eb",
-                    borderRadius: "5px",
-                    padding: "16px 14px",
-                    display: "flex",
-                    gap: "10px",
-                  }}
-                >
-                  <AdminIcon type={step.iconType} size="large" />
-                  <div style={{ fontSize: "12px", color: "#374151", lineHeight: 1.55 }}>
-                    {step.text}
-                  </div>
-                </div>
-              ))}
-            </div>
+  return "-";
+}
 
-            {/* CTA */}
-            <a
-              href={themeEditorUrl}
-              target="_blank"
-              rel="noreferrer"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "10px",
-                textDecoration: "none",
-                padding: "14px 28px",
-                background: "#000000",
-                color: "#ffffff",
-                fontSize: "15px",
-                fontWeight: "800",
-                cursor: "pointer",
-                boxShadow: "0 4px 20px rgba(0,0,0,0.18)",
-                transition: "transform 0.12s, box-shadow 0.12s",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = "translateY(-2px)";
-                e.currentTarget.style.boxShadow = "0 10px 28px rgba(0,0,0,0.24)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = "translateY(0)";
-                e.currentTarget.style.boxShadow = "0 4px 20px rgba(0,0,0,0.18)";
-              }}
-            >
-              Open Theme Editor
-            </a>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+function buildAdminOrderLink(shopDomain, orderId) {
+  const shop = String(shopDomain || "").trim();
+  const rawOrderId = String(orderId || "").trim();
+  if (!shop || !rawOrderId) return null;
+  const storeHandle = shop.replace(/\.myshopify\.com$/i, "");
+  if (!storeHandle) return null;
+  return `https://admin.shopify.com/store/${storeHandle}/orders/${rawOrderId}`;
+}
+
+function buildAdminProductLink(shopDomain, productId) {
+  const shop = String(shopDomain || "").trim();
+  const numericProductId = String(productId || "").replace(/\D/g, "");
+  if (!shop || !numericProductId) return null;
+  const storeHandle = shop.replace(/\.myshopify\.com$/i, "");
+  if (!storeHandle) return null;
+  return `https://admin.shopify.com/store/${storeHandle}/products/${numericProductId}`;
 }
 
 export default function DashboardPage() {
@@ -397,217 +422,581 @@ export default function DashboardPage() {
     activeBoxCount,
     bundlesSold,
     bundleRevenue,
+    orderLimit,
+    periodOrderCount,
+    orderCreditLeft,
     themeEditorUrl,
     embedBlockUrl,
     embedBlockEnabled,
+    whatsappLink,
+    supportTicketLink,
+    knowledgeBaseLink,
+    reviewLink,
     recentOrders,
+    currentPlanName,
+    currencyCode,
+    totalStoreOrdersLast30Days,
+    bundleConversionRate,
+    storeOwnerName,
+    shopDomain,
   } = useLoaderData();
+
   const location = useLocation();
   const navigate = useNavigate();
+  const navigation = useNavigation();
+  const [showCreateBoxModal, setShowCreateBoxModal] = useState(false);
+  const [pendingCreateAction, setPendingCreateAction] = useState(null);
+  const [itemsPopup, setItemsPopup] = useState({
+    open: false,
+    boxTitle: "",
+    items: [],
+  });
+  const navInFlightRef = useRef(false);
 
-  const stats = STAT_CARDS(activeBoxCount, bundlesSold, bundleRevenue);
+  const justSubscribed = new URLSearchParams(location.search).get("subscribed") === "1";
+  const isPageLoading = navigation.state !== "idle";
+  const RECENT_ORDERS_PAGE_SIZE = 10;
+
   function navigateTo(path) {
-    navigate(withEmbeddedAppParams(path, location.search));
+    if (navInFlightRef.current || navigation.state !== "idle") return;
+    const target = withEmbeddedAppParams(path, location.search);
+    const current = `${location.pathname}${location.search}`;
+    if (target === current) return;
+
+    navInFlightRef.current = true;
+    try {
+      navigate(target);
+    } finally {
+      setTimeout(() => { navInFlightRef.current = false; }, 500);
+    }
   }
 
-  const quickActions = [
+  function closeCreateBoxModal() {
+    setShowCreateBoxModal(false);
+    setPendingCreateAction(null);
+  }
+
+  function handleCreateBoxAction(action) {
+    setPendingCreateAction(action.key);
+    navigateTo(action.href);
+  }
+
+  function openItemsPopup(order) {
+    const items = Array.isArray(order?.selectedProductEntries)
+      ? order.selectedProductEntries
+      : Array.isArray(order?.selectedProducts)
+        ? order.selectedProducts
+          .map((entry) => String(entry || "").trim())
+          .filter(Boolean)
+          .map((label) => ({ label, productId: null }))
+        : [];
+    setItemsPopup({
+      open: true,
+      boxTitle: order?.boxTitle || "Bundle",
+      items,
+    });
+  }
+
+  const stats = [
+    { label: "Live", value: activeBoxCount, sub: "" },
     {
-      key: "create-box",
-      iconType: "package",
-      label: "Create Combo Box",
-      sub: "Add a new bundle",
-      accent: "#3b82f6",
-      bg: "linear-gradient(135deg,#eff6ff,#dbeafe)",
-      border: "#bfdbfe",
-      href: "/app/boxes/new",
+      label: "Order Credit Left",
+      value: orderLimit == null ? "Unlimited" : `${orderCreditLeft}`,
+      sub: orderLimit == null ? "Current billing cycle" : `${periodOrderCount}/${orderLimit} used`,
+    },
+    { label: "Orders", value: bundlesSold, sub: "Last 30 days" },
+    {
+      label: "Total Revenue",
+      value: formatCurrencyAmount(Number(bundleRevenue || 0), currencyCode, {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      }),
+      sub: "Last 30 days",
     },
     {
-      key: "create-specific-combo",
-      iconType: "target",
-      label: "Create Specific Combo Box",
-      sub: "Step-by-step combo experience",
-      accent: "#2A7A4F",
-      bg: "linear-gradient(135deg,#f0fdf4,#dcfce7)",
-      border: "#86efac",
-      href: "/app/boxes/specific-combo",
-    },
-    {
-      key: "manage-boxes",
-      iconType: "collection-list",
-      label: "Manage Boxes",
-      sub: "Edit existing combos",
-      accent: "#8b5cf6",
-      bg: "linear-gradient(135deg,#f5f3ff,#ede9fe)",
-      border: "#ddd6fe",
-      href: "/app/boxes",
-    },
-    {
-      key: "analytics",
-      iconType: "chart-line",
-      label: "View Analytics",
-      sub: "Sales & revenue",
-      accent: "#f59e0b",
-      bg: "linear-gradient(135deg,#fffbeb,#fef3c7)",
-      border: "#fde68a",
-      href: "/app/analytics",
-    },
-    {
-      key: "settings",
-      iconType: "settings",
-      label: "Widget Settings",
-      sub: "Theme & appearance",
-      accent: "#6b7280",
-      bg: "linear-gradient(135deg,#f9fafb,#f3f4f6)",
-      border: "#e5e7eb",
-      href: "/app/settings",
+      label: "Conversion Rate",
+      value: bundleConversionRate == null ? "—" : `${Number(bundleConversionRate).toFixed(0)}%`,
+      sub: totalStoreOrdersLast30Days == null
+        ? "Unavailable (orders permission/query)"
+        : "Last 30 days",
     },
   ];
 
+  const orderTableRows = recentOrders.map((order) => [
+    (() => {
+      const orderUrl = buildAdminOrderLink(shopDomain, order.orderId);
+      const label = formatOrderPrefixLabel(order.orderName, order.orderNumber, order.orderId);
+      if (!orderUrl) return label;
+      return (
+        <a
+          href={orderUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: "inline-block",
+            minWidth: "72px",
+            height: "26px",
+            borderRadius: "8px",
+            textAlign: "center",
+            lineHeight: "26px",
+            background: "#f3f4f6",
+            color: "#111827",
+            fontSize: "12px",
+            fontWeight: 700,
+            textDecoration: "none",
+          }}
+        >
+          {label}
+        </a>
+      );
+    })(),
+    (() => {
+      const orderUrl = buildAdminOrderLink(shopDomain, order.orderId);
+      if (!orderUrl) return order.boxTitle;
+      return (
+        <a
+          href={orderUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: "#111827", fontWeight: 600, textDecoration: "none" }}
+        >
+          {order.boxTitle}
+        </a>
+      );
+    })(),
+    (() => {
+      const isSpecific = order.comboType === "specific";
+      return (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            padding: "6px 12px",
+            borderRadius: "8px",
+            border: `1px solid ${isSpecific ? "#c7d2fe" : "#bbf7d0"}`,
+            background: isSpecific ? "#eef2ff" : "#ecfdf3",
+            color: isSpecific ? "#4f46e5" : "#166534",
+            fontSize: "13px",
+            fontWeight: 600,
+            lineHeight: 1.1,
+          }}
+        >
+          {isSpecific ? "Specific" : "Simple"}
+        </span>
+      );
+    })(),
+    (() => {
+      const items = Array.isArray(order.selectedProducts)
+        ? order.selectedProducts.map((entry) => String(entry || "").trim()).filter(Boolean)
+        : [];
+      const previewText = formatRecentOrderItems(items);
+      const moreCount = Math.max(0, items.length - 1);
+
+      return (
+        <InlineStack gap="100" blockAlign="center">
+          <span
+            style={{
+              display: "inline-block",
+              maxWidth: "360px",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+            title={items.join(", ")}
+          >
+            {previewText}
+          </span>
+          {moreCount > 0 && (
+            <Button variant="plain" onClick={() => openItemsPopup(order)}>
+              +{moreCount} more
+            </Button>
+          )}
+        </InlineStack>
+      );
+    })(),
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "6px 12px",
+        borderRadius: "8px",
+        background: "#ecfdf3",
+        color: "#15803d",
+        fontWeight: 700,
+      }}
+    >
+      {formatCurrencyAmount(Number(order.bundlePrice || 0), currencyCode)}
+    </span>,
+    new Date(order.orderDate).toLocaleDateString(undefined, {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }),
+  ]);
+  const recentOrdersTotalPages = Math.max(1, Math.ceil(orderTableRows.length / RECENT_ORDERS_PAGE_SIZE));
+  const [recentOrdersPage, setRecentOrdersPage] = useState(1);
+  const safeRecentOrdersPage = Math.min(recentOrdersPage, recentOrdersTotalPages);
+  const paginatedOrderTableRows = orderTableRows.slice(
+    (safeRecentOrdersPage - 1) * RECENT_ORDERS_PAGE_SIZE,
+    safeRecentOrdersPage * RECENT_ORDERS_PAGE_SIZE,
+  );
+
+  const supportLinks = [
+    whatsappLink && { label: "WhatsApp", url: whatsappLink },
+    supportTicketLink && { label: "Support Ticket", url: supportTicketLink },
+    knowledgeBaseLink && { label: "Knowledge Base", url: knowledgeBaseLink },
+    reviewLink && { label: "Leave a Review", url: reviewLink },
+  ].filter(Boolean);
+
   return (
-    <s-page heading="MixBox – Box & Bundle Builder">
-      <ui-title-bar>
-        <button onClick={() => navigateTo("/app/boxes/specific-combo")}>
-            Create Specific Combo Box
-        </button>
-        <button variant="primary" onClick={() => navigateTo("/app/boxes/new")}>
-           Create Combo Box
-        </button>
-      </ui-title-bar>
+    <Page
+      title={`Welcome To ${storeOwnerName}`}
+      primaryAction={{
+        content: "Create Box",
+        onAction: () => setShowCreateBoxModal(true),
+      }}
+      secondaryActions={[
+        {
+          content: "View Analytics",
+          onAction: () => navigateTo("/app/analytics"),
+        },
+      ]}
+    >
+      <BlockStack gap="500">
+        {/* ── Banners ── */}
+        {justSubscribed && (
+          <Banner tone="success" title={`Plan activated: ${currentPlanName || "Plan"}`}>
+            <InlineStack gap="200" blockAlign="center">
+              <p>All features for your new plan are now unlocked.</p>
+              <Badge tone="success">{currentPlanName || "Plan"}</Badge>
+            </InlineStack>
+          </Banner>
+        )}
 
-     
-
-      <EmbedBlockCard embedBlockUrl={embedBlockUrl} enabled={embedBlockEnabled} />
-      <ThemeCustomizationCard themeEditorUrl={themeEditorUrl} />
-
-      {/* Row: Quick Actions (35%) + Stats (65%) */}
-      <div style={{ display: "grid", gridTemplateColumns: "35fr 65fr", gap: "20px", marginBottom: "20px", alignItems: "start" }}>
-
-      {/* Quick Actions */}
-      <div style={{ borderRadius: "5px", background: "#ffffff", border: "1px solid #e5e7eb", boxShadow: "0 8px 24px rgba(15,23,42,0.08)", overflow: "hidden", position: "relative" }}>
-        <div style={{ padding: "20px 20px 14px", borderBottom: "1px solid #e5e7eb" }}>
-          <div style={{ fontSize: "15px", fontWeight: "800", color: "#000000", letterSpacing: "-0.2px" }}>Quick Actions</div>
-        </div>
-        <div style={{ padding: "12px 12px 16px", display: "flex", flexDirection: "column", gap: "8px" }}>
-          {quickActions.map((action) => (
-            <a
-              key={action.key}
-              href={action.externalUrl || "#"}
-              target={action.externalUrl ? "_blank" : undefined}
-              rel={action.externalUrl ? "noreferrer" : undefined}
-              onClick={(event) => {
-                if (action.externalUrl) return;
-                event.preventDefault();
-                navigateTo(action.href);
-              }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "14px",
-                padding: "5px 10px",
-                background: "#f9fafb",
-                border: "1.5px solid #e5e7eb",
-                borderRadius: "5px",
-                textDecoration: "none",
-                cursor: "pointer",
-                transition: "transform 0.13s, background 0.13s",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = "translateX(3px)";
-                e.currentTarget.style.background = "#f3f4f6";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = "translateX(0)";
-                e.currentTarget.style.background = "#f9fafb";
-              }}
-            >
-              <div style={{ width: "42px", height: "42px", borderRadius: "5px", background: "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", flexShrink: 0 }}>
-                <AdminIcon type={action.iconType} size="large" />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: "14px", fontWeight: "700", color: "#000000", lineHeight: 1.3 }}>{action.label}</div>
-                <div style={{ fontSize: "12px", color: "#6b7280", fontWeight: "600", marginTop: "2px" }}>{action.sub}</div>
-              </div>
-              <div style={{ color: "#6b7280", fontSize: "16px", flexShrink: 0 }}>→</div>
-            </a>
-          ))}
-        </div>
-      </div>
-
-      {/* Stats */}
-      <div style={{ borderRadius: "5px", background: "#ffffff", border: "1px solid #e5e7eb", boxShadow: "0 8px 24px rgba(15,23,42,0.08)", overflow: "hidden", position: "relative" }}>
-        <div style={{ padding: "24px 32px 20px", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", gap: "12px" }}>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#f3f4f6", backdropFilter: "blur(4px)", borderRadius: "999px", padding: "4px 14px", fontSize: "10px", fontWeight: "800", letterSpacing: "0.10em", textTransform: "uppercase", color: "#000000" }}>
-            <AdminIcon type="chart-line" size="small" /> Performance
-          </div>
-          <span style={{ fontSize: "13px", color: "#6b7280" }}>Last 30 days overview</span>
-        </div>
-        <div style={{ padding: "20px 10px 20px;", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "6px" }}>
+        {/* ── Stats row ── */}
+        <InlineGrid columns={{ xs: 2, md: 5 }} gap="400">
           {stats.map((stat) => (
             <StatCard key={stat.label} {...stat} />
           ))}
-        </div>
-      </div>
+        </InlineGrid>
 
-      </div>{/* end 35/65 row */}
+        {/* -- Theme App Embed + Theme Setup + Quick Actions -- */}
+        <InlineGrid columns={{ xs: 1, md: 3 }} gap="400">
+          <Card>
+            <BlockStack gap="300">
+              <InlineStack align="space-between" blockAlign="center">
+                <Text as="h2" variant="headingMd">
+                  Theme App Embed Status
+                </Text>
+                {embedBlockEnabled ? (
+                  <Badge tone="success">On</Badge>
+                ) : (
+                  <Button url={embedBlockUrl} target="_blank" variant="primary">
+                    Activate
+                  </Button>
+                )}
+              </InlineStack>
+              <Text as="p" tone="subdued" variant="bodySm">
+                Enable the MixBox – Box & Bundle Builder app embed in Theme Customize.
+              </Text>
+            </BlockStack>
+          </Card>
 
-      {/* Recent Bundle Orders */}
-      <div style={{ marginBottom: "20px", borderRadius: "5px", background: "#ffffff", border: "1px solid #e5e7eb", boxShadow: "0 8px 24px rgba(15,23,42,0.08)", overflow: "hidden", position: "relative" }}>
-        <div style={{ padding: "24px 32px 20px", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", gap: "12px" }}>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#f3f4f6", backdropFilter: "blur(4px)", borderRadius: "999px", padding: "4px 14px", fontSize: "10px", fontWeight: "800", letterSpacing: "0.10em", textTransform: "uppercase", color: "#000000" }}>
-            <AdminIcon type="order" size="small" /> Recent Orders
-          </div>
-          <span style={{ fontSize: "13px", color: "#6b7280" }}>Latest bundle purchases</span>
-        </div>
-        <div style={{ padding: "16px 16px 16px" }}>
-        <div style={{ background: "#ffffff", borderRadius: "5px", padding: "0 16px 8px", overflow: "hidden" }}>
-          {recentOrders.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "56px 0" }}>
-              <AdminIcon type="order" size="large" style={{ marginBottom: "14px", color: "#9ca3af" }} />
-              <p style={{ fontSize: "15px", margin: "0 0 6px", color: "#374151", fontWeight: "700" }}>No bundle orders yet</p>
-              <p style={{ fontSize: "13px", margin: 0, color: "#9ca3af" }}>Add the Combo Builder block to your theme to start receiving orders.</p>
-            </div>
-          ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
-                <thead>
-                  <tr>
-                    {["Order #", "Box Type", "Items", "Amount", "Date"].map((h) => (
-                      <th key={h} style={{ textAlign: "left", padding: "14px 16px", borderBottom: "2px solid #f3f4f6", color: "#6b7280", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.9px", fontWeight: "700", whiteSpace: "nowrap" }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentOrders.map((order, index) => (
-                    <tr
-                      key={order.id}
-                      style={{ background: index % 2 === 0 ? "#fff" : "#fafafa", transition: "background 0.12s" }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = "#f0fdf4"; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = index % 2 === 0 ? "#fff" : "#fafafa"; }}
-                    >
-                      <td style={{ padding: "13px 16px", borderBottom: "1px solid #f3f4f6" }}>
-                        <span style={{ fontFamily: "monospace", fontWeight: "700", color: "#111827", background: "#f3f4f6", padding: "3px 8px", borderRadius: "6px" }}>#{order.orderId}</span>
-                      </td>
-                      <td style={{ padding: "13px 16px", borderBottom: "1px solid #f3f4f6", color: "#374151", fontWeight: "600" }}>{order.boxTitle}</td>
-                      <td style={{ padding: "13px 16px", borderBottom: "1px solid #f3f4f6" }}>
-                        <span style={{ display: "inline-block", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "5px", padding: "2px 10px", fontSize: "12px", fontWeight: "700", color: "#2563eb", fontFamily: "monospace" }}>{order.itemCount}</span>
-                      </td>
-                      <td style={{ padding: "13px 16px", borderBottom: "1px solid #f3f4f6" }}>
-                        <span style={{ fontFamily: "monospace", fontWeight: "800", color: "#2A7A4F", background: "#f0fdf4", padding: "3px 8px", borderRadius: "5px" }}>₹{Number(order.bundlePrice).toLocaleString("en-IN")}</span>
-                      </td>
-                      <td style={{ padding: "13px 16px", borderBottom: "1px solid #f3f4f6", color: "#9ca3af", fontSize: "12px", fontFamily: "monospace" }}>
-                        {new Date(order.orderDate).toLocaleDateString("en-IN")}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-        </div>
-      </div>
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">
+                Theme Widget Setup
+              </Text>
 
-    </s-page>
+              <BlockStack gap="150">
+                {[
+                  "Opens Theme Customization on your live product template.",
+                  "Combo Builder block is auto-added to the Apps section.",
+                  "Drag the block to the right position.",
+                  "Click Save and your storefront is live.",
+                ].map((step, i) => (
+                  <Text key={i} as="p" variant="bodySm">
+                    {i + 1}. {step}
+                  </Text>
+                ))}
+              </BlockStack>
+
+              <Button url={themeEditorUrl} target="_blank" variant="primary" fullWidth>
+                Open Shopify Theme Editor
+              </Button>
+            </BlockStack>
+          </Card>
+
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">
+                Quick Actions
+              </Text>
+              <BlockStack gap="200">
+                <Button
+                  onClick={() => setShowCreateBoxModal(true)}
+                  variant="primary"
+                  fullWidth
+                >
+                  Create Bundle Box
+                </Button>
+                {quickActions.map((action) => (
+                  <Button
+                    key={action.key}
+                    onClick={() => navigateTo(action.href)}
+                    fullWidth
+                  >
+                    {action.label}
+                  </Button>
+                ))}
+              </BlockStack>
+            </BlockStack>
+          </Card>
+        </InlineGrid>
+
+        {/* -- Recent Orders -- */}
+        <Card>
+          <BlockStack gap="400">
+            <InlineStack align="space-between" blockAlign="center">
+              <Text as="h2" variant="headingMd">
+                Recent Orders
+              </Text>
+              <Button variant="plain" onClick={() => navigateTo("/app/analytics")}>
+                View all
+              </Button>
+            </InlineStack>
+
+            {recentOrders.length === 0 ? (
+              <Box paddingBlock="800">
+                <BlockStack gap="200" align="center" inlineAlign="center">
+                  <Text as="p" variant="bodyMd" tone="subdued" alignment="center">
+                    No combo box orders yet.
+                  </Text>
+                  <Text as="p" variant="bodySm" tone="subdued" alignment="center">
+                    Once customers purchase a combo box, orders will appear here.
+                  </Text>
+                </BlockStack>
+              </Box>
+            ) : (
+              <>
+                <style>{`
+                  .cb-recent-orders .Polaris-DataTable__Cell,
+                  .cb-recent-orders .Polaris-DataTable__Heading {
+                    font-size: 12px !important;
+                  }
+                `}</style>
+                <div className="cb-recent-orders">
+                  <DataTable
+                    columnContentTypes={["text", "text", "text", "text", "text", "text"]}
+                    headings={["Order ID", "Name", "Type", "Products", "Revenue", "Date"]}
+                    rows={paginatedOrderTableRows}
+                    hoverable
+                  />
+                </div>
+                {recentOrdersTotalPages > 1 && (
+                  <Box paddingBlockStart="300">
+                    <InlineStack align="space-between" blockAlign="center" wrap>
+                      <Text as="p" variant="bodySm" tone="subdued">
+                        Showing {(safeRecentOrdersPage - 1) * RECENT_ORDERS_PAGE_SIZE + 1}–{Math.min(safeRecentOrdersPage * RECENT_ORDERS_PAGE_SIZE, orderTableRows.length)} of {orderTableRows.length} orders
+                      </Text>
+                      <Pagination
+                        hasPrevious={safeRecentOrdersPage > 1}
+                        hasNext={safeRecentOrdersPage < recentOrdersTotalPages}
+                        onPrevious={() => setRecentOrdersPage((page) => Math.max(1, page - 1))}
+                        onNext={() => setRecentOrdersPage((page) => Math.min(recentOrdersTotalPages, page + 1))}
+                      />
+                    </InlineStack>
+                  </Box>
+                )}
+              </>
+            )}
+          </BlockStack>
+        </Card>
+
+        {/* Support */}
+        {supportLinks.length > 0 && (
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">
+                Support
+              </Text>
+              <InlineStack gap="200" wrap>
+                {supportLinks.map((link) => (
+                  <Button key={link.label} url={link.url} target="_blank" variant="plain">
+                    {link.label}
+                  </Button>
+                ))}
+              </InlineStack>
+            </BlockStack>
+          </Card>
+        )}
+        {/* ── Promoted Apps ── */}
+        <Card>
+          <BlockStack gap="400">
+            <InlineStack gap="200" blockAlign="center">
+              <AdminIcon type="collection-list" size="base" style={{ color: "#111827" }} />
+              <Text as="h2" variant="headingMd">
+                Recommended Our Growth Apps
+              </Text>
+            </InlineStack>
+            <Divider />
+            <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+              {promotedApps.map((appItem) => (
+                <Card key={appItem.key}>
+                  <BlockStack gap="200">
+                    <InlineStack align="space-between" blockAlign="center" wrap={false}>
+                      <InlineStack gap="200" blockAlign="center" wrap={false}>
+                        <img
+                          src={appItem.image}
+                          alt={appItem.title}
+                          onError={(e) => { e.currentTarget.style.display = "none"; }}
+                          style={{ width: "34px", height: "34px", objectFit: "contain", display: "block", flexShrink: 0 }}
+                        />
+                        <Text as="h3" variant="headingSm">
+                          {appItem.title}
+                        </Text>
+                      </InlineStack>
+                      <Badge>{appItem.tag}</Badge>
+                    </InlineStack>
+                    <Text as="p" tone="subdued" variant="bodySm">
+                      {appItem.description}
+                    </Text>
+                    <Button url={appItem.url} target="_blank" variant="primary">
+                      Add app
+                    </Button>
+                  </BlockStack>
+                </Card>
+              ))}
+            </InlineGrid>
+          </BlockStack>
+        </Card>
+      </BlockStack>
+
+      {/* ── Create Box Modal ── */}
+      <Modal
+        open={itemsPopup.open}
+        onClose={() => setItemsPopup({ open: false, boxTitle: "", items: [] })}
+        title={`All Bundle Items — ${itemsPopup.boxTitle}`}
+        primaryAction={{
+          content: "Close",
+          onAction: () => setItemsPopup({ open: false, boxTitle: "", items: [] }),
+        }}
+      >
+        <Modal.Section>
+          <BlockStack gap="200">
+            <Text as="p" variant="bodySm" tone="subdued">
+              {itemsPopup.items.length} item{itemsPopup.items.length === 1 ? "" : "s"} in this order
+            </Text>
+            {itemsPopup.items.length === 0 ? (
+              <Text as="p" variant="bodySm" tone="subdued">No items found for this order.</Text>
+            ) : (
+              <BlockStack gap="100">
+                {itemsPopup.items.map((item, idx) => {
+                  const itemLabel = typeof item === "string" ? item : String(item?.label || "");
+                  const productUrl = buildAdminProductLink(
+                    shopDomain,
+                    typeof item === "string" ? null : item?.productId,
+                  );
+                  return (
+                    <InlineStack key={`${itemLabel}-${idx}`} align="space-between" blockAlign="center" wrap={false}>
+                      <Text as="span" variant="bodySm">{itemLabel}</Text>
+                      {productUrl ? (
+                        <Tooltip content={`Open ${itemLabel} product`}>
+                          <Button
+                            size="slim"
+                            url={productUrl}
+                            target="_blank"
+                            variant="plain"
+                            icon={<EyeIcon size={16} color="#000000" fill="#ffffff" />}
+                            accessibilityLabel={`Open ${itemLabel} product`}
+                          />
+                        </Tooltip>
+                      ) : (
+                        <Text as="span" variant="bodySm" tone="subdued">No link</Text>
+                      )}
+                    </InlineStack>
+                  );
+                })}
+              </BlockStack>
+            )}
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
+
+      <Modal
+        open={showCreateBoxModal}
+        onClose={closeCreateBoxModal}
+        title="Choose Bundle Type"
+        size="medium"
+        style={{ maxWidth: "30.75rem", borderRadius: "0px" }}
+      >
+        <Modal.Section>
+          <BlockStack gap="300">
+            {createBoxActions.map((action) => (
+              <div
+                key={action.key}
+                style={{ border: "1px solid #e5e7eb", borderRadius: 0, padding: "16px" }}
+              >
+                <BlockStack gap="200">
+                  <InlineStack gap="200" blockAlign="center">
+                    <AdminIcon type={action.icon} size="base" />
+                    <Text as="h3" variant="headingSm">
+                      {action.label}
+                    </Text>
+                  </InlineStack>
+                  <Text as="p" tone="subdued" variant="bodySm">
+                    {action.sub}
+                  </Text>
+                  <button
+                    type="button"
+                    disabled={pendingCreateAction !== null}
+                    onClick={() => handleCreateBoxAction(action)}
+                    style={{
+                      width: "200px",
+                      maxWidth: "100%",
+                      border: "1px solid #000000",
+                      borderRadius: 0,
+                      background: "#000000",
+                      color: "#ffffff",
+                      padding: "9px 12px",
+                      fontSize: "15px",
+                      cursor: pendingCreateAction !== null ? "not-allowed" : "pointer",
+                      opacity: pendingCreateAction !== null && pendingCreateAction !== action.key ? 0.65 : 1,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "8px",
+                      minHeight: "40px",
+                    }}
+                  >
+                    Create Box
+                  </button>
+                </BlockStack>
+              </div>
+            ))}
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
+
+      {/* ── Full-page loading overlay ── */}
+      {isPageLoading && (
+        <Box
+          as="div"
+          padding="400"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 10001,
+            background: "rgba(255,255,255,0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Spinner accessibilityLabel="Loading page" size="large" />
+        </Box>
+      )}
+    </Page>
   );
 }
 

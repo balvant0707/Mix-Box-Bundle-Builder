@@ -1,5 +1,127 @@
-import db from "../db.server";
+import db, { ensureAppTables } from "../db.server";
 import { Buffer } from "node:buffer";
+
+// Generate a 5-digit unique box code
+const BOX_CODE_CHARS = "0123456789";
+const BOX_CODE_MIN_LENGTH = 3;
+const BOX_CODE_MAX_LENGTH = 10;
+const BOX_CODE_PATTERN = /^\d+$/;
+const MIN_COMBO_STEPS = 2;
+const MAX_COMBO_STEPS = 8;
+
+function clampComboStepCount(value) {
+  return Math.max(MIN_COMBO_STEPS, Math.min(MAX_COMBO_STEPS, value));
+}
+
+function normalizeDiscountConfigForPriceType({
+  bundlePriceType,
+  discountType,
+  discountValue,
+  buyQuantity,
+  getQuantity,
+  fallbackDiscountType = "none",
+  fallbackDiscountValue = "0",
+  fallbackBuyQuantity = 1,
+  fallbackGetQuantity = 1,
+}) {
+  const safePriceType = bundlePriceType === "dynamic" ? "dynamic" : "manual";
+  if (safePriceType !== "dynamic") {
+    return {
+      bundlePriceType: "manual",
+      discountType: "none",
+      discountValue: "0",
+      buyQuantity: 1,
+      getQuantity: 1,
+    };
+  }
+
+  const requestedType = String(discountType ?? fallbackDiscountType ?? "none");
+  const normalizedType = ["none", "percent", "fixed", "buy_x_get_y"].includes(requestedType)
+    ? requestedType
+    : "none";
+  const safeBuyQuantity = Math.max(
+    1,
+    parseInt(String(buyQuantity ?? fallbackBuyQuantity ?? 1), 10) || 1,
+  );
+  const safeGetQuantity = Math.max(
+    1,
+    parseInt(String(getQuantity ?? fallbackGetQuantity ?? 1), 10) || 1,
+  );
+  const normalizedDiscountValue = normalizedType === "buy_x_get_y"
+    ? "100"
+    : normalizedType === "none"
+      ? "0"
+      : String(discountValue ?? fallbackDiscountValue ?? "0");
+
+  return {
+    bundlePriceType: "dynamic",
+    discountType: normalizedType,
+    discountValue: normalizedDiscountValue,
+    buyQuantity: safeBuyQuantity,
+    getQuantity: safeGetQuantity,
+  };
+}
+
+export class BoxCodeValidationError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "BoxCodeValidationError";
+  }
+}
+
+export function isBoxCodeValidationError(error) {
+  return error instanceof BoxCodeValidationError || error?.name === "BoxCodeValidationError";
+}
+
+function generateBoxCode() {
+  let code = "";
+  for (let i = 0; i < 5; i++) {
+    code += BOX_CODE_CHARS[Math.floor(Math.random() * BOX_CODE_CHARS.length)];
+  }
+  return code;
+}
+
+async function getUniqueBoxCode() {
+  let code, exists;
+  do {
+    code = generateBoxCode();
+    exists = await db.comboBox.findFirst({ where: { boxCode: code } });
+  } while (exists);
+  return code;
+}
+
+async function getRequestedBoxCode(rawValue, excludeId = null) {
+  const normalized = rawValue == null ? "" : String(rawValue).trim().toUpperCase();
+  if (!normalized) return null;
+  if (excludeId) {
+    const existingRecord = await db.comboBox.findUnique({
+      where: { id: parseInt(excludeId) },
+      select: { boxCode: true },
+    });
+    if (existingRecord?.boxCode === normalized) {
+      return normalized;
+    }
+  }
+  if (normalized.length < BOX_CODE_MIN_LENGTH || normalized.length > BOX_CODE_MAX_LENGTH) {
+    throw new BoxCodeValidationError(`Box code must be ${BOX_CODE_MIN_LENGTH}-${BOX_CODE_MAX_LENGTH} characters long`);
+  }
+  if (!BOX_CODE_PATTERN.test(normalized)) {
+    throw new BoxCodeValidationError("Box code can only contain numbers");
+  }
+
+  const where = excludeId
+    ? { boxCode: normalized, NOT: { id: parseInt(excludeId) } }
+    : { boxCode: normalized };
+  const existing = await db.comboBox.findFirst({
+    where,
+    select: { id: true },
+  });
+  if (existing) {
+    throw new BoxCodeValidationError("Box code is already in use");
+  }
+
+  return normalized;
+}
 
 const CREATE_BUNDLE_PRODUCT_MUTATION = `#graphql
   mutation productCreate($product: ProductCreateInput!) {
@@ -98,6 +220,365 @@ const DELETE_BUNDLE_PRODUCT_MUTATION = `#graphql
   }
 `;
 
+const COMBO_COLLECTION_PRODUCTS_QUERY = `#graphql
+  query GetComboCollectionProducts($id: ID!, $first: Int!, $after: String) {
+    collection(id: $id) {
+      products(first: $first, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        edges {
+          node {
+            id title handle
+            featuredImage { url }
+            variants(first: 1) { edges { node { id price } } }
+          }
+        }
+      }
+    }
+  }
+`;
+
+const DISCOUNT_AUTOMATIC_BASIC_CREATE_MUTATION = `#graphql
+  mutation discountAutomaticBasicCreate($automaticBasicDiscount: DiscountAutomaticBasicInput!) {
+    discountAutomaticBasicCreate(automaticBasicDiscount: $automaticBasicDiscount) {
+      automaticDiscountNode {
+        id
+        automaticDiscount {
+          ... on DiscountAutomaticBasic {
+            title
+            status
+            customerGets {
+              value {
+                ... on DiscountPercentage { percentage }
+                ... on DiscountAmount { amount { amount currencyCode } }
+              }
+            }
+          }
+        }
+      }
+      userErrors { field message }
+    }
+  }
+`;
+
+const DISCOUNT_AUTOMATIC_BASIC_UPDATE_MUTATION = `#graphql
+  mutation discountAutomaticBasicUpdate($id: ID!, $automaticBasicDiscount: DiscountAutomaticBasicInput!) {
+    discountAutomaticBasicUpdate(id: $id, automaticBasicDiscount: $automaticBasicDiscount) {
+      automaticDiscountNode {
+        id
+        automaticDiscount {
+          ... on DiscountAutomaticBasic {
+            title
+            status
+          }
+        }
+      }
+      userErrors { field message }
+    }
+  }
+`;
+
+const DISCOUNT_AUTOMATIC_BXGY_CREATE_MUTATION = `#graphql
+  mutation discountAutomaticBxgyCreate($automaticBxgyDiscount: DiscountAutomaticBxgyInput!) {
+    discountAutomaticBxgyCreate(automaticBxgyDiscount: $automaticBxgyDiscount) {
+      automaticDiscountNode {
+        id
+      }
+      userErrors { field message }
+    }
+  }
+`;
+
+const DISCOUNT_AUTOMATIC_DELETE_MUTATION = `#graphql
+  mutation discountAutomaticDelete($id: ID!) {
+    discountAutomaticDelete(id: $id) {
+      deletedAutomaticDiscountId
+      userErrors { field message }
+    }
+  }
+`;
+
+function buildProductScopedItems(shopifyProductId) {
+  if (!shopifyProductId) return { all: true };
+  return {
+    products: {
+      productsToAdd: [shopifyProductId],
+    },
+  };
+}
+
+/**
+ * Build the DiscountAutomaticBasicInput object for create/update mutations.
+ * Scope the discount to the combo bundle product only.
+ */
+function buildDiscountInput({ title, discountType, discountValue, shopifyProductId }) {
+  const pct = parseFloat(discountValue) || 0;
+  const scopedItems = buildProductScopedItems(shopifyProductId);
+  const customerGets = discountType === "fixed"
+    ? { value: { discountAmount: { amount: String(pct), appliesOnEachItem: false } }, items: scopedItems }
+    : { value: { percentage: pct / 100 }, items: scopedItems };
+  const combinesWith = {
+    productDiscounts: true,
+    orderDiscounts: true,
+    shippingDiscounts: false,
+  };
+
+  return {
+    title,
+    startsAt: new Date().toISOString(),
+    customerGets,
+    combinesWith,
+  };
+}
+
+/**
+ * Build the DiscountAutomaticBxgyInput object for create mutation.
+ * Default behavior: buy 1 bundle, get 1 bundle discount.
+ */
+function buildBuyXGetYDiscountInput({
+  title,
+  discountType,
+  discountValue,
+  shopifyProductId,
+  buyQuantity = 1,
+  getQuantity = 1,
+}) {
+  const parsedValue = parseFloat(discountValue) || 0;
+  const safeBuyQty = Math.max(1, parseInt(String(buyQuantity), 10) || 1);
+  const safeGetQty = Math.max(1, parseInt(String(getQuantity), 10) || 1);
+
+  const customerGetsValue = discountType === "buy_x_get_y"
+    ? { percentage: 1 } // Free Y item
+    : discountType === "fixed"
+      ? { discountAmount: { amount: String(parsedValue), appliesOnEachItem: true } }
+      : { percentage: Math.min(1, Math.max(0, parsedValue / 100)) };
+  const scopedItems = buildProductScopedItems(shopifyProductId);
+  const combinesWith = {
+    productDiscounts: true,
+    orderDiscounts: true,
+    shippingDiscounts: false,
+  };
+
+  return {
+    title,
+    startsAt: new Date().toISOString(),
+    customerBuys: {
+      value: { quantity: String(safeBuyQty) },
+      items: scopedItems,
+    },
+    customerGets: {
+      value: customerGetsValue,
+      items: scopedItems,
+      quantity: { quantity: String(safeGetQty) },
+    },
+    combinesWith,
+  };
+}
+
+/** True when a caught error is a Shopify "missing write_discounts scope" error. */
+function isScopeError(e) {
+  const msg = e?.message || "";
+  return msg.includes("write_discounts") || msg.includes("Access denied") || msg.includes("access scope");
+}
+
+async function deleteShopifyAutomaticDiscount(admin, discountId, context = "discount") {
+  if (!admin || !discountId) return true;
+  try {
+    const resp = await admin.graphql(DISCOUNT_AUTOMATIC_DELETE_MUTATION, {
+      variables: { id: discountId },
+    });
+    const json = await resp.json();
+    const errors = json?.data?.discountAutomaticDelete?.userErrors || [];
+    if (errors.length > 0) {
+      const msg = errors.map((e) => e?.message || "").join(" ").toLowerCase();
+      // Treat "already deleted / not found" as success for cleanup flows.
+      if (msg.includes("not found") || msg.includes("doesn't exist") || msg.includes("invalid id")) {
+        return true;
+      }
+      console.error(`[deleteShopifyAutomaticDiscount] ${context} userErrors:`, errors);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    if (!isScopeError(e)) {
+      console.error(`[deleteShopifyAutomaticDiscount] ${context} error:`, e);
+    }
+    return false;
+  }
+}
+
+/**
+ * Create or update an automatic basic discount in Shopify for a dynamic-priced box.
+ * Returns the discount GID, or null on failure.
+ * Silently skips (returns null) when the app token lacks write_discounts scope —
+ * the scope is declared in shopify.app.toml and will be granted on next merchant re-auth.
+ */
+export async function syncShopifyDiscount(admin, { boxId, existingDiscountId, title, discountType, discountValue, shopifyProductId }) {
+  if (!admin || !shopifyProductId) return null;
+  if (!discountType || discountType === "none" || !(parseFloat(discountValue) > 0)) {
+    // Remove existing discount if switching away from dynamic
+    if (existingDiscountId) {
+      try {
+        const deleted = await deleteShopifyAutomaticDiscount(
+          admin,
+          existingDiscountId,
+          "syncShopifyDiscount:disable",
+        );
+        if (deleted) {
+          await db.comboBox.update({ where: { id: boxId }, data: { shopifyDiscountId: null } });
+        }
+      } catch (e) {
+        if (!isScopeError(e)) console.error("[syncShopifyDiscount] delete error:", e);
+      }
+    }
+    return null;
+  }
+
+  const input = buildDiscountInput({ title, discountType, discountValue, shopifyProductId });
+
+  try {
+    if (existingDiscountId) {
+      const updateResp = await admin.graphql(DISCOUNT_AUTOMATIC_BASIC_UPDATE_MUTATION, {
+        variables: { id: existingDiscountId, automaticBasicDiscount: input },
+      });
+      const updateJson = await updateResp.json();
+      const updateErrors = updateJson?.data?.discountAutomaticBasicUpdate?.userErrors || [];
+      if (updateErrors.length === 0) {
+        return existingDiscountId;
+      }
+
+      // Existing discount may be BXGY from older saves; recreate as Basic.
+      console.warn("[syncShopifyDiscount] update userErrors; recreating as basic:", updateErrors);
+      await deleteShopifyAutomaticDiscount(
+        admin,
+        existingDiscountId,
+        "syncShopifyDiscount:recreate",
+      );
+    }
+
+    const createResp = await admin.graphql(DISCOUNT_AUTOMATIC_BASIC_CREATE_MUTATION, {
+      variables: { automaticBasicDiscount: input },
+    });
+    const createJson = await createResp.json();
+    const createErrors = createJson?.data?.discountAutomaticBasicCreate?.userErrors || [];
+    if (createErrors.length) {
+      console.error("[syncShopifyDiscount] create userErrors:", createErrors);
+      return null;
+    }
+    const discountId = createJson?.data?.discountAutomaticBasicCreate?.automaticDiscountNode?.id || null;
+    if (discountId && boxId) {
+      await db.comboBox.update({ where: { id: boxId }, data: { shopifyDiscountId: discountId } });
+    }
+    return discountId;
+  } catch (e) {
+    if (isScopeError(e)) {
+      // write_discounts not yet granted — merchant must re-authorize the app.
+      // Scope is declared in shopify.app.toml; re-auth happens automatically on next app open.
+      console.warn("[syncShopifyDiscount] write_discounts scope not yet granted — discount skipped until merchant re-authorizes.");
+    } else {
+      console.error("[syncShopifyDiscount] error:", e);
+    }
+    return existingDiscountId || null;
+  }
+}
+
+/**
+ * Create a Buy X Get Y automatic discount in Shopify.
+ * For specific combo boxes this is called only when bundlePriceType is dynamic.
+ * Existing discount (basic or bxgy) is deleted and recreated to avoid type mismatch.
+ */
+export async function syncShopifyBuyXGetYDiscount(
+  admin,
+  {
+    boxId,
+    existingDiscountId,
+    title,
+    discountType,
+    discountValue,
+    shopifyProductId,
+    buyQuantity = 1,
+    getQuantity = 1,
+  },
+) {
+  if (!admin || !shopifyProductId) return null;
+
+  const hasValidDiscount =
+    discountType &&
+    discountType !== "none" &&
+    (discountType === "buy_x_get_y" || parseFloat(discountValue) > 0);
+
+  if (!hasValidDiscount) {
+    if (existingDiscountId) {
+      try {
+        const deleted = await deleteShopifyAutomaticDiscount(
+          admin,
+          existingDiscountId,
+          "syncShopifyBuyXGetYDiscount:disable",
+        );
+        if (deleted) {
+          await db.comboBox.update({
+            where: { id: parseInt(boxId) },
+            data: { shopifyDiscountId: null },
+          });
+        }
+      } catch (e) {
+        if (!isScopeError(e)) {
+          console.error("[syncShopifyBuyXGetYDiscount] delete error:", e);
+        }
+      }
+    }
+    return null;
+  }
+
+  const input = buildBuyXGetYDiscountInput({
+    title,
+    discountType,
+    discountValue,
+    shopifyProductId,
+    buyQuantity,
+    getQuantity,
+  });
+
+  try {
+    // Recreate as BXGY every time to guarantee correct discount type.
+    if (existingDiscountId) {
+      await deleteShopifyAutomaticDiscount(
+        admin,
+        existingDiscountId,
+        "syncShopifyBuyXGetYDiscount:recreate",
+      );
+    }
+
+    const resp = await admin.graphql(DISCOUNT_AUTOMATIC_BXGY_CREATE_MUTATION, {
+      variables: { automaticBxgyDiscount: input },
+    });
+    const json = await resp.json();
+    const errors = json?.data?.discountAutomaticBxgyCreate?.userErrors || [];
+    if (errors.length) {
+      console.error("[syncShopifyBuyXGetYDiscount] create userErrors:", errors);
+      return existingDiscountId || null;
+    }
+
+    const discountId =
+      json?.data?.discountAutomaticBxgyCreate?.automaticDiscountNode?.id || null;
+
+    if (boxId) {
+      await db.comboBox.update({
+        where: { id: parseInt(boxId) },
+        data: { shopifyDiscountId: discountId || null },
+      });
+    }
+
+    return discountId;
+  } catch (e) {
+    if (isScopeError(e)) {
+      console.warn("[syncShopifyBuyXGetYDiscount] write_discounts scope not granted yet.");
+    } else {
+      console.error("[syncShopifyBuyXGetYDiscount] error:", e);
+    }
+    return existingDiscountId || null;
+  }
+}
+
 const STAGED_UPLOADS_CREATE_MUTATION = `#graphql
   mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
     stagedUploadsCreate(input: $input) {
@@ -126,12 +607,23 @@ const GET_PRODUCT_MEDIA_QUERY = `#graphql
       media(first: 50) {
         edges {
           node {
+            id
             ... on MediaImage {
               image { url }
             }
           }
         }
       }
+    }
+  }
+`;
+
+const PRODUCT_DELETE_MEDIA_MUTATION = `#graphql
+  mutation productDeleteMedia($productId: ID!, $mediaIds: [ID!]!) {
+    productDeleteMedia(productId: $productId, mediaIds: $mediaIds) {
+      deletedMediaIds
+      product { id }
+      mediaUserErrors { field message }
     }
   }
 `;
@@ -222,11 +714,36 @@ async function addImageToProduct(admin, productId, imageSource) {
 function extractStepImageUrls(parsedCombo) {
   const seen = new Set();
   const urls = [];
-  for (const step of parsedCombo?.steps || []) {
+  const allSteps = Array.isArray(parsedCombo?.steps) ? parsedCombo.steps : [];
+  const requestedType = parseInt(parsedCombo?.type, 10);
+  const comboType =
+    Number.isInteger(requestedType)
+      ? clampComboStepCount(requestedType)
+      : allSteps.length;
+
+  for (const step of allSteps.slice(0, comboType)) {
+    const selectedProductImageUrls = Array.isArray(step?.selectedProducts)
+      ? step.selectedProducts.map((product) => product?.imageUrl).filter(Boolean)
+      : [];
+    const collectionImageUrls = Array.isArray(step?.collections)
+      ? step.collections.map((collection) => collection?.imageUrl).filter(Boolean)
+      : [];
+    const resolvedProductImageUrls = Array.isArray(step?.resolvedProducts)
+      ? step.resolvedProducts.map((product) => product?.imageUrl).filter(Boolean)
+      : [];
+    const fallbackResolvedImageUrls =
+      collectionImageUrls.length === 0
+        ? resolvedProductImageUrls.slice(0, Math.max(step?.collections?.length || 0, 1))
+        : [];
     const sources =
-      step.scope === "product"
-        ? (step.selectedProducts || []).map((p) => p.imageUrl)
-        : (step.collections || []).map((c) => c.imageUrl);
+      step?.scope === "product"
+        ? selectedProductImageUrls
+        // Collection records often have no image, so use expanded product images
+        // from the saved combo config as representative media for that step.
+        : collectionImageUrls.length > 0
+          ? collectionImageUrls
+          : fallbackResolvedImageUrls;
+
     for (const url of sources) {
       if (url && !seen.has(url)) {
         seen.add(url);
@@ -243,16 +760,62 @@ function urlPath(raw) {
 }
 
 /** Fetch existing media URLs already attached to a Shopify product. */
-async function getExistingProductMediaUrls(admin, productId) {
+async function getExistingProductMedia(admin, productId) {
   try {
     const resp = await admin.graphql(GET_PRODUCT_MEDIA_QUERY, { variables: { id: productId } });
     const json = await resp.json();
     return (json?.data?.product?.media?.edges || [])
-      .map((e) => e?.node?.image?.url)
-      .filter(Boolean);
+      .map((e) => ({ id: e?.node?.id, url: e?.node?.image?.url }))
+      .filter((m) => m.id);
   } catch (e) {
-    console.warn("[getExistingProductMediaUrls] failed:", e.message);
+    console.warn("[getExistingProductMedia] failed:", e.message);
     return [];
+  }
+}
+
+/**
+ * Delete all existing media from a Shopify product, then optionally add a new image.
+ * Used when the banner image is changed or removed on an existing box.
+ */
+async function replaceProductImage(admin, productId, imageSource) {
+  try {
+    const existing = await getExistingProductMedia(admin, productId);
+    if (existing.length > 0) {
+      const mediaIds = existing.map((m) => m.id);
+      const delResp = await admin.graphql(PRODUCT_DELETE_MEDIA_MUTATION, {
+        variables: { productId, mediaIds },
+      });
+      const delJson = await delResp.json();
+      const delErrors = delJson?.data?.productDeleteMedia?.mediaUserErrors || [];
+      if (delErrors.length) console.warn("[replaceProductImage] deleteMedia errors:", delErrors);
+    }
+  } catch (e) {
+    console.warn("[replaceProductImage] delete existing media failed:", e.message);
+  }
+
+  if (imageSource) {
+    await addImageToProduct(admin, productId, imageSource);
+  }
+}
+
+async function deleteAllProductMedia(admin, productId) {
+  try {
+    const existing = await getExistingProductMedia(admin, productId);
+    if (existing.length === 0) return;
+
+    const mediaIds = existing.map((media) => media.id).filter(Boolean);
+    if (mediaIds.length === 0) return;
+
+    const delResp = await admin.graphql(PRODUCT_DELETE_MEDIA_MUTATION, {
+      variables: { productId, mediaIds },
+    });
+    const delJson = await delResp.json();
+    const delErrors = delJson?.data?.productDeleteMedia?.mediaUserErrors || [];
+    if (delErrors.length > 0) {
+      console.warn("[deleteAllProductMedia] deleteMedia errors:", delErrors);
+    }
+  } catch (e) {
+    console.warn("[deleteAllProductMedia] failed:", e.message);
   }
 }
 
@@ -271,8 +834,8 @@ export async function addComboStepImagesToProduct(admin, shopifyProductId, combo
     const imageUrls = extractStepImageUrls(parsedCombo);
     if (imageUrls.length === 0) return;
 
-    const existingUrls = await getExistingProductMediaUrls(admin, shopifyProductId);
-    const existingPaths = new Set(existingUrls.map(urlPath));
+    const existingMedia = await getExistingProductMedia(admin, shopifyProductId);
+    const existingPaths = new Set(existingMedia.map((m) => urlPath(m.url)).filter(Boolean));
 
     for (const imageUrl of imageUrls) {
       if (!existingPaths.has(urlPath(imageUrl))) {
@@ -281,6 +844,56 @@ export async function addComboStepImagesToProduct(admin, shopifyProductId, combo
     }
   } catch (e) {
     console.error("[addComboStepImagesToProduct] error:", e);
+  }
+}
+
+export async function syncSpecificComboProductMedia(
+  admin,
+  box,
+  comboStepsConfigJson = null,
+  stepImages = null,
+) {
+  if (!admin || !box?.shopifyProductId) return;
+
+  const rawConfig = comboStepsConfigJson || box.comboStepsConfig;
+  let parsedCombo = null;
+  if (rawConfig) {
+    try {
+      parsedCombo = typeof rawConfig === "string" ? JSON.parse(rawConfig) : rawConfig;
+    } catch (e) {
+      console.warn("[syncSpecificComboProductMedia] Invalid combo config:", e.message);
+    }
+  }
+
+  const requestedType = parseInt(parsedCombo?.type, 10);
+  const activeStepCount =
+    Number.isInteger(requestedType) ? clampComboStepCount(requestedType) : 0;
+
+  const persistedStepImages = Array.isArray(stepImages)
+    ? stepImages
+    : await getComboStepImages(box.id);
+  const sortedStepImages = persistedStepImages
+    .filter((image) => image && (image.bytes || image.imageData))
+    .filter((image) => activeStepCount === 0 || image.stepIndex < activeStepCount)
+    .sort((a, b) => a.stepIndex - b.stepIndex)
+    .map((image) => ({
+      bytes: image.bytes || image.imageData,
+      mimeType: image.mimeType || "image/jpeg",
+      fileName: image.fileName || `combo-step-${image.stepIndex + 1}.jpg`,
+    }));
+  const activeStepImages = sortedStepImages.length > 0 ? [sortedStepImages[0]] : [];
+
+  if (activeStepImages.length > 0) {
+    await deleteAllProductMedia(admin, box.shopifyProductId);
+    for (const imageSource of activeStepImages) {
+      await addImageToProduct(admin, box.shopifyProductId, imageSource);
+    }
+    return;
+  }
+
+  await deleteAllProductMedia(admin, box.shopifyProductId);
+  if (rawConfig) {
+    await addComboStepImagesToProduct(admin, box.shopifyProductId, rawConfig);
   }
 }
 
@@ -450,7 +1063,19 @@ export function getBannerImageSrc(box) {
   return box?.bannerImageUrl || getBannerImageDataUri(box);
 }
 
+function getPrimaryStepImageDataUri(box) {
+  const primaryStepImage = Array.isArray(box?.stepImages) ? box.stepImages[0] : null;
+  if (!primaryStepImage?.imageData || !primaryStepImage?.mimeType) return null;
+  const base64 = Buffer.from(primaryStepImage.imageData).toString("base64");
+  return `data:${primaryStepImage.mimeType};base64,${base64}`;
+}
+
+export function getBoxListImageSrc(box) {
+  return getBannerImageSrc(box) || getPrimaryStepImageDataUri(box);
+}
+
 export async function listBoxes(shop, activeOnly = false, includeBannerBinary = false) {
+  await ensureAppTables();
   const where = {
     shop,
     deletedAt: null,
@@ -462,10 +1087,31 @@ export async function listBoxes(shop, activeOnly = false, includeBannerBinary = 
     include: {
       products: true,
       config: true,
+      ...(includeBannerBinary
+        ? {
+            stepImages: {
+              orderBy: { stepIndex: "asc" },
+              take: 1,
+              select: { stepIndex: true, mimeType: true, imageData: true },
+            },
+          }
+        : {}),
       _count: { select: { orders: true } },
     },
     orderBy: { sortOrder: "asc" },
   });
+
+  // Lazy backfill: assign a boxCode to any existing box that doesn't have one
+  const noCode = boxes.filter((b) => !b.boxCode);
+  if (noCode.length > 0) {
+    await Promise.all(
+      noCode.map(async (b) => {
+        const code = await getUniqueBoxCode();
+        await db.comboBox.update({ where: { id: b.id }, data: { boxCode: code } });
+        b.boxCode = code;
+      })
+    );
+  }
 
   if (includeBannerBinary) return boxes;
 
@@ -474,6 +1120,7 @@ export async function listBoxes(shop, activeOnly = false, includeBannerBinary = 
     delete sanitized.bannerImageData;
     // Keep bannerImageMimeType as a marker that a binary upload exists
     delete sanitized.bannerImageFileName;
+    delete sanitized.stepImages;
     return sanitized;
   });
 }
@@ -496,7 +1143,22 @@ export async function getBoxWithProducts(id, shop) {
 export async function createBox(shop, data, admin) {
   const itemCount = parseInt(data.itemCount) || 1;
   const bundlePrice = parseFloat(data.bundlePrice) || 0;
+  const discountConfig = normalizeDiscountConfigForPriceType({
+    bundlePriceType: data.bundlePriceType === "dynamic" ? "dynamic" : "manual",
+    discountType: data.discountType,
+    discountValue: data.discountValue,
+    buyQuantity: data.buyQuantity,
+    getQuantity: data.getQuantity,
+  });
   const bundleProductTitle = data.boxName || data.displayTitle;
+  const comboProductButtonTitle =
+    typeof data.comboProductButtonTitle === "string" && data.comboProductButtonTitle.trim()
+      ? data.comboProductButtonTitle.trim()
+      : null;
+  const productButtonTitle =
+    typeof data.productButtonTitle === "string" && data.productButtonTitle.trim()
+      ? data.productButtonTitle.trim()
+      : null;
 
   // Create hidden Shopify product for bundle pricing
   let shopifyProductId = null;
@@ -528,14 +1190,19 @@ export async function createBox(shop, data, admin) {
   }
 
   const nextSortOrder = await getNextSortOrder(shop);
+  const requestedBoxCode = await getRequestedBoxCode(data.boxCode);
+  const boxCode = requestedBoxCode || await getUniqueBoxCode();
 
   const hasUploadedBanner = Boolean(data.bannerImage?.bytes);
 
   const box = await db.comboBox.create({
     data: {
       shop,
+      boxCode,
       boxName: data.boxName,
       displayTitle: data.displayTitle,
+      comboProductButtonTitle,
+      productButtonTitle,
       itemCount,
       bundlePrice,
       isGiftBox: data.isGiftBox === "true" || data.isGiftBox === true,
@@ -549,13 +1216,49 @@ export async function createBox(shop, data, admin) {
       isActive: data.isActive !== "false" && data.isActive !== false,
       giftMessageEnabled:
         data.giftMessageEnabled === "true" || data.giftMessageEnabled === true,
-      bundlePriceType: data.bundlePriceType === "dynamic" ? "dynamic" : "manual",
+      bundlePriceType: discountConfig.bundlePriceType,
       shopifyProductId,
       shopifyVariantId,
       scopeType: data.scopeType || "specific_collections",
       scopeItemsJson: Array.isArray(data.scopeItems) && data.scopeItems.length > 0 ? JSON.stringify(data.scopeItems) : null,
+      comboStepsConfig: JSON.stringify({
+        bundlePriceType: discountConfig.bundlePriceType,
+        discountType: discountConfig.discountType,
+        discountValue: discountConfig.discountValue,
+        buyQuantity: discountConfig.buyQuantity,
+        getQuantity: discountConfig.getQuantity,
+        bundlePrice: bundlePrice,
+        boxSubtitle: typeof data.boxSubtitle === "string" ? data.boxSubtitle.trim() : "",
+        ...(comboProductButtonTitle ? { ctaButtonLabel: comboProductButtonTitle } : {}),
+        ...(productButtonTitle ? { addToCartLabel: productButtonTitle } : {}),
+      }),
     },
   });
+
+  // Create Shopify automatic discount for dynamic-priced boxes
+  if (admin && discountConfig.bundlePriceType === "dynamic" && shopifyProductId) {
+    if (discountConfig.discountType === "buy_x_get_y") {
+      await syncShopifyBuyXGetYDiscount(admin, {
+        boxId: box.id,
+        existingDiscountId: null,
+        title: `${data.boxName || data.displayTitle} Bundle Discount`,
+        discountType: "buy_x_get_y",
+        discountValue: "100",
+        shopifyProductId,
+        buyQuantity: discountConfig.buyQuantity,
+        getQuantity: discountConfig.getQuantity,
+      });
+    } else {
+      await syncShopifyDiscount(admin, {
+        boxId: box.id,
+        existingDiscountId: null,
+        title: `${data.boxName || data.displayTitle} Bundle Discount`,
+        discountType: discountConfig.discountType,
+        discountValue: discountConfig.discountValue,
+        shopifyProductId,
+      });
+    }
+  }
 
   // Save eligible products
   if (data.eligibleProducts && Array.isArray(data.eligibleProducts)) {
@@ -596,12 +1299,111 @@ export async function updateComboStepsConfig(id, shop, comboStepsConfig) {
  * Handles both INSERT (first save) and UPDATE (subsequent saves).
  * `config` may be a JSON string or a plain object matching DEFAULT_COMBO_CONFIG shape.
  */
-export async function upsertComboConfig(boxId, config) {
+export async function upsertComboConfig(boxId, config, admin = null) {
   const parsed = typeof config === "string" ? JSON.parse(config) : config;
-  const rawJson = typeof config === "string" ? config : JSON.stringify(config);
-  const comboType = parseInt(parsed.type) || 2;
+  const discountConfig = normalizeDiscountConfigForPriceType({
+    bundlePriceType: parsed?.bundlePriceType === "dynamic" ? "dynamic" : "manual",
+    discountType: parsed?.discountType,
+    discountValue: parsed?.discountValue,
+    buyQuantity: parsed?.buyQuantity,
+    getQuantity: parsed?.getQuantity,
+  });
+  if (parsed && typeof parsed === "object") {
+    parsed.bundlePriceType = discountConfig.bundlePriceType;
+    parsed.discountType = discountConfig.discountType;
+    parsed.discountValue = discountConfig.discountValue;
+    parsed.buyQuantity = discountConfig.buyQuantity;
+    parsed.getQuantity = discountConfig.getQuantity;
+    parsed.highlightText = typeof parsed.highlightText === "string" ? parsed.highlightText.trim() : "";
+    parsed.supportText = typeof parsed.supportText === "string" ? parsed.supportText.trim() : "";
+  }
+  const requestedType = parseInt(parsed?.type, 10);
+  const comboType = Number.isInteger(requestedType)
+    ? clampComboStepCount(requestedType)
+    : MIN_COMBO_STEPS;
   const allSteps = Array.isArray(parsed.steps) ? parsed.steps : [];
-  const stepsJson = JSON.stringify(allSteps.slice(0, comboType));
+
+  // Pre-expand collection-scoped steps via Admin API so the storefront widget
+  // can read products directly without relying on /collections/{handle}/products.json
+  if (admin) {
+    for (let i = 0; i < Math.min(allSteps.length, comboType); i++) {
+      const step = allSteps[i];
+      if (step.scope === "collection" && Array.isArray(step.collections) && step.collections.length > 0) {
+        const resolvedProducts = [];
+        const seenIds = new Set();
+        for (const coll of step.collections) {
+          if (!coll.id) continue;
+          try {
+            let cursor = null;
+            let hasNextPage = true;
+            while (hasNextPage) {
+              const resp = await admin.graphql(COMBO_COLLECTION_PRODUCTS_QUERY, {
+                variables: { id: coll.id, first: 250, after: cursor },
+              });
+              const json = await resp.json();
+              const productsConn = json?.data?.collection?.products;
+              for (const { node } of productsConn?.edges || []) {
+                if (!seenIds.has(node.id)) {
+                  seenIds.add(node.id);
+                  resolvedProducts.push({
+                    id: node.id,
+                    title: node.title,
+                    handle: node.handle,
+                    imageUrl: node.featuredImage?.url || null,
+                    variantId: node.variants?.edges?.[0]?.node?.id || null,
+                    price: node.variants?.edges?.[0]?.node?.price || "0",
+                  });
+                }
+              }
+              hasNextPage = productsConn?.pageInfo?.hasNextPage || false;
+              cursor = productsConn?.pageInfo?.endCursor || null;
+            }
+          } catch (e) {
+            console.warn(`[upsertComboConfig] Failed to expand collection ${coll.id}:`, e.message);
+          }
+        }
+        allSteps[i] = { ...step, resolvedProducts };
+      }
+    }
+  }
+
+  const activeSteps = allSteps.slice(0, comboType).map((step, index) => {
+    const safeStep = step && typeof step === "object" ? step : {};
+    const defaultLabel = `Step ${index + 1}`;
+    const rawLabel = typeof safeStep.label === "string" ? safeStep.label.trim() : "";
+    const popup = safeStep.popup && typeof safeStep.popup === "object" ? safeStep.popup : {};
+    return {
+      ...safeStep,
+      label: rawLabel || defaultLabel,
+      optional: safeStep.optional === true || String(safeStep.optional).toLowerCase() === "true",
+      popup: {
+        ...popup,
+        title: typeof popup.title === "string" && popup.title.trim()
+          ? popup.title.trim()
+          : `Choose product for ${rawLabel || defaultLabel}`,
+        desc: typeof popup.desc === "string" && popup.desc.trim()
+          ? popup.desc.trim()
+          : "Select a product for this step.",
+        btn: typeof popup.btn === "string" && popup.btn.trim()
+          ? popup.btn.trim()
+          : "Confirm selection",
+      },
+    };
+  });
+  const stepsJson = JSON.stringify(activeSteps);
+  const rawJson = JSON.stringify({ ...parsed, type: comboType, steps: activeSteps });
+  const hasIsGiftBox = parsed?.isGiftBox !== undefined;
+  const hasGiftMessageEnabled = parsed?.giftMessageEnabled !== undefined;
+  const hasAllowDuplicates = parsed?.allowDuplicates !== undefined;
+  const parsedIsGiftBox = hasIsGiftBox
+    ? parsed.isGiftBox === true || String(parsed.isGiftBox).toLowerCase() === "true"
+    : undefined;
+  const parsedGiftMessageEnabled = hasGiftMessageEnabled
+    ? parsed.giftMessageEnabled === true || String(parsed.giftMessageEnabled).toLowerCase() === "true"
+    : undefined;
+  const parsedAllowDuplicates = hasAllowDuplicates
+    ? parsed.allowDuplicates === true || String(parsed.allowDuplicates).toLowerCase() === "true"
+    : undefined;
 
   const payload = {
     comboType,
@@ -610,23 +1412,114 @@ export async function upsertComboConfig(boxId, config) {
     bundlePrice:       parsed.bundlePrice != null ? parseFloat(parsed.bundlePrice) : null,
     bundlePriceType:   parsed.bundlePriceType  ?? "manual",
     isActive:          parsed.isActive         !== false,
+    ...(hasIsGiftBox ? { isGiftBox: parsedIsGiftBox } : {}),
+    ...(hasAllowDuplicates ? { allowDuplicates: parsedAllowDuplicates } : {}),
+    ...(hasGiftMessageEnabled ? { giftMessageEnabled: parsedGiftMessageEnabled } : {}),
     showProductImages: parsed.showProductImages !== false,
     showProgressBar:   parsed.showProgressBar  !== false,
     allowReselection:  parsed.allowReselection !== false,
     stepsJson,
   };
 
-  // Persist raw JSON to ComboBox.comboStepsConfig and sync itemCount to match comboType
+  // Persist raw JSON to ComboBox and sync bundlePrice/bundlePriceType so both tables stay in sync
+  const comboBoxUpdate = {
+    comboStepsConfig: rawJson,
+    itemCount: payload.comboType,
+    bundlePriceType: payload.bundlePriceType,
+    isActive: payload.isActive,
+  };
+  if (hasIsGiftBox) comboBoxUpdate.isGiftBox = parsedIsGiftBox;
+  if (hasAllowDuplicates) comboBoxUpdate.allowDuplicates = parsedAllowDuplicates;
+  if (hasGiftMessageEnabled) comboBoxUpdate.giftMessageEnabled = parsedGiftMessageEnabled;
+  const listingTitle = typeof parsed?.listingTitle === "string" ? parsed.listingTitle.trim() : "";
+  if (listingTitle) {
+    comboBoxUpdate.boxName = listingTitle;
+    comboBoxUpdate.displayTitle = listingTitle;
+  }
+  if (payload.bundlePrice != null) comboBoxUpdate.bundlePrice = payload.bundlePrice;
   await db.comboBox.update({
     where: { id: parseInt(boxId) },
-    data:  { comboStepsConfig: rawJson, itemCount: payload.comboType },
+    data:  comboBoxUpdate,
   });
 
-  return db.comboBoxConfig.upsert({
+  const result = await db.comboBoxConfig.upsert({
     where:  { boxId: parseInt(boxId) },
     create: { boxId: parseInt(boxId), ...payload },
     update: payload,
   });
+
+  // Sync Shopify automatic discount for specific combo boxes.
+  if (admin) {
+    const box = await db.comboBox.findUnique({ where: { id: parseInt(boxId) }, select: { shopifyProductId: true, shopifyDiscountId: true, boxName: true, displayTitle: true } });
+    if (box?.shopifyProductId) {
+      const dynamicDiscountEnabled = payload.bundlePriceType === "dynamic";
+      const discountType = dynamicDiscountEnabled ? (parsed.discountType || "none") : "none";
+      const discountValue = dynamicDiscountEnabled ? (parsed.discountValue || "0") : "0";
+      const discountTitle = `${box.boxName || box.displayTitle} Bundle Discount`;
+
+      if (discountType === "buy_x_get_y") {
+        await syncShopifyBuyXGetYDiscount(admin, {
+          boxId: parseInt(boxId),
+          existingDiscountId: box.shopifyDiscountId || null,
+          title: discountTitle,
+          discountType: "buy_x_get_y",
+          discountValue: "100",
+          shopifyProductId: box.shopifyProductId,
+          buyQuantity: dynamicDiscountEnabled ? (parsed.buyQuantity || 1) : 1,
+          getQuantity: dynamicDiscountEnabled ? (parsed.getQuantity || 1) : 1,
+        });
+      } else {
+        await syncShopifyDiscount(admin, {
+          boxId: parseInt(boxId),
+          existingDiscountId: box.shopifyDiscountId || null,
+          title: discountTitle,
+          discountType,
+          discountValue,
+          shopifyProductId: box.shopifyProductId,
+        });
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Sync a combo box's title and price to its associated Shopify bundle product.
+ * Call this whenever combo config is saved (price or title may have changed).
+ */
+export async function syncShopifyBundleProduct(admin, shopifyProductId, shopifyVariantId, { title, bundlePrice }) {
+  if (!admin || !shopifyProductId) return;
+
+  try {
+    await admin.graphql(ACTIVATE_BUNDLE_PRODUCT_MUTATION, {
+      variables: {
+        product: {
+          id: shopifyProductId,
+          status: "ACTIVE",
+          title,
+        },
+      },
+    });
+  } catch (e) {
+    console.error("[syncShopifyBundleProduct] Failed to update product title/status:", e);
+  }
+
+  if (bundlePrice != null) {
+    const variantId = shopifyVariantId || (await resolveDefaultVariantId(admin, shopifyProductId));
+    if (variantId) {
+      try {
+        await admin.graphql(UPDATE_BUNDLE_PRODUCT_PRICE_MUTATION, {
+          variables: {
+            productId: shopifyProductId,
+            variants: [{ id: variantId, price: String(bundlePrice) }],
+          },
+        });
+      } catch (e) {
+        console.error("[syncShopifyBundleProduct] Failed to update product price:", e);
+      }
+    }
+  }
 }
 
 export async function updateBox(id, shop, data, admin) {
@@ -635,7 +1528,44 @@ export async function updateBox(id, shop, data, admin) {
   });
   if (!existing) throw new Error("Box not found");
 
+  let existingConfig = {};
+  if (existing.comboStepsConfig) {
+    try { existingConfig = JSON.parse(existing.comboStepsConfig); } catch {}
+  }
+
+  const effectiveBundlePriceType = data.bundlePriceType !== undefined
+    ? (data.bundlePriceType === "dynamic" ? "dynamic" : "manual")
+    : (existing.bundlePriceType === "dynamic" ? "dynamic" : "manual");
+  const discountConfig = normalizeDiscountConfigForPriceType({
+    bundlePriceType: effectiveBundlePriceType,
+    discountType: data.discountType,
+    discountValue: data.discountValue,
+    buyQuantity: data.buyQuantity,
+    getQuantity: data.getQuantity,
+    fallbackDiscountType: existingConfig.discountType,
+    fallbackDiscountValue: existingConfig.discountValue,
+    fallbackBuyQuantity: existingConfig.buyQuantity,
+    fallbackGetQuantity: existingConfig.getQuantity,
+  });
+
+  const requestedBoxCode = data.boxCode !== undefined
+    ? await getRequestedBoxCode(data.boxCode, id)
+    : undefined;
+  const nextBoxCode = data.boxCode !== undefined
+    ? (requestedBoxCode || existing.boxCode || await getUniqueBoxCode())
+    : (existing.boxCode || await getUniqueBoxCode());
+
   const bundlePrice = parseFloat(data.bundlePrice) || existing.bundlePrice;
+  const nextComboProductButtonTitle = data.comboProductButtonTitle !== undefined
+    ? (typeof data.comboProductButtonTitle === "string" && data.comboProductButtonTitle.trim()
+      ? data.comboProductButtonTitle.trim()
+      : null)
+    : existing.comboProductButtonTitle;
+  const nextProductButtonTitle = data.productButtonTitle !== undefined
+    ? (typeof data.productButtonTitle === "string" && data.productButtonTitle.trim()
+      ? data.productButtonTitle.trim()
+      : null)
+    : existing.productButtonTitle;
   const priceChanged =
     parseFloat(bundlePrice) !== parseFloat(existing.bundlePrice);
 
@@ -703,8 +1633,11 @@ export async function updateBox(id, shop, data, admin) {
   await db.comboBox.update({
     where: { id: parseInt(id) },
     data: {
+      boxCode: nextBoxCode,
       boxName: data.boxName ?? existing.boxName,
       displayTitle: data.displayTitle ?? existing.displayTitle,
+      comboProductButtonTitle: nextComboProductButtonTitle,
+      productButtonTitle: nextProductButtonTitle,
       itemCount: data.itemCount ? parseInt(data.itemCount) : existing.itemCount,
       bundlePrice,
       isGiftBox:
@@ -746,10 +1679,7 @@ export async function updateBox(id, shop, data, admin) {
           ? data.giftMessageEnabled === "true" ||
             data.giftMessageEnabled === true
           : existing.giftMessageEnabled,
-      bundlePriceType:
-        data.bundlePriceType !== undefined
-          ? data.bundlePriceType === "dynamic" ? "dynamic" : "manual"
-          : existing.bundlePriceType,
+      bundlePriceType: discountConfig.bundlePriceType,
       scopeType: data.scopeType !== undefined ? data.scopeType : existing.scopeType,
       scopeItemsJson: data.scopeItems !== undefined
         ? (Array.isArray(data.scopeItems) && data.scopeItems.length > 0 ? JSON.stringify(data.scopeItems) : null)
@@ -757,19 +1687,26 @@ export async function updateBox(id, shop, data, admin) {
     },
   });
 
-  // Sync new banner image to Shopify product
-  if (hasUploadedBanner && existing.shopifyProductId && admin) {
-    await addImageToProduct(admin, existing.shopifyProductId, {
-      bytes: data.bannerImage.bytes,
-      mimeType: data.bannerImage.mimeType,
-      fileName: data.bannerImage.fileName,
-    });
+  // Sync banner image to Shopify product (replace on upload, delete on removal)
+  if (existing.shopifyProductId && admin) {
+    if (hasUploadedBanner) {
+      await replaceProductImage(admin, existing.shopifyProductId, {
+        bytes: data.bannerImage.bytes,
+        mimeType: data.bannerImage.mimeType,
+        fileName: data.bannerImage.fileName,
+      });
+    } else if (shouldRemoveBanner) {
+      await replaceProductImage(admin, existing.shopifyProductId, null);
+    }
   }
 
-  // Replace eligible products only when a non-empty list is submitted (prevents accidental wipe)
-  if (data.eligibleProducts && Array.isArray(data.eligibleProducts) && data.eligibleProducts.length > 0) {
+  // Replace eligible products when explicitly requested, or when a non-empty list is submitted.
+  const shouldReplaceEligibleProducts =
+    data.replaceEligibleProducts === true || data.replaceEligibleProducts === "true";
+  if (shouldReplaceEligibleProducts || (data.eligibleProducts && Array.isArray(data.eligibleProducts) && data.eligibleProducts.length > 0)) {
     await db.comboBoxProduct.deleteMany({ where: { boxId: parseInt(id) } });
-    const productRows = data.eligibleProducts.map((p) => {
+    const nextEligibleProducts = Array.isArray(data.eligibleProducts) ? data.eligibleProducts : [];
+    const productRows = nextEligibleProducts.map((p) => {
       const rawIds = Array.isArray(p.variantIds) ? p.variantIds : [];
       const numericIds = rawIds.map((id) => (typeof id === 'string' && id.includes('/') ? id.split('/').pop() : String(id)));
       return {
@@ -784,6 +1721,75 @@ export async function updateBox(id, shop, data, admin) {
     });
     if (productRows.length > 0) {
       await db.comboBoxProduct.createMany({ data: productRows });
+    }
+  }
+
+  // Persist discount settings into comboStepsConfig (merge, preserve existing steps/config)
+  if (
+    data.bundlePriceType !== undefined ||
+    data.discountType !== undefined ||
+    data.discountValue !== undefined ||
+    data.buyQuantity !== undefined ||
+    data.getQuantity !== undefined ||
+    data.boxSubtitle !== undefined ||
+    data.comboProductButtonTitle !== undefined ||
+    data.productButtonTitle !== undefined
+  ) {
+    let rawConfig = {};
+    if (existing.comboStepsConfig) {
+      try { rawConfig = JSON.parse(existing.comboStepsConfig); } catch {}
+    }
+    rawConfig.bundlePriceType = discountConfig.bundlePriceType;
+    rawConfig.discountType = discountConfig.discountType;
+    rawConfig.discountValue = discountConfig.discountValue;
+    rawConfig.buyQuantity = discountConfig.buyQuantity;
+    rawConfig.getQuantity = discountConfig.getQuantity;
+    rawConfig.bundlePrice = bundlePrice;
+    if (data.boxSubtitle !== undefined) {
+      rawConfig.boxSubtitle = typeof data.boxSubtitle === "string" ? data.boxSubtitle.trim() : "";
+    }
+    if (data.comboProductButtonTitle !== undefined) {
+      if (nextComboProductButtonTitle) {
+        rawConfig.ctaButtonLabel = nextComboProductButtonTitle;
+      } else {
+        delete rawConfig.ctaButtonLabel;
+      }
+    }
+    if (data.productButtonTitle !== undefined) {
+      if (nextProductButtonTitle) {
+        rawConfig.addToCartLabel = nextProductButtonTitle;
+      } else {
+        delete rawConfig.addToCartLabel;
+      }
+    }
+    await db.comboBox.update({
+      where: { id: parseInt(id) },
+      data: { comboStepsConfig: JSON.stringify(rawConfig) },
+    });
+  }
+
+  // Sync Shopify automatic discount for dynamic-priced boxes
+  if (admin && existing.shopifyProductId) {
+    if (discountConfig.discountType === "buy_x_get_y") {
+      await syncShopifyBuyXGetYDiscount(admin, {
+        boxId: parseInt(id),
+        existingDiscountId: existing.shopifyDiscountId || null,
+        title: `${data.boxName ?? existing.boxName} Bundle Discount`,
+        discountType: "buy_x_get_y",
+        discountValue: "100",
+        shopifyProductId: existing.shopifyProductId,
+        buyQuantity: discountConfig.buyQuantity,
+        getQuantity: discountConfig.getQuantity,
+      });
+    } else {
+      await syncShopifyDiscount(admin, {
+        boxId: parseInt(id),
+        existingDiscountId: existing.shopifyDiscountId || null,
+        title: `${data.boxName ?? existing.boxName} Bundle Discount`,
+        discountType: discountConfig.discountType,
+        discountValue: discountConfig.discountValue,
+        shopifyProductId: existing.shopifyProductId,
+      });
     }
   }
 
@@ -807,6 +1813,18 @@ export async function deleteBox(id, shop, admin = null) {
       });
     } catch (e) {
       console.error("[deleteBox] Failed to delete Shopify product", e);
+    }
+  }
+
+  // Delete associated Shopify automatic discount
+  if (admin && existing.shopifyDiscountId) {
+    const deleted = await deleteShopifyAutomaticDiscount(
+      admin,
+      existing.shopifyDiscountId,
+      "deleteBox",
+    );
+    if (!deleted) {
+      console.error("[deleteBox] Failed to delete Shopify discount", existing.shopifyDiscountId);
     }
   }
 

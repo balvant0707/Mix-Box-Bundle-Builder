@@ -3,9 +3,9 @@ const APP_LOGO = "cid:mixbox-logo";
 
 /**
  * Generates the HTML for the app-uninstalled goodbye email.
- * @param {{ ownerName: string, shopName: string, shopDomain: string }} data
+ * @param {{ ownerName: string, shopName: string, shopDomain: string, feedbackUrl?: string | null }} data
  */
-export function uninstalledEmailHtml({ ownerName, shopName, shopDomain }) {
+export function uninstalledEmailHtml({ ownerName, shopName, shopDomain, feedbackUrl }) {
   const firstName = ownerName ? ownerName.split(" ")[0] : "there";
   const storeUrl = `https://${shopDomain}/admin/apps`;
   const ownerCompany = process.env.APP_OWNER_NAME || "Pryxo Tech Private Limited";
@@ -42,7 +42,7 @@ export function uninstalledEmailHtml({ ownerName, shopName, shopDomain }) {
             <td style="background:linear-gradient(135deg,#1f2937 0%,#374151 100%);
                        padding:36px 48px 32px;text-align:center;">
               <div style="font-size:44px;margin-bottom:12px;">😢</div>
-              <h1 style="margin:0 0 8px;color:#ffffff;font-size:26px;font-weight:700;letter-spacing:-0.4px;">
+              <h1 style="margin:0 0 8px;color:#000000;font-size:26px;font-weight:700;letter-spacing:-0.4px;">
                 We're sad to see you go
               </h1>
               <p style="margin:0;color:rgba(255,255,255,0.78);font-size:15px;">
@@ -123,7 +123,7 @@ export function uninstalledEmailHtml({ ownerName, shopName, shopDomain }) {
                       configurations will still be saved and waiting for you.
                     </p>
                     <a href="${storeUrl}"
-                      style="display:inline-block;background:#2A7A4F;color:#ffffff;
+                      style="display:inline-block;background:#2A7A4F;color:#000000;
                              text-decoration:none;padding:13px 32px;border-radius:10px;
                              font-size:14px;font-weight:700;
                              box-shadow:0 4px 14px rgba(42,122,79,0.35);">
@@ -133,8 +133,10 @@ export function uninstalledEmailHtml({ ownerName, shopName, shopDomain }) {
                 </tr>
               </table>
 
-              <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;text-align:center;">
-                Have feedback? Simply reply to this email — we read every message.
+                            <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;text-align:center;">
+                Have feedback? ${feedbackUrl
+      ? `<a href="${feedbackUrl}" style="color:#2A7A4F;font-weight:600;text-decoration:none;">Share feedback here</a>`
+      : "Simply reply to this email"} — we read every message.
               </p>
 
             </td>
@@ -149,7 +151,7 @@ export function uninstalledEmailHtml({ ownerName, shopName, shopDomain }) {
               <p style="margin:0 0 4px;font-size:13px;color:#374151;font-weight:600;">
                 ${APP_NAME}
               </p>
-              <p style="margin:0 0 4px;font-size:12px;color:#6b7280;">
+              <p style="margin:0 0 4px;font-size:12px;color: #000000;">
                 A Shopify App by <strong>${ownerCompany}</strong>
               </p>
               <p style="margin:0;font-size:11px;color:#9ca3af;">
@@ -166,3 +168,5 @@ export function uninstalledEmailHtml({ ownerName, shopName, shopDomain }) {
 </body>
 </html>`;
 }
+
+

@@ -31,11 +31,11 @@ function applyPrismaPoolParams(databaseUrl, serverless) {
     return databaseUrl;
   }
 
-  // Serverless: each function instance needs only 1 connection.
-  // Multiple concurrent invocations × 3 connections each quickly exhausts MySQL
-  // max_connections. 1 connection per instance + pool_timeout=10 avoids this.
-  const defaultConnectionLimit = serverless ? 1 : null;
-  const defaultPoolTimeout = serverless ? 10 : null;
+  // Serverless: allow 3 connections per instance so Promise.all() loaders that
+  // fire 2-3 concurrent queries don't time out waiting for a single slot.
+  // pool_timeout raised to 20s to handle cold-start latency on shared hosting.
+  const defaultConnectionLimit = serverless ? 3 : null;
+  const defaultPoolTimeout = serverless ? 20 : null;
 
   const configuredConnectionLimit = asPositiveInt(process.env.PRISMA_CONNECTION_LIMIT);
   const configuredPoolTimeout     = asPositiveInt(process.env.PRISMA_POOL_TIMEOUT);
@@ -123,7 +123,38 @@ CREATE TABLE IF NOT EXISTS \`shop\` (
   \`onboardedAt\` DATETIME(3) NULL,
   \`uninstalledAt\` DATETIME(3) NULL,
   \`announcementEmailSentAt\` DATETIME(3) NULL,
+  \`reviewPromptDelayDays\` INTEGER NOT NULL DEFAULT 7,
+  \`reviewPopupDismissedAt\` DATETIME(3) NULL,
+  \`reviewSubmittedAt\` DATETIME(3) NULL,
+  \`reviewRating\` INTEGER NULL,
+  \`reviewComment\` TEXT NULL,
   UNIQUE INDEX \`Shop_shop_key\`(\`shop\`),
+  PRIMARY KEY (\`id\`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+`;
+
+const ENSURE_UNINSTALL_FEEDBACK_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS \`uninstallfeedback\` (
+  \`id\` INTEGER NOT NULL AUTO_INCREMENT,
+  \`shop\` VARCHAR(255) NOT NULL,
+  \`ownerName\` VARCHAR(255) NULL,
+  \`email\` VARCHAR(320) NULL,
+  \`contactEmail\` VARCHAR(320) NULL,
+  \`feedbackText\` TEXT NULL,
+  \`feedbackToken\` VARCHAR(128) NULL,
+  \`feedbackSubmittedAt\` DATETIME(3) NULL,
+  \`uninstalledAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  UNIQUE INDEX \`uninstallfeedback_feedbackToken_key\` (\`feedbackToken\`),
+  INDEX \`UninstallFeedback_shop_idx\` (\`shop\`),
+  PRIMARY KEY (\`id\`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+`;
+
+const ENSURE_FEEDBACK_MSG_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS \`feedbackmsg\` (
+  \`id\` INTEGER NOT NULL AUTO_INCREMENT,
+  \`feedbackText\` TEXT NOT NULL,
+  \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   PRIMARY KEY (\`id\`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 `;
@@ -134,6 +165,8 @@ CREATE TABLE IF NOT EXISTS \`combo_box\` (
   \`shop\` VARCHAR(191) NOT NULL,
   \`boxName\` VARCHAR(255) NOT NULL,
   \`displayTitle\` VARCHAR(255) NOT NULL,
+  \`comboProductButtonTitle\` VARCHAR(100) NULL,
+  \`productButtonTitle\` VARCHAR(100) NULL,
   \`itemCount\` INTEGER NOT NULL DEFAULT 1,
   \`bundlePrice\` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   \`isGiftBox\` BOOLEAN NOT NULL DEFAULT false,
@@ -174,6 +207,8 @@ CREATE TABLE IF NOT EXISTS \`bundle_order\` (
   \`id\` INTEGER NOT NULL AUTO_INCREMENT,
   \`shop\` VARCHAR(191) NOT NULL,
   \`orderId\` VARCHAR(255) NOT NULL,
+  \`orderName\` VARCHAR(64) NULL,
+  \`orderNumber\` INTEGER NULL,
   \`boxId\` INTEGER NOT NULL,
   \`selectedProducts\` JSON NOT NULL,
   \`bundlePrice\` DECIMAL(10,2) NOT NULL,
@@ -186,6 +221,11 @@ CREATE TABLE IF NOT EXISTS \`bundle_order\` (
   INDEX \`bundle_order_boxId_idx\` (\`boxId\`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 `;
+
+const ENSURE_BUNDLE_ORDER_COLUMNS_SQL = [
+  "ALTER TABLE `bundle_order` ADD COLUMN IF NOT EXISTS `orderName` VARCHAR(64) NULL;",
+  "ALTER TABLE `bundle_order` ADD COLUMN IF NOT EXISTS `orderNumber` INTEGER NULL;",
+];
 
 const ENSURE_APP_SETTINGS_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS \`app_settings\` (
@@ -219,6 +259,21 @@ const ENSURE_APP_SETTINGS_COLUMNS_SQL = [
   "ALTER TABLE `app_settings` ADD COLUMN IF NOT EXISTS `productCardsPerRow` INTEGER NULL DEFAULT 4;",
 ];
 
+const ENSURE_SHOP_COLUMNS_SQL = [
+  "ALTER TABLE `shop` ADD COLUMN IF NOT EXISTS `reviewPromptDelayDays` INTEGER NOT NULL DEFAULT 7;",
+  "ALTER TABLE `shop` ADD COLUMN IF NOT EXISTS `reviewPopupDismissedAt` DATETIME(3) NULL;",
+  "ALTER TABLE `shop` ADD COLUMN IF NOT EXISTS `reviewSubmittedAt` DATETIME(3) NULL;",
+  "ALTER TABLE `shop` ADD COLUMN IF NOT EXISTS `reviewRating` INTEGER NULL;",
+  "ALTER TABLE `shop` ADD COLUMN IF NOT EXISTS `reviewComment` TEXT NULL;",
+];
+
+const ENSURE_COMBO_BOX_COLUMNS_SQL = [
+  "ALTER TABLE `combo_box` ADD COLUMN IF NOT EXISTS `boxCode` VARCHAR(10) NULL;",
+  "ALTER TABLE `combo_box` ADD COLUMN IF NOT EXISTS `comboProductButtonTitle` VARCHAR(100) NULL;",
+  "ALTER TABLE `combo_box` ADD COLUMN IF NOT EXISTS `productButtonTitle` VARCHAR(100) NULL;",
+  "ALTER TABLE `combo_box` ADD UNIQUE INDEX IF NOT EXISTS `combo_box_boxCode_key` (`boxCode`);",
+];
+
 // Persist across hot-reloads AND across warm serverless invocations in the
 // same container so the DDL only fires once per process lifetime.
 // Retry a DB operation with exponential backoff for transient connection errors.
@@ -229,19 +284,56 @@ export async function withDbRetry(fn, { retries = 3, delayMs = 500 } = {}) {
       return await fn();
     } catch (err) {
       lastErr = err;
+      const errMessage = err?.message || "";
+      // MySQL error code embedded in PrismaClientUnknownRequestError messages
+      const mysqlCode = (() => {
+        const m = errMessage.match(/code:\s*(\d+)/);
+        return m ? Number(m[1]) : null;
+      })();
       const isTransient =
-        err?.message?.includes("Can't reach database") ||
-        err?.message?.includes("Connection refused") ||
-        err?.message?.includes("ECONNREFUSED") ||
-        err?.message?.includes("ETIMEDOUT") ||
-        err?.errorCode === "P1001" ||   // Prisma: unreachable
-        err?.errorCode === "P1002";     // Prisma: timed out
+        errMessage.includes("Can't reach database") ||
+        errMessage.includes("Server has closed the connection") ||
+        errMessage.includes("Connection terminated unexpectedly") ||
+        errMessage.includes("Connection refused") ||
+        errMessage.includes("ECONNREFUSED") ||
+        errMessage.includes("ETIMEDOUT") ||
+        errMessage.includes("Timed out fetching a new connection") ||
+        errMessage.includes("Prisma session storage is not ready") ||
+        errMessage.includes("Error obtaining session table") ||
+        errMessage.includes("does not exist in the current database") ||
+        // MySQL 1205: lock wait timeout - concurrent upserts on the same row
+        errMessage.includes("Lock wait timeout exceeded") ||
+        mysqlCode === 1205 ||
+        // MySQL 1213: deadlock - retry immediately resolves it
+        errMessage.includes("Deadlock found when trying to get lock") ||
+        mysqlCode === 1213 ||
+        err?.code === "P1001" ||       // Prisma: unreachable
+        err?.code === "P1002" ||       // Prisma: timed out
+        err?.code === "P1017" ||       // Prisma: connection closed by server
+        err?.code === "P2024" ||       // Prisma: connection pool timeout
+        err?.errorCode === "P1001" ||  // Prisma: unreachable
+        err?.errorCode === "P1002" ||  // Prisma: timed out
+        err?.errorCode === "P1017" ||  // Prisma: connection closed by server
+        err?.errorCode === "P2024";    // Prisma: connection pool timeout
       if (!isTransient || attempt === retries) break;
-      const wait = delayMs * 2 ** attempt;
-      console.warn(`[DB] transient error (attempt ${attempt + 1}/${retries + 1}), retrying in ${wait}ms…`, err?.message);
+      // Lock/deadlock errors resolve faster - use a short random jitter so
+      // concurrent retries don't collide again on the exact same tick.
+      const isLockError = mysqlCode === 1205 || mysqlCode === 1213 ||
+        errMessage.includes("Lock wait timeout") || errMessage.includes("Deadlock");
+      const baseWait = isLockError ? 100 : delayMs * 2 ** attempt;
+      const wait = baseWait + Math.floor(Math.random() * 100);
+      console.warn(`[DB] transient error (attempt ${attempt + 1}/${retries + 1}), retrying in ${wait}ms...`, err?.message);
+      if (!isLockError) {
+        try {
+          // Drop stale pooled connections before retrying.
+          await prisma.$disconnect();
+        } catch {
+          // Best effort reconnect hint only.
+        }
+      }
       await new Promise((r) => setTimeout(r, wait));
       // Reset the cached promise so ensureAppTables re-runs after reconnect
-      globalThis.__ensureTablesPromise = null;
+      if (!isLockError) globalThis.__ensureTablesPromise = null;
     }
   }
   throw lastErr;
@@ -252,11 +344,22 @@ export function ensureAppTables() {
     globalThis.__ensureTablesPromise = (async () => {
       await prisma.$executeRawUnsafe(ENSURE_SESSION_TABLE_SQL);
       await prisma.$executeRawUnsafe(ENSURE_SHOP_TABLE_SQL);
+      await prisma.$executeRawUnsafe(ENSURE_UNINSTALL_FEEDBACK_TABLE_SQL);
+      await prisma.$executeRawUnsafe(ENSURE_FEEDBACK_MSG_TABLE_SQL);
       await prisma.$executeRawUnsafe(ENSURE_COMBO_BOX_TABLE_SQL);
       await prisma.$executeRawUnsafe(ENSURE_COMBO_BOX_PRODUCT_TABLE_SQL);
       await prisma.$executeRawUnsafe(ENSURE_BUNDLE_ORDER_TABLE_SQL);
       await prisma.$executeRawUnsafe(ENSURE_APP_SETTINGS_TABLE_SQL);
+      for (const sql of ENSURE_SHOP_COLUMNS_SQL) {
+        await prisma.$executeRawUnsafe(sql);
+      }
       for (const sql of ENSURE_APP_SETTINGS_COLUMNS_SQL) {
+        await prisma.$executeRawUnsafe(sql);
+      }
+      for (const sql of ENSURE_COMBO_BOX_COLUMNS_SQL) {
+        await prisma.$executeRawUnsafe(sql);
+      }
+      for (const sql of ENSURE_BUNDLE_ORDER_COLUMNS_SQL) {
         await prisma.$executeRawUnsafe(sql);
       }
     })().catch((err) => {
@@ -270,4 +373,3 @@ export function ensureAppTables() {
 }
 
 export default prisma;
-

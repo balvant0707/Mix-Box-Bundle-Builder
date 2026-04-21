@@ -51,59 +51,91 @@ model shop {
   onboardedAt             DateTime?
   uninstalledAt           DateTime?
   announcementEmailSentAt DateTime?
+  reviewPromptDelayDays   Int       @default(7)
+  reviewPopupDismissedAt  DateTime?
+  reviewSubmittedAt       DateTime?
+  reviewRating            Int?
+  reviewComment           String?   @db.Text
+}
+
+model uninstallfeedback {
+  id                  Int       @id @default(autoincrement())
+  shop                String    @db.VarChar(255)
+  ownerName           String?   @db.VarChar(255)
+  email               String?   @db.VarChar(320)
+  contactEmail        String?   @db.VarChar(320)
+  feedbackText        String?   @db.Text
+  feedbackToken       String?   @unique @db.VarChar(128)
+  feedbackSubmittedAt DateTime?
+  uninstalledAt       DateTime  @default(now())
+
+  @@index([shop], map: "UninstallFeedback_shop_idx")
+}
+
+model feedbackmsg {
+  id           Int      @id @default(autoincrement())
+  feedbackText String   @db.Text
+  createdAt    DateTime @default(now())
 }
 
 model ComboBox {
-  id                  Int               @id @default(autoincrement())
-  shop                String
-  boxName             String            @db.VarChar(255)
-  displayTitle        String            @db.VarChar(255)
-  itemCount           Int               @default(1)
-  bundlePrice         Decimal           @db.Decimal(10, 2)
-  bundlePriceType     String            @default("manual") @db.VarChar(10)
-  isGiftBox           Boolean           @default(false)
-  allowDuplicates     Boolean           @default(false)
-  bannerImageUrl      String?           @db.VarChar(500)
-  sortOrder           Int               @default(0)
-  isActive            Boolean           @default(true)
-  giftMessageEnabled  Boolean           @default(false)
-  shopifyProductId    String?           @db.VarChar(255)
-  shopifyVariantId    String?           @db.VarChar(255)
-  deletedAt           DateTime?
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
-  bannerImageData     Bytes?            @db.MediumBlob
-  bannerImageFileName String?           @db.VarChar(255)
-  bannerImageMimeType String?           @db.VarChar(100)
-  comboStepsConfig    String?           @map("combo_steps_config") @db.LongText
-  scopeType           String            @default("specific_collections") @db.VarChar(30)
-  scopeItemsJson      String?           @db.LongText
-  pageHandle          String?           @db.VarChar(255)
-  orders              BundleOrder[]
-  products            ComboBoxProduct[]
-  config              ComboBoxConfig?
-  stepImages          ComboStepImage[]
+  id                      Int               @id @default(autoincrement())
+  shop                    String
+  boxName                 String            @db.VarChar(255)
+  displayTitle            String            @db.VarChar(255)
+  comboProductButtonTitle String?           @db.VarChar(100)
+  productButtonTitle      String?           @db.VarChar(100)
+  itemCount               Int               @default(1)
+  bundlePrice             Decimal           @db.Decimal(10, 2)
+  bundlePriceType         String            @default("manual") @db.VarChar(10)
+  isGiftBox               Boolean           @default(false)
+  allowDuplicates         Boolean           @default(false)
+  bannerImageUrl          String?           @db.VarChar(500)
+  sortOrder               Int               @default(0)
+  isActive                Boolean           @default(true)
+  giftMessageEnabled      Boolean           @default(false)
+  shopifyProductId        String?           @db.VarChar(255)
+  shopifyVariantId        String?           @db.VarChar(255)
+  shopifyDiscountId       String?           @db.VarChar(255)
+  deletedAt               DateTime?
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
+  bannerImageData         Bytes?            @db.MediumBlob
+  bannerImageFileName     String?           @db.VarChar(255)
+  bannerImageMimeType     String?           @db.VarChar(100)
+  comboStepsConfig        String?           @map("combo_steps_config") @db.LongText
+  scopeType               String            @default("specific_collections") @db.VarChar(30)
+  scopeItemsJson          String?           @db.LongText
+  pageHandle              String?           @db.VarChar(255)
+  boxCode                 String?           @unique @db.VarChar(10)
+  orders                  BundleOrder[]
+  products                ComboBoxProduct[]
+  config                  ComboBoxConfig?
+  stepImages              ComboStepImage[]
 
   @@index([shop])
   @@map("combo_box")
 }
 
 model ComboBoxConfig {
-  id                Int      @id @default(autoincrement())
-  boxId             Int      @unique
-  comboType         Int      @default(2)
-  title             String?  @db.VarChar(255)
-  subtitle          String?  @db.VarChar(255)
-  bundlePrice       Decimal? @db.Decimal(10, 2)
-  bundlePriceType   String?  @default("manual") @db.VarChar(10)
-  isActive          Boolean  @default(true)
-  showProductImages Boolean  @default(true)
-  showProgressBar   Boolean  @default(true)
-  allowReselection  Boolean  @default(true)
-  stepsJson         String?  @db.LongText
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  box               ComboBox @relation(fields: [boxId], references: [id], onDelete: Cascade)
+  id                 Int      @id @default(autoincrement())
+  boxId              Int      @unique
+  comboType          Int      @default(2)
+  title              String?  @db.VarChar(255)
+  subtitle           String?  @db.VarChar(255)
+  bundlePrice        Decimal? @db.Decimal(10, 2)
+  bundlePriceType    String?  @default("manual") @db.VarChar(10)
+  isActive           Boolean  @default(true)
+  isGiftBox          Boolean  @default(false)
+  allowDuplicates    Boolean  @default(false)
+  giftMessageEnabled Boolean  @default(false)
+  showProductImages  Boolean  @default(true)
+  showProgressBar    Boolean  @default(true)
+  allowReselection   Boolean  @default(true)
+  stepsJson          String?  @db.LongText
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  box                ComboBox @relation(fields: [boxId], references: [id], onDelete: Cascade)
 
   @@map("combo_box_config")
 }
@@ -144,6 +176,8 @@ model BundleOrder {
   id               Int      @id @default(autoincrement())
   shop             String
   orderId          String   @db.VarChar(255)
+  orderName        String?  @db.VarChar(64)
+  orderNumber      Int?
   boxId            Int
   selectedProducts String   @db.LongText
   bundlePrice      Decimal  @db.Decimal(10, 2)
@@ -180,4 +214,21 @@ model AppSettings {
   productCardsPerRow Int?     @default(4)
 
   @@map("app_settings")
+}
+
+model Subscription {
+  id               String    @id @default(uuid()) @db.VarChar(36)
+  shop             String    @unique @db.VarChar(255)
+  plan             String    @default("FREE") @db.VarChar(20)
+  status           String    @default("NONE") @db.VarChar(20)
+  subscriptionId   String?   @db.VarChar(255)
+  trialEndsAt      DateTime?
+  currentPeriodEnd DateTime?
+  freeActivatedAt  DateTime?
+  planStartedAt    DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([shop])
+  @@map("subscription")
 }

@@ -3,7 +3,6 @@ import db from "../db.server";
 const DEFAULTS = {
   widgetHeadingText: "Pick your favorite products and build your own box!",
   ctaButtonLabel: "BUILD YOUR OWN BOX",
-  addToCartLabel: "Add To Cart",
   buttonColor: "#2A7A4F",
   activeSlotColor: "#2A7A4F",
   showSavingsBadge: false,
@@ -30,10 +29,17 @@ export async function getSettings(shop) {
 }
 
 export async function upsertSettings(shop, data) {
+  const existing = await db.appSettings.findUnique({ where: { shop } });
+
   const payload = {
-    widgetHeadingText: data.widgetHeadingText ?? DEFAULTS.widgetHeadingText,
-    ctaButtonLabel: data.ctaButtonLabel ?? DEFAULTS.ctaButtonLabel,
-    addToCartLabel: data.addToCartLabel ?? DEFAULTS.addToCartLabel,
+    widgetHeadingText:
+      data.widgetHeadingText === undefined || data.widgetHeadingText === null
+        ? (existing?.widgetHeadingText ?? DEFAULTS.widgetHeadingText)
+        : data.widgetHeadingText,
+    ctaButtonLabel:
+      data.ctaButtonLabel === undefined || data.ctaButtonLabel === null
+        ? (existing?.ctaButtonLabel ?? DEFAULTS.ctaButtonLabel)
+        : data.ctaButtonLabel,
     buttonColor: data.buttonColor ?? DEFAULTS.buttonColor,
     activeSlotColor: data.activeSlotColor ?? DEFAULTS.activeSlotColor,
     // Checkboxes: absent field = unchecked = false (never fall back to default)
@@ -42,8 +48,14 @@ export async function upsertSettings(shop, data) {
     showProductPrices: parseBool(data.showProductPrices, false),
     forceShowOos: parseBool(data.forceShowOos, false),
     giftMessageField: parseBool(data.giftMessageField, false),
-    analyticsTracking: parseBool(data.analyticsTracking, false),
-    emailNotifications: parseBool(data.emailNotifications, false),
+    analyticsTracking:
+      data.analyticsTracking === undefined || data.analyticsTracking === null
+        ? (existing?.analyticsTracking ?? DEFAULTS.analyticsTracking)
+        : parseBool(data.analyticsTracking, false),
+    emailNotifications:
+      data.emailNotifications === undefined || data.emailNotifications === null
+        ? (existing?.emailNotifications ?? DEFAULTS.emailNotifications)
+        : parseBool(data.emailNotifications, false),
     presetTheme: data.presetTheme ?? DEFAULTS.presetTheme,
     widgetMaxWidth: parseWidgetMaxWidth(data.widgetMaxWidth),
     productCardsPerRow: parseProductCardsPerRow(data.productCardsPerRow),

@@ -1,4 +1,4 @@
-import db from "../db.server";
+import db, { withDbRetry } from "../db.server";
 
 const SHOP_DETAILS_QUERY = `#graphql
   query AppShopDetails {
@@ -36,6 +36,15 @@ function normalizeScope(scope) {
   return String(scope);
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const REVIEW_PROMPT_DEFAULT_DELAY_DAYS = 7;
+const REVIEW_PROMPT_SNOOZE_DAYS = 1;
+
+function normalizePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export async function upsertSessionFromAuth(session) {
   console.info("[DB Sync] upsertSessionFromAuth", {
     shop: session.shop,
@@ -45,46 +54,45 @@ export async function upsertSessionFromAuth(session) {
 
   const associatedUser = session.onlineAccessInfo?.associated_user;
 
-  await db.session.upsert({
-    where: { id: session.id },
-    create: {
-      id: session.id,
-      shop: session.shop,
-      state: session.state ?? "",
-      isOnline: session.isOnline,
-      scope: normalizeScope(session.scope),
-      expires: session.expires ?? null,
-      accessToken: session.accessToken ?? "",
-      userId: toBigIntOrNull(associatedUser?.id),
-      firstName: associatedUser?.first_name ?? null,
-      lastName: associatedUser?.last_name ?? null,
-      email: associatedUser?.email ?? null,
-      accountOwner: associatedUser?.account_owner ?? false,
-      locale: associatedUser?.locale ?? null,
-      collaborator: associatedUser?.collaborator ?? false,
-      emailVerified: associatedUser?.email_verified ?? false,
-      refreshToken: session.refreshToken ?? null,
-      refreshTokenExpires: session.refreshTokenExpires ?? null,
-    },
-    update: {
-      shop: session.shop,
-      state: session.state ?? "",
-      isOnline: session.isOnline,
-      scope: normalizeScope(session.scope),
-      expires: session.expires ?? null,
-      accessToken: session.accessToken ?? "",
-      userId: toBigIntOrNull(associatedUser?.id),
-      firstName: associatedUser?.first_name ?? null,
-      lastName: associatedUser?.last_name ?? null,
-      email: associatedUser?.email ?? null,
-      accountOwner: associatedUser?.account_owner ?? false,
-      locale: associatedUser?.locale ?? null,
-      collaborator: associatedUser?.collaborator ?? false,
-      emailVerified: associatedUser?.email_verified ?? false,
-      refreshToken: session.refreshToken ?? null,
-      refreshTokenExpires: session.refreshTokenExpires ?? null,
-    },
-  });
+  const sessionPayload = {
+    shop: session.shop,
+    state: session.state ?? "",
+    isOnline: session.isOnline,
+    scope: normalizeScope(session.scope),
+    expires: session.expires ?? null,
+    accessToken: session.accessToken ?? "",
+    userId: toBigIntOrNull(associatedUser?.id),
+    firstName: associatedUser?.first_name ?? null,
+    lastName: associatedUser?.last_name ?? null,
+    email: associatedUser?.email ?? null,
+    accountOwner: associatedUser?.account_owner ?? false,
+    locale: associatedUser?.locale ?? null,
+    collaborator: associatedUser?.collaborator ?? false,
+    emailVerified: associatedUser?.email_verified ?? false,
+    refreshToken: session.refreshToken ?? null,
+    refreshTokenExpires: session.refreshTokenExpires ?? null,
+  };
+
+  await withDbRetry(async () => {
+    const updateResult = await db.session.updateMany({
+      where: { id: session.id },
+      data: sessionPayload,
+    });
+    if (updateResult.count > 0) return;
+
+    try {
+      await db.session.create({
+        data: { id: session.id, ...sessionPayload },
+      });
+    } catch (err) {
+      // Another concurrent request created the row between updateMany and create.
+      if (err?.code !== "P2002") throw err;
+      await db.session.update({
+        where: { id: session.id },
+        data: sessionPayload,
+      });
+    }
+  }, { retries: 5, delayMs: 200 });
 }
 
 export async function upsertShopFromAdmin(session, admin) {
@@ -190,6 +198,52 @@ export async function upsertShopFromAdmin(session, admin) {
   };
 }
 
+/**
+ * Records which app plan the merchant has chosen.
+ * status: "free" | "active" (pro subscription confirmed)
+ * Called from the plan selection page action / billing return URL.
+ */
+export async function setShopPlanStatus(shop, status) {
+  await db.shop.upsert({
+    where: { shop },
+    create: {
+      shop,
+      status,
+      installed: true,
+    },
+    update: {
+      status,
+      installed: true,
+    },
+  });
+}
+
+/**
+ * Returns the shop's current plan-selection status, or null if not found.
+ */
+export async function getShopStatus(shop) {
+  const row = await db.shop.findUnique({ where: { shop }, select: { status: true } });
+  return row?.status ?? null;
+}
+
+export async function getShopCurrencyCode(shop) {
+  const row = await db.shop.findUnique({
+    where: { shop },
+    select: { currency: true },
+  });
+  return row?.currency || "USD";
+}
+
+export async function getShopOwnerDisplayName(shop) {
+  const row = await db.shop.findUnique({
+    where: { shop },
+    select: { ownerName: true, name: true },
+  });
+  const owner = typeof row?.ownerName === "string" ? row.ownerName.trim() : "";
+  const shopName = typeof row?.name === "string" ? row.name.trim() : "";
+  return owner || shopName || shop;
+}
+
 export async function markShopUninstalled(shop) {
   console.info("[DB Sync] markShopUninstalled", { shop });
 
@@ -221,4 +275,80 @@ export async function updateShopScope(shop, scope) {
     where: { shop },
     data: { scope: normalizeScope(scope) },
   });
+}
+
+export async function getShopReviewPromptState(shopDomain) {
+  const [row, comboBoxCount] = await Promise.all([
+    db.shop.findUnique({
+      where: { shop: shopDomain },
+      select: {
+        createdAt: true,
+        reviewPromptDelayDays: true,
+        reviewPopupDismissedAt: true,
+        reviewSubmittedAt: true,
+      },
+    }),
+    db.comboBox.count({
+      where: {
+        shop: shopDomain,
+        deletedAt: null,
+      },
+    }),
+  ]);
+
+  const now = new Date();
+
+  const createdAt = row?.createdAt ? new Date(row.createdAt) : null;
+  const delayDays = normalizePositiveInt(row?.reviewPromptDelayDays, REVIEW_PROMPT_DEFAULT_DELAY_DAYS);
+  const daysSinceInstall = createdAt ? Math.floor((now.getTime() - createdAt.getTime()) / DAY_MS) : 0;
+
+  const dismissedAt = row?.reviewPopupDismissedAt ? new Date(row.reviewPopupDismissedAt) : null;
+  const snoozeUntil = dismissedAt ? new Date(dismissedAt.getTime() + REVIEW_PROMPT_SNOOZE_DAYS * DAY_MS) : null;
+  const isSnoozed = snoozeUntil ? now.getTime() < snoozeUntil.getTime() : false;
+
+  const hasSubmittedReview = Boolean(row?.reviewSubmittedAt);
+  const milestoneComboCount = 5;
+  const milestoneReached = comboBoxCount >= milestoneComboCount;
+  const shouldShow = Boolean(createdAt && milestoneReached && !isSnoozed && !hasSubmittedReview);
+
+  return {
+    shouldShow,
+    comboBoxCount,
+    milestoneComboCount,
+    daysSinceInstall: Math.max(0, daysSinceInstall),
+    delayDays,
+    snoozeDays: REVIEW_PROMPT_SNOOZE_DAYS,
+  };
+}
+
+export async function dismissShopReviewPrompt(shopDomain) {
+  await db.$executeRaw`
+    UPDATE shop
+    SET reviewPopupDismissedAt = NOW(3),
+        updatedAt = NOW(3)
+    WHERE shop = ${shopDomain}
+  `;
+}
+
+export async function submitShopReview(shopDomain, { rating, feedback }) {
+  const parsedRating = Number.parseInt(String(rating), 10);
+  const safeRating =
+    Number.isFinite(parsedRating) && parsedRating >= 1 && parsedRating <= 5
+      ? parsedRating
+      : null;
+
+  const safeFeedback =
+    typeof feedback === "string" && feedback.trim().length > 0
+      ? feedback.trim().slice(0, 2000)
+      : null;
+
+  await db.$executeRaw`
+    UPDATE shop
+    SET reviewSubmittedAt = NOW(3),
+        reviewPopupDismissedAt = NULL,
+        reviewRating = ${safeRating},
+        reviewComment = ${safeFeedback},
+        updatedAt = NOW(3)
+    WHERE shop = ${shopDomain}
+  `;
 }

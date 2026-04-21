@@ -1,10 +1,17 @@
-import { useState, useMemo } from "react";
-import { Form, useActionData, useFetcher, useLoaderData, useLocation, useNavigation, useRouteError } from "react-router";
+import { useState, useRef, useCallback } from "react";
+import { Form, useActionData, useLoaderData, useLocation, useNavigate, useNavigation, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
-import { AdminIcon } from "../components/admin-icons";
 import { getBox, updateBox, deleteBox, getBannerImageSrc } from "../models/boxes.server";
-import { withEmbeddedAppParams } from "../utils/embedded-app";
+import { getShopCurrencyCode } from "../models/shop.server";
+import { withEmbeddedAppParams, withEmbeddedAppToastFromRequest } from "../utils/embedded-app";
+import { getCurrencySymbol } from "../utils/currency";
+import { ToggleSwitch } from "../components/toggle-switch";
+import {
+  Banner, BlockStack, Box, Button, Card, Checkbox,
+  DropZone, FormLayout, InlineGrid, InlineStack, Layout, Modal, Page,
+  Select, Spinner, Text, TextField
+} from "@shopify/polaris";
 
 /* ─────────────────────────── GraphQL ─────────────────────────── */
 const COLLECTIONS_QUERY = `#graphql
@@ -39,6 +46,26 @@ const PRODUCTS_QUERY = `#graphql
   }
 `;
 
+const COLLECTION_PRODUCTS_QUERY = `#graphql
+  query CollectionProducts($id: ID!, $first: Int!) {
+    collection(id: $id) {
+      products(first: $first) {
+        edges {
+          node {
+            id
+            title
+            handle
+            featuredImage { url }
+            variants(first: 100) {
+              edges { node { id price } }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 /* ─────────────────────────── Constants ─────────────────────────── */
 const MAX_BANNER_IMAGE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_BANNER_MIME_TYPES = new Set([
@@ -59,6 +86,7 @@ async function parseBannerImage(formData, errors) {
 export const loader = async ({ request, params }) => {
   const { admin, session, redirect } = await authenticate.admin(request);
   const shop = session.shop;
+  const currencyCode = await getShopCurrencyCode(shop);
 
   const box = await getBox(params.id, shop);
   if (!box) throw redirect("/app/boxes");
@@ -108,9 +136,6 @@ export const loader = async ({ request, params }) => {
       bundlePrice:       cfg.bundlePrice != null ? parseFloat(cfg.bundlePrice) : undefined,
       bundlePriceType:   cfg.bundlePriceType   ?? undefined,
       isActive:          cfg.isActive,
-      showProductImages: cfg.showProductImages,
-      showProgressBar:   cfg.showProgressBar,
-      allowReselection:  cfg.allowReselection,
       steps,
     });
   } else if (box.comboStepsConfig) {
@@ -118,17 +143,36 @@ export const loader = async ({ request, params }) => {
   }
 
   let effectiveBundlePrice = parseFloat(box.bundlePrice) || 0;
-  if (effectiveBundlePrice === 0 && comboStepsConfig) {
+  let savedDiscountType = "percent";
+  let savedDiscountValue = "10";
+  let savedBoxSubtitle = "";
+  let savedBuyQuantity = "1";
+  let savedGetQuantity = "1";
+  let savedBundlePriceType = box.bundlePriceType || "manual";
+  if (comboStepsConfig) {
     try {
       const parsed = JSON.parse(comboStepsConfig);
-      effectiveBundlePrice = parseFloat(parsed.bundlePrice) || 0;
+      if (effectiveBundlePrice === 0) effectiveBundlePrice = parseFloat(parsed.bundlePrice) || 0;
+      if (parsed.bundlePriceType) savedBundlePriceType = parsed.bundlePriceType;
+      if (parsed.discountType) savedDiscountType = parsed.discountType;
+      if (parsed.discountValue != null) savedDiscountValue = String(parsed.discountValue);
+      if (typeof parsed.boxSubtitle === "string") savedBoxSubtitle = parsed.boxSubtitle;
+      if (parsed.buyQuantity != null) savedBuyQuantity = String(parsed.buyQuantity);
+      if (parsed.getQuantity != null) savedGetQuantity = String(parsed.getQuantity);
     } catch {}
+  }
+  if (savedBundlePriceType !== "dynamic") {
+    savedDiscountType = "none";
+    savedDiscountValue = "0";
+    savedBuyQuantity = "1";
+    savedGetQuantity = "1";
   }
 
   return {
-    box: { ...boxWithoutBinary, bundlePrice: effectiveBundlePrice, bannerImageSrc },
+    box: { ...boxWithoutBinary, bundlePrice: effectiveBundlePrice, bannerImageSrc, discountType: savedDiscountType, discountValue: savedDiscountValue, boxSubtitle: savedBoxSubtitle, buyQuantity: savedBuyQuantity, getQuantity: savedGetQuantity },
     products,
     collections,
+    currencyCode,
   };
 };
 
@@ -145,35 +189,83 @@ export const action = async ({ request, params }) => {
   }
 
   // Default: save box settings only (ComboBox table)
-  let eligibleProducts = [];
-  try { eligibleProducts = JSON.parse(formData.get("eligibleProducts") || "[]"); } catch {}
   let scopeItems = [];
   try { scopeItems = JSON.parse(formData.get("scopeItems") || "[]"); } catch {}
+  let eligibleProducts = [];
+  try { eligibleProducts = JSON.parse(formData.get("eligibleProducts") || "[]"); } catch {}
   const errors = {};
   const bannerImage = await parseBannerImage(formData, errors);
   const removeBannerImage = formData.get("removeBannerImage") === "true" && !bannerImage;
+  const scopeType = formData.get("scope") || "wholestore";
+  const bundlePriceType = formData.get("bundlePriceType") === "dynamic" ? "dynamic" : "manual";
+  const requestedDiscountType = bundlePriceType === "dynamic" ? (formData.get("discountType") || "none") : "none";
+  const discountType = requestedDiscountType === "buy_x_get_y" ? "none" : requestedDiscountType;
+  const discountValue = bundlePriceType === "dynamic"
+    ? (discountType === "none" ? "0" : (formData.get("discountValue") || "0"))
+    : "0";
+  const buyQuantity = bundlePriceType === "dynamic" ? (formData.get("buyQuantity") || "1") : "1";
+  const getQuantity = bundlePriceType === "dynamic" ? (formData.get("getQuantity") || "1") : "1";
+
+  const displayTitle = String(formData.get("displayTitle") || "").trim();
+  const boxName = String(formData.get("boxName") || displayTitle).trim();
 
   const data = {
-    boxName: formData.get("boxName"),
-    displayTitle: formData.get("displayTitle"),
+    boxName,
+    displayTitle,
+    comboProductButtonTitle: formData.get("comboProductButtonTitle") || "",
+    productButtonTitle: formData.get("productButtonTitle") || "",
     itemCount: formData.get("itemCount"),
     bundlePrice: formData.get("bundlePrice"),
-    bundlePriceType: formData.get("bundlePriceType"),
+    bundlePriceType,
+    discountType,
+    discountValue,
+    buyQuantity,
+    getQuantity,
     isGiftBox: formData.get("isGiftBox") === "true",
     allowDuplicates: formData.get("allowDuplicates") === "true",
     bannerImage,
     removeBannerImage,
     isActive: formData.get("isActive") === "true",
     giftMessageEnabled: formData.get("giftMessageEnabled") === "true",
-    eligibleProducts,
-    scopeType: formData.get("scope") || "specific_collections",
+    scopeType,
     scopeItems,
   };
-  if (!data.boxName?.trim()) errors.boxName = "Box name is required";
   if (!data.displayTitle?.trim()) errors.displayTitle = "Display title is required";
-  if (!data.itemCount || parseInt(data.itemCount) < 1) errors.itemCount = "Invalid item count";
+  if (!data.itemCount || parseInt(data.itemCount, 10) < 2 || parseInt(data.itemCount, 10) > 8) {
+    errors.itemCount = "Item count must be between 2 and 8";
+  }
+  if (data.giftMessageEnabled && !data.isGiftBox) errors.giftMessageEnabled = "Enable Gift Box Mode to use Gift Message Field.";
 
   if (Object.keys(errors).length > 0) return { errors };
+
+  // Build eligible products list for ComboBoxProduct table
+  if (scopeType === "specific_collections" && scopeItems.length > 0) {
+    const allProds = [];
+    for (const col of scopeItems) {
+      try {
+        const resp = await admin.graphql(COLLECTION_PRODUCTS_QUERY, { variables: { id: col.id, first: 100 } });
+        const json = await resp.json();
+        (json?.data?.collection?.products?.edges || []).forEach(({ node }) => {
+          allProds.push({
+            productId: node.id,
+            productTitle: node.title,
+            productHandle: node.handle || null,
+            productImageUrl: node.featuredImage?.url || null,
+            variantIds: (node.variants?.edges || []).map(({ node: v }) => v.id),
+            price: node.variants?.edges?.[0]?.node?.price || "0",
+          });
+        });
+      } catch (e) {
+        console.error("[edit box] Failed to expand collection:", col.id, e);
+      }
+    }
+    data.eligibleProducts = allProds;
+  } else if (scopeType === "specific_products" && eligibleProducts.length > 0) {
+    data.eligibleProducts = eligibleProducts;
+  } else if (scopeType === "wholestore") {
+    data.eligibleProducts = [];
+    data.replaceEligibleProducts = true;
+  }
 
   try {
     await updateBox(params.id, shop, data, admin);
@@ -182,379 +274,193 @@ export const action = async ({ request, params }) => {
     return { errors: { _global: "Failed to save changes. Please try again." } };
   }
 
-  throw redirect("/app/boxes");
+  throw redirect(
+    withEmbeddedAppToastFromRequest("/app/boxes", request, {
+      message: "Configuration saved successfully.",
+    }),
+  );
 };
 
 /* ─────────────────────────── Styles ─────────────────────────── */
-const fieldStyle = {
-  width: "100%", padding: "9px 12px", border: "1.5px solid #e5e7eb",
-  borderRadius: "5px", fontSize: "13px", color: "#111827", background: "#fff",
-  boxSizing: "border-box", outline: "none", transition: "border-color 0.15s",
-};
-const labelStyle = {
-  display: "block", fontSize: "11px", fontWeight: "700", color: "#4b5563",
-  marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.6px",
-};
-const errorStyle = { color: "#dc2626", fontSize: "11px", marginTop: "5px", display: "flex", alignItems: "center", gap: "4px" };
-
-const sectionHeadingStyle = {
-  fontSize: "11px", fontWeight: "700", color: "#6b7280", textTransform: "uppercase",
-  letterSpacing: "0.8px", marginBottom: "16px", paddingBottom: "10px",
-  borderBottom: "1.5px solid #f3f4f6", display: "flex", alignItems: "center", gap: "8px",
+const inputStyle = {
+  width: "100%", padding: "8px 12px", border: "1.5px solid #e5e7eb",
+  borderRadius: "6px", fontFamily: "inherit", fontSize: "12px", boxSizing: "border-box",
 };
 
 /* ─────────────────────────── Component ─────────────────────────── */
 export default function BoxSettingsPage() {
-  const { box, products, collections } = useLoaderData();
+  const { box, products, collections, currencyCode } = useLoaderData();
   const actionData = useActionData();
-  const searchFetcher = useFetcher();
   const location = useLocation();
+  const navigate = useNavigate();
   const navigation = useNavigation();
   const isSaving = navigation.state === "submitting";
+  const isPageLoading = navigation.state !== "idle";
+  const currencySymbol = getCurrencySymbol(currencyCode);
+  const [isBackNavigating, setIsBackNavigating] = useState(false);
+  const [clientErrors, setClientErrors] = useState({});
 
   const errors = actionData?.errors || {};
-  const productLookup = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
 
-  const initialSelected = useMemo(() =>
-    (box.products || []).map((p) => {
-      const matched = productLookup.get(p.productId);
-      let variantIds = [];
-      if (Array.isArray(p.variantIds)) { variantIds = p.variantIds; }
-      else if (typeof p.variantIds === "string" && p.variantIds.trim()) {
-        try { const parsed = JSON.parse(p.variantIds); if (Array.isArray(parsed)) variantIds = parsed; } catch {}
-      }
-      if (variantIds.length === 0) variantIds = Array.isArray(matched?.variantIds) && matched.variantIds.length > 0 ? matched.variantIds : (matched?.variantId ? [matched.variantId] : []);
-      return {
-        id: p.productId, productId: p.productId,
-        productTitle: p.productTitle || matched?.title || "",
-        productImageUrl: p.productImageUrl || matched?.imageUrl || null,
-        productHandle: p.productHandle || matched?.handle || null,
-        variantIds, price: parseFloat(matched?.price) || parseFloat(p.productPrice) || 0,
-      };
-    }), [box.products, productLookup]);
-
-  const [selectedProducts, setSelectedProducts] = useState(initialSelected);
-  const [productSearch, setProductSearch] = useState("");
-  const [showPicker, setShowPicker] = useState(false);
   const [options, setOptions] = useState({
     isGiftBox: box.isGiftBox, allowDuplicates: box.allowDuplicates,
-    giftMessageEnabled: box.giftMessageEnabled, isActive: box.isActive,
+    giftMessageEnabled: box.isGiftBox ? box.giftMessageEnabled : false, isActive: box.isActive,
   });
+  const [optionValidationMessage, setOptionValidationMessage] = useState("");
   const [itemCount, setItemCount] = useState(String(box.itemCount));
   const [priceMode, setPriceMode] = useState(box.bundlePriceType || "manual");
   const [manualPrice, setManualPrice] = useState(String(box.bundlePrice));
-  const [discountType, setDiscountType] = useState("percent");
-  const [discountValue, setDiscountValue] = useState("10");
-  const [scope, setScope] = useState(box.scopeType || "specific_collections");
+  const [discountType, setDiscountType] = useState(box.discountType === "buy_x_get_y" ? "none" : (box.discountType || "percent"));
+  const [discountValue, setDiscountValue] = useState(box.discountValue || "10");
+  const [buyQuantity, setBuyQuantity] = useState(box.buyQuantity || "1");
+  const [getQuantity, setGetQuantity] = useState(box.getQuantity || "1");
+  const [scope, setScope] = useState(box.scopeType || "wholestore");
   const [scopeItems, setScopeItems] = useState(() => {
+    // For specific_products: initialize from ComboBoxProduct records (full data) if available
+    if ((box.scopeType || "specific_collections") === "specific_products" && Array.isArray(box.products) && box.products.length > 0) {
+      return box.products.map(p => ({
+        id: p.productId,
+        title: p.productTitle || p.productId,
+        handle: p.productHandle || null,
+        imageUrl: p.productImageUrl || null,
+        variantIds: (() => { try { return JSON.parse(p.variantIds || "[]"); } catch { return []; } })(),
+        price: p.productPrice != null ? String(p.productPrice) : "0",
+      }));
+    }
+    // For collections (or fallback): use scopeItemsJson
     try { return JSON.parse(box.scopeItemsJson || "[]"); } catch { return []; }
   });
   const [showScopePicker, setShowScopePicker] = useState(false);
   const [scopeSearch, setScopeSearch] = useState("");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [removeBannerImage, setRemoveBannerImage] = useState(false);
+  const [bannerImagePreview, setBannerImagePreview] = useState(null);
+  const [bannerImageHover, setBannerImageHover] = useState(false);
+  const bannerImageRef = useRef(null);
 
-  const displayProducts = searchFetcher.data?.products || (productSearch ? products.filter((p) => p.title.toLowerCase().includes(productSearch.toLowerCase())) : products);
-  const numItemCount = Math.max(1, parseInt(itemCount) || 1);
-  const avgProductPrice = selectedProducts.length > 0 ? selectedProducts.reduce((s, p) => s + (parseFloat(p.price) || 0), 0) / selectedProducts.length : 0;
-  const estimatedTotal = avgProductPrice * numItemCount;
-  const dynamicPrice = useMemo(() => {
-    if (estimatedTotal <= 0) return 0;
-    const val = parseFloat(discountValue) || 0;
-    if (discountType === "percent") return Math.max(0, estimatedTotal * (1 - val / 100));
-    if (discountType === "fixed") return Math.max(0, estimatedTotal - val);
-    return estimatedTotal;
-  }, [estimatedTotal, discountType, discountValue]);
+  const handleBannerDrop = useCallback((_dropFiles, acceptedFiles) => {
+    const file = acceptedFiles[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setBannerImagePreview(ev.target?.result || null);
+    reader.readAsDataURL(file);
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    if (bannerImageRef.current) bannerImageRef.current.files = dt.files;
+    setRemoveBannerImage(false);
+  }, []);
+
+  const numItemCount = Math.min(8, Math.max(2, parseInt(itemCount, 10) || 2));
+  const dynamicPrice = 0;
   const bundlePrice = priceMode === "manual" ? parseFloat(manualPrice) || 0 : dynamicPrice;
 
   /* ── Box Settings helpers ── */
-  function handleSearchChange(e) {
-    const val = e.target.value;
-    setProductSearch(val);
-    if (val.length > 1) searchFetcher.load(withEmbeddedAppParams(`/app/boxes/${box.id}?q=${encodeURIComponent(val)}`, location.search));
-    else if (val.length === 0) searchFetcher.load(withEmbeddedAppParams(`/app/boxes/${box.id}`, location.search));
-  }
-  function toggleProduct(product) {
-    setSelectedProducts((prev) => {
-      const exists = prev.find((p) => p.id === product.id);
-      if (exists) return prev.filter((p) => p.id !== product.id);
-      return [...prev, { id: product.id, productId: product.id, productTitle: product.title, productImageUrl: product.imageUrl, productHandle: product.handle, variantIds: Array.isArray(product.variantIds) && product.variantIds.length > 0 ? product.variantIds : (product.variantId ? [product.variantId] : []), price: parseFloat(product.price) || 0 }];
+  function toggleOption(name) {
+    setOptions((prev) => {
+      if (name === "isGiftBox") {
+        const nextIsGiftBox = !prev.isGiftBox;
+        return { ...prev, isGiftBox: nextIsGiftBox, giftMessageEnabled: nextIsGiftBox };
+      }
+      if (name === "giftMessageEnabled") {
+        return { ...prev, giftMessageEnabled: !!prev.isGiftBox };
+      }
+      return { ...prev, [name]: !prev[name] };
     });
+    setOptionValidationMessage("");
   }
-  function toggleOption(name) { setOptions((prev) => ({ ...prev, [name]: !prev[name] })); }
-  const isSelected = (id) => selectedProducts.some((p) => p.id === id);
-  function openPicker() { setProductSearch(""); searchFetcher.load(withEmbeddedAppParams(`/app/boxes/${box.id}`, location.search)); setShowPicker(true); }
-  function closePicker() { setShowPicker(false); setProductSearch(""); }
+  function selectScope(nextScope) {
+    if (!nextScope || nextScope === scope) return;
+    setScope(nextScope);
+    setScopeItems([]);
+  }
+  function handleBackAction() {
+    setIsBackNavigating(true);
+    navigate(withEmbeddedAppParams("/app/boxes", location.search));
+  }
 
-  /* ── Shared modal styles ── */
-  const modalOverlayStyle = { position: "fixed", inset: 0, background: "rgba(17,24,39,0.55)", backdropFilter: "blur(3px)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" };
-  const modalBoxStyle = { background: "#fff", borderRadius: "8px", width: "100%", maxWidth: "560px", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.18)", overflow: "hidden" };
-  const modalHeaderStyle = { padding: "16px 20px", borderBottom: "1px solid #f3f4f6", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#ffffff" };
-  const modalBodyStyle = { flex: 1, overflowY: "auto" };
-  const modalFooterStyle = { padding: "14px 16px", borderTop: "1px solid #f3f4f6", background: "#ffffff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" };
-  const modalCloseBtn = { background: "none", border: "none", cursor: "pointer", fontSize: "18px", color: "#9ca3af", padding: "4px 8px", borderRadius: "5px", lineHeight: 1 };
-  const searchInputStyle = { ...fieldStyle, borderColor: "#d1d5db", paddingLeft: "14px", fontSize: "13px" };
+  function validateAndSubmit() {
+    const errs = {};
+    const titleEl = document.querySelector("#edit-box-form input[name='displayTitle']");
+    const titleVal = titleEl ? titleEl.value.trim() : (box.displayTitle || "").trim();
+    if (!titleVal) errs.displayTitle = "Bundle title is required";
+    const ic = parseInt(itemCount);
+    if (!itemCount || isNaN(ic) || ic < 2 || ic > 8) errs.itemCount = "Item count must be between 2 and 8";
+    if (priceMode === "manual" && (!manualPrice || parseFloat(manualPrice) <= 0)) errs.bundlePrice = "Bundle price is required";
+    if ((scope === "specific_collections" || scope === "specific_products") && scopeItems.length === 0) {
+      errs.scopeItems = "Please select at least one " + (scope === "specific_collections" ? "collection" : "product");
+    }
+    setClientErrors(errs);
+    if (Object.keys(errs).length === 0) {
+      document.getElementById("edit-box-form")?.requestSubmit();
+    }
+  }
 
   /* ─────────────── Render ─────────────── */
   return (
-    <s-page
-      heading={`Box Settings: ${box.boxName}`}
-      back-url={withEmbeddedAppParams("/app/boxes", location.search)}
+    <Page
+      title={`Edit: Simple Configuration`}
+      backAction={{ content: "Boxes", onAction: handleBackAction }}
+      primaryAction={{
+        content: isSaving ? "Saving..." : "Save Changes",
+        loading: isSaving,
+        onAction: validateAndSubmit,
+      }}
+      secondaryActions={[
+        {
+          content: "Delete Box",
+          destructive: true,
+          onAction: () => setShowDeleteConfirm(true),
+        },
+      ]}
     >
-      <ui-title-bar title={`Box Settings: ${box.boxName}`}>
-        <button onClick={() => document.getElementById("delete-box-form")?.requestSubmit()}>
-          Delete Box
-        </button>
-        <button variant="primary" onClick={() => document.getElementById("edit-box-form")?.requestSubmit()}>
-          {isSaving ? "Saving..." : "Save Changes"}
-        </button>
-      </ui-title-bar>
-
-      {/* Hero banner */}
-      <div style={{ marginBottom: "20px", borderRadius: "5px", background: "#ffffff", border: "1px solid #e5e7eb", boxShadow: "0 8px 24px rgba(15,23,42,0.08)", overflow: "hidden", position: "relative", padding: "24px 32px" }}>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#f3f4f6", borderRadius: "999px", padding: "4px 14px", fontSize: "10px", fontWeight: "800", letterSpacing: "0.10em", textTransform: "uppercase", color: "#000000", marginBottom: "10px" }}><AdminIcon type="clipboard" size="small" /> Box Settings</div>
-        <div style={{ fontSize: "18px", fontWeight: "800", color: "#000000", letterSpacing: "-0.5px" }}>{box.boxName}</div>
-        <div style={{ fontSize: "13px", color: "#4b5563", marginTop: "4px" }}>Update settings, pricing, and eligible products for this bundle.</div>
-      </div>
-
-
-
-    <s-section>
-
-      {errors._global && (
-        <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "5px", padding: "12px 16px", marginBottom: "16px", color: "#991b1b", fontSize: "13px", display: "flex", alignItems: "center", gap: "8px" }}>
-          <AdminIcon type="alert-triangle" size="small" />{errors._global}
+      {/* Loading overlay */}
+      {(isPageLoading || isBackNavigating) && (
+        <div
+          aria-live="polite"
+          aria-busy="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 10001,
+            background: "rgba(255,255,255,0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Spinner accessibilityLabel="Loading page" size="large" />
         </div>
       )}
 
-      <Form id="edit-box-form" method="POST" action={`/app/boxes/${box.id}${location.search}`} encType="multipart/form-data">
-        <input type="hidden" name="_action" value="save" />
-        <input type="hidden" name="bundlePrice" value={bundlePrice > 0 ? bundlePrice.toFixed(2) : ""} />
-        <input type="hidden" name="bundlePriceType" value={priceMode} />
-        <input type="hidden" name="itemCount" value={itemCount} />
-        <input type="hidden" name="eligibleProducts" value={JSON.stringify(selectedProducts)} />
-        <input type="hidden" name="isGiftBox" value={String(options.isGiftBox)} />
-        <input type="hidden" name="allowDuplicates" value={String(options.allowDuplicates)} />
-        <input type="hidden" name="giftMessageEnabled" value={String(options.giftMessageEnabled)} />
-        <input type="hidden" name="isActive" value={String(options.isActive)} />
-        <input type="hidden" name="scope" value={scope} />
-        <input type="hidden" name="scopeItems" value={JSON.stringify(scopeItems)} />
+      {/* Delete Confirmation Modal */}
+      <Modal
+        open={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        title="Delete this box?"
+        primaryAction={{
+          content: "Delete",
+          destructive: true,
+          onAction: () => {
+            const form = document.createElement("form");
+            form.method = "POST";
+            const input = document.createElement("input");
+            input.type = "hidden";
+            input.name = "_action";
+            input.value = "delete";
+            form.appendChild(input);
+            document.body.appendChild(form);
+            form.submit();
+          },
+        }}
+        secondaryActions={[{ content: "Cancel", onAction: () => setShowDeleteConfirm(false) }]}
+      >
+        <Modal.Section>
+          <Text>This will permanently delete "{box.boxName}" and all its settings.</Text>
+        </Modal.Section>
+      </Modal>
 
-        {/* Basic Information */}
-        <div style={{ marginBottom: "28px" }}>
-          <div style={sectionHeadingStyle}><AdminIcon type="clipboard" size="small" /> Basic Information</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
-            <div>
-              <label style={labelStyle}>Box Internal Name *</label>
-              <input type="text" name="boxName" defaultValue={box.boxName} style={{ ...fieldStyle, borderColor: errors.boxName ? "#e11d48" : "#d1d5db" }} />
-              {errors.boxName && <div style={errorStyle}>{errors.boxName}</div>}
-            </div>
-            <div>
-              <label style={labelStyle}>Display Title (Storefront) *</label>
-              <input type="text" name="displayTitle" defaultValue={box.displayTitle} style={{ ...fieldStyle, borderColor: errors.displayTitle ? "#e11d48" : "#d1d5db" }} />
-              {errors.displayTitle && <div style={errorStyle}>{errors.displayTitle}</div>}
-            </div>
-            <div>
-              <label style={labelStyle}>Number of Items *</label>
-              <input type="number" placeholder="e.g. 4" min="1" max="20" value={itemCount} onChange={(e) => setItemCount(e.target.value)} style={{ ...fieldStyle, borderColor: errors.itemCount ? "#e11d48" : "#d1d5db" }} />
-              {errors.itemCount && <div style={errorStyle}>{errors.itemCount}</div>}
-            </div>
-            <div>
-              <label style={labelStyle}>Bundle Price (₹) *</label>
-              <div style={{ display: "flex", border: "1px solid #d1d5db", borderRadius: "5px", overflow: "hidden", marginBottom: "10px" }}>
-                {["manual", "dynamic"].map((mode) => (
-                  <button key={mode} type="button" onClick={() => setPriceMode(mode)} style={{ flex: 1, padding: "7px 0", fontSize: "12px", fontWeight: "600", border: "none", cursor: "pointer", background: priceMode === mode ? "#000000" : "#f9fafb", color: priceMode === mode ? "#ffffff" : "#374151", transition: "background 0.15s" }}>
-                    {mode === "manual" ? "Manual" : "Dynamic"}
-                  </button>
-                ))}
-              </div>
-              {priceMode === "manual" && (
-                <input type="number" placeholder="e.g. 1200" min="0" step="0.01" value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} style={{ ...fieldStyle, borderColor: errors.bundlePrice ? "#e11d48" : "#d1d5db" }} />
-              )}
-              {priceMode === "dynamic" && (
-                <div style={{ border: "1px solid #d1d5db", borderRadius: "5px", padding: "12px", background: "#ffffff" }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
-                    <div>
-                      <label style={{ ...labelStyle, fontSize: "10px" }}>Discount Type</label>
-                      <select value={discountType} onChange={(e) => setDiscountType(e.target.value)} style={{ ...fieldStyle, fontSize: "12px" }}>
-                        <option value="percent">% Off Total</option>
-                        <option value="fixed">₹ Fixed Discount</option>
-                        <option value="none">No Discount</option>
-                      </select>
-                    </div>
-                    {discountType !== "none" && (
-                      <div>
-                        <label style={{ ...labelStyle, fontSize: "10px" }}>{discountType === "percent" ? "Discount %" : "Amount (₹)"}</label>
-                        <input type="number" min="0" step={discountType === "percent" ? "1" : "0.01"} max={discountType === "percent" ? "99" : undefined} value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} style={{ ...fieldStyle, fontSize: "12px" }} />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-              {errors.bundlePrice && <div style={errorStyle}>{errors.bundlePrice}</div>}
-            </div>
-            <div style={{ gridColumn: "1 / -1" }}>
-              <label style={labelStyle}>Banner Image (optional)</label>
-              <input type="file" name="bannerImage" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" style={{ ...fieldStyle, padding: "7px 12px" }} />
-              {box.bannerImageSrc && (
-                <div style={{ marginTop: "10px" }}>
-                  <img src={box.bannerImageSrc} alt="Current banner" style={{ width: "100%", maxWidth: "360px", borderRadius: "5px", border: "1px solid #e5e7eb" }} />
-                </div>
-              )}
-              <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "#6b7280", marginTop: "8px" }}>
-                <input type="checkbox" name="removeBannerImage" value="true" style={{ accentColor: "#dc2626" }} />
-                Remove current image
-              </label>
-              <div style={{ fontSize: "11px", color: "#9ca3af", marginTop: "5px" }}>JPG, PNG, WEBP, GIF, or AVIF — max 5MB</div>
-              {errors.bannerImage && <div style={errorStyle}>{errors.bannerImage}</div>}
-            </div>
-          </div>
-        </div>
-
-        {/* Options */}
-        <div style={{ marginBottom: "28px" }}>
-          <div style={sectionHeadingStyle}><AdminIcon type="settings" size="small" /> Options</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-            {[
-              { key: "isGiftBox", label: "Gift Box Mode", desc: "Enables gift packaging option", iconType: "gift-card" },
-              { key: "allowDuplicates", label: "Allow Duplicates", desc: "Same product in multiple slots", iconType: "duplicate" },
-              { key: "giftMessageEnabled", label: "Gift Message Field", desc: "Show text area for gift message", iconType: "email" },
-              { key: "isActive", label: "Active on Storefront", desc: "Uncheck to hide from customers", iconType: "check-circle" },
-            ].map((opt) => (
-              <label key={opt.key} style={{ display: "flex", alignItems: "flex-start", gap: "10px", cursor: "pointer", padding: "12px 14px", border: options[opt.key] ? "1.5px solid #000000" : "1.5px solid #e5e7eb", borderRadius: "5px", background: options[opt.key] ? "#000000" : "#ffffff", transition: "border-color 0.15s, background 0.15s" }}>
-                <input type="checkbox" checked={options[opt.key]} onChange={() => toggleOption(opt.key)} style={{ marginTop: "3px", width: "14px", height: "14px", accentColor: "#000000", flexShrink: 0 }} />
-                <div>
-                  <div style={{ fontSize: "13px", fontWeight: "600", color: options[opt.key] ? "#ffffff" : "#111827", display: "flex", alignItems: "center", gap: "5px" }}><AdminIcon type={opt.iconType} size="small" />{opt.label}</div>
-                  <div style={{ fontSize: "11px", color: options[opt.key] ? "rgba(255,255,255,0.72)" : "#9ca3af", marginTop: "2px" }}>{opt.desc}</div>
-                </div>
-              </label>
-            ))}
-          </div>
-        </div>
-
-        {/* Scope */}
-        <div style={{ marginBottom: "28px" }}>
-          <div style={sectionHeadingStyle}><AdminIcon type="target" size="small" /> Scope</div>
-          <div style={{ marginBottom: "12px" }}>
-            <label style={labelStyle}>Select Scope</label>
-            <select
-              value={scope}
-              onChange={(e) => { setScope(e.target.value); setScopeItems([]); }}
-              style={{ width: "100%", padding: "9px 12px", border: "1.5px solid #d1d5db", borderRadius: "5px", fontSize: "13px", color: "#111827", background: "#fff", boxSizing: "border-box", outline: "none", cursor: "pointer", appearance: "none", backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center", paddingRight: "32px" }}
-            >
-              <option value="specific_collections">Specific collections</option>
-              <option value="specific_products">Specific products</option>
-            </select>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <button
-              type="button"
-              onClick={() => { setScopeSearch(""); setShowScopePicker(true); }}
-              style={{ padding: "8px 16px", background: "#000000", border: "1.5px solid #000000", borderRadius: "5px", fontSize: "13px", fontWeight: "600", color: "#ffffff", cursor: "pointer", transition: "background 0.12s, border-color 0.12s" }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "#000000"; e.currentTarget.style.borderColor = "#000000"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "#000000"; e.currentTarget.style.borderColor = "#000000"; }}
-            >
-              {scope === "specific_collections" ? "Select collections" : "Select products"}
-            </button>
-            <span style={{ fontSize: "12px", color: "#6b7280", fontWeight: "500" }}>{scopeItems.length} selected</span>
-          </div>
-          {scopeItems.length > 0 && (
-            <div style={{ marginTop: "10px", padding: "10px 12px", background: "#000000", borderRadius: "5px", border: "1px solid #000000" }}>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                {scopeItems.map((item) => (
-                  <span key={item.id} onClick={() => setScopeItems((prev) => prev.filter((i) => i.id !== item.id))} style={{ background: "#000000", color: "#ffffff", border: "1px solid rgba(255,255,255,0.24)", borderRadius: "5px", padding: "3px 10px", fontSize: "12px", cursor: "pointer", display: "flex", alignItems: "center", gap: "5px", fontWeight: "500" }}>
-                    {item.title}<AdminIcon type="x" size="small" style={{ opacity: 0.75, color: "#ffffff" }} />
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Eligible Products */}
-        <div style={{ marginBottom: "28px" }}>
-          <div style={sectionHeadingStyle}>
-            <AdminIcon type="product" size="small" /> Eligible Products
-            {selectedProducts.length > 0 && <span style={{ marginLeft: "6px", background: "#ffffff", color: "#000000", border: "1px solid #d1d5db", borderRadius: "5px", padding: "2px 8px", fontSize: "10px", fontWeight: "700", fontFamily: "monospace" }}>{selectedProducts.length} selected</span>}
-          </div>
-          {errors.eligibleProducts && <div style={{ color: "#e11d48", fontSize: "12px", marginBottom: "10px", padding: "8px 12px", background: "#fff5f5", borderRadius: "5px", border: "1px solid #fecaca" }}>{errors.eligibleProducts}</div>}
-          {selectedProducts.length > 0 && (
-            <div style={{ marginBottom: "12px", padding: "12px 14px", borderRadius: "5px", border: "1px solid #000000" }}>
-              <div style={{ fontSize: "10px", fontWeight: "700", color: "#000000", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.6px" }}>Selected Products</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                {selectedProducts.map((p) => (
-                  <span key={p.id} onClick={() => toggleProduct(p)} style={{ background: "#000000", color: "#ffffff", border: "1px solid rgba(255,255,255,0.24)", borderRadius: "5px", padding: "4px 10px", fontSize: "12px", cursor: "pointer", display: "flex", alignItems: "center", gap: "5px", fontWeight: "500" }}>
-                    {p.productTitle}<AdminIcon type="x" size="small" style={{ opacity: 0.75, color: "#ffffff" }} />
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-          <button type="button" onClick={openPicker} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 18px", background: "#000000", border: "1.5px solid #000000", borderRadius: "5px", fontSize: "13px", fontWeight: "600", color: "#ffffff", cursor: "pointer", width: "100%", justifyContent: "center", transition: "border-color 0.15s, background 0.15s" }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#000000"; e.currentTarget.style.background = "#000000"; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#000000"; e.currentTarget.style.background = "#000000"; }}>
-            <span style={{ fontSize: "16px" }}>+</span>
-            {selectedProducts.length > 0 ? "Edit Product Selection" : "Select Eligible Products"}
-          </button>
-        </div>
-
-      </Form>
-
-      {/* Delete form */}
-      <div style={{ paddingTop: "18px", borderTop: "1.5px solid #f3f4f6" }}>
-        <Form method="POST" id="delete-box-form" action={`/app/boxes/${box.id}${location.search}`}>
-          <input type="hidden" name="_action" value="delete" />
-          <button type="submit" onClick={(e) => { if (!window.confirm(`Delete "${box.boxName}"? This cannot be undone.`)) e.preventDefault(); }} style={{ background: "#000000", border: "1.5px solid #000000", borderRadius: "5px", padding: "9px 18px", fontSize: "13px", fontWeight: "500", cursor: "pointer", color: "#ffffff" }} onMouseEnter={(e) => (e.currentTarget.style.background = "#000000")} onMouseLeave={(e) => (e.currentTarget.style.background = "#000000")}>
-            Delete Box
-          </button>
-        </Form>
-      </div>
-
-      {/* ════════════════════════════════════════
-          MODAL: Box Settings — Product Picker
-      ════════════════════════════════════════ */}
-      {showPicker && (
-        <div style={modalOverlayStyle} onClick={(e) => { if (e.target === e.currentTarget) closePicker(); }}>
-          <div style={modalBoxStyle}>
-            <div style={modalHeaderStyle}>
-              <div>
-                <div style={{ fontSize: "15px", fontWeight: "700", color: "#111827" }}>Select Products</div>
-                <div style={{ fontSize: "11px", color: "#9ca3af", marginTop: "2px" }}>{selectedProducts.length} product{selectedProducts.length !== 1 ? "s" : ""} selected</div>
-              </div>
-              <button type="button" aria-label="Close product picker" onClick={closePicker} style={{ ...modalCloseBtn, display: "inline-flex", alignItems: "center", justifyContent: "center" }}><AdminIcon type="x" size="small" style={{ color: "#9ca3af" }} /></button>
-            </div>
-            <div style={{ padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
-              <input type="text" placeholder="Search products..." value={productSearch} onChange={handleSearchChange} autoFocus style={searchInputStyle} />
-            </div>
-            <div style={modalBodyStyle}>
-              {displayProducts.length === 0 ? (
-                <div style={{ padding: "40px 20px", textAlign: "center", color: "#9ca3af", fontSize: "13px" }}>No products found</div>
-              ) : displayProducts.map((product, idx) => {
-                const selected = isSelected(product.id);
-                return (
-                  <label key={product.id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 16px", borderBottom: idx < displayProducts.length - 1 ? "1px solid #f3f4f6" : "none", cursor: "pointer", background: selected ? "#000000" : "#fff", transition: "background 0.1s" }}>
-                    <input type="checkbox" checked={selected} onChange={() => toggleProduct(product)} style={{ width: "15px", height: "15px", flexShrink: 0, accentColor: "#000000" }} />
-                    {product.imageUrl ? <img src={product.imageUrl} alt={product.title} style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "5px", flexShrink: 0, border: "1px solid #e5e7eb" }} /> : <div style={{ width: "40px", height: "40px", borderRadius: "5px", background: "#f3f4f6", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #e5e7eb" }}><AdminIcon type="product" size="small" /></div>}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: "13px", fontWeight: "600", color: selected ? "#ffffff" : "#111827", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{product.title}</div>
-                      <div style={{ fontSize: "11px", color: selected ? "rgba(255,255,255,0.72)" : "#9ca3af", fontFamily: "monospace" }}>{product.handle}</div>
-                    </div>
-                    {product.price && parseFloat(product.price) > 0 && <div style={{ fontSize: "13px", fontWeight: "700", color: "#374151", fontFamily: "monospace", flexShrink: 0 }}>₹{parseFloat(product.price).toLocaleString("en-IN")}</div>}
-                    {selected && <span style={{ width: "18px", height: "18px", background: "#ffffff", border: "1px solid #111827", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><AdminIcon type="check" size="small" style={{ color: "#000000" }} /></span>}
-                  </label>
-                );
-              })}
-            </div>
-            <div style={modalFooterStyle}>
-              <span style={{ fontSize: "12px", color: "#6b7280" }}>{selectedProducts.length > 0 ? `${selectedProducts.length} product${selectedProducts.length !== 1 ? "s" : ""} selected` : "No products selected"}</span>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <button type="button" onClick={closePicker} style={{ background: "#000000", border: "1.5px solid #000000", borderRadius: "5px", padding: "8px 16px", fontSize: "13px", fontWeight: "500", cursor: "pointer", color: "#ffffff" }}>Cancel</button>
-                <button type="button" onClick={closePicker} style={{ background: "#000000", border: "1px solid #000000", borderRadius: "5px", padding: "8px 20px", fontSize: "13px", fontWeight: "700", cursor: "pointer", color: "#ffffff" }}>
-                  Done{selectedProducts.length > 0 ? ` (${selectedProducts.length})` : ""}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       {/* Scope Picker Modal */}
-      {showScopePicker && (() => {
+      {showScopePicker && scope !== "wholestore" && (() => {
         const isCollections = scope === "specific_collections";
         const allItems = isCollections ? collections : products;
         const filtered = scopeSearch.trim()
@@ -564,70 +470,455 @@ export default function BoxSettingsPage() {
         function toggleScopeItem(item) {
           setScopeItems((prev) => prev.some((i) => i.id === item.id)
             ? prev.filter((i) => i.id !== item.id)
-            : [...prev, { id: item.id, title: item.title }]
+            : [...prev, item]
           );
         }
         return (
-          <div style={modalOverlayStyle} onClick={(e) => { if (e.target === e.currentTarget) setShowScopePicker(false); }}>
-            <div style={modalBoxStyle}>
-              <div style={modalHeaderStyle}>
-                <div>
-                  <div style={{ fontSize: "15px", fontWeight: "700", color: "#111827" }}>
-                    {isCollections ? "Select Collections" : "Select Products"}
-                  </div>
-                  <div style={{ fontSize: "11px", color: "#9ca3af", marginTop: "2px" }}>
-                    {scopeItems.length} {isCollections ? "collection" : "product"}{scopeItems.length !== 1 ? "s" : ""} selected
-                  </div>
-                </div>
-                <button type="button" aria-label="Close scope picker" onClick={() => setShowScopePicker(false)} style={{ ...modalCloseBtn, display: "inline-flex", alignItems: "center", justifyContent: "center" }}><AdminIcon type="x" size="small" style={{ color: "#9ca3af" }} /></button>
-              </div>
-              <div style={{ padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
-                <input
-                  type="text"
-                  placeholder={`Search ${isCollections ? "collections" : "products"}...`}
+          <Modal
+            open={showScopePicker}
+            onClose={() => setShowScopePicker(false)}
+            title={isCollections ? "Choose Collections" : "Show on Selected Products"}
+            primaryAction={{
+              content: `Done${scopeItems.length > 0 ? ` (${scopeItems.length} selected)` : ""}`,
+              onAction: () => setShowScopePicker(false),
+            }}
+            secondaryActions={[{ content: "Cancel", onAction: () => setShowScopePicker(false) }]}
+          >
+            <Modal.Section>
+              <BlockStack gap="300">
+                <TextField
+                  label={isCollections ? "Search collections" : "Search products"}
+                  labelHidden
+                  placeholder={`Search ${isCollections ? "collections" : "products"}…`}
                   value={scopeSearch}
-                  onChange={(e) => setScopeSearch(e.target.value)}
+                  onChange={(v) => setScopeSearch(v)}
+                  autoComplete="off"
                   autoFocus
-                  style={searchInputStyle}
+                  clearButton
+                  onClearButtonClick={() => setScopeSearch("")}
                 />
-              </div>
-              <div style={modalBodyStyle}>
                 {filtered.length === 0 ? (
-                  <div style={{ padding: "40px 20px", textAlign: "center", color: "#9ca3af", fontSize: "13px" }}>No items found</div>
-                ) : filtered.map((item, idx) => {
-                  const selected = isScopeSelected(item.id);
-                  return (
-                    <label key={item.id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 16px", borderBottom: idx < filtered.length - 1 ? "1px solid #f3f4f6" : "none", cursor: "pointer", background: selected ? "#000000" : "#fff", transition: "background 0.1s" }}>
-                      <input type="checkbox" checked={selected} onChange={() => toggleScopeItem(item)} style={{ width: "15px", height: "15px", flexShrink: 0, accentColor: "#000000" }} />
-                      {item.imageUrl
-                        ? <img src={item.imageUrl} alt={item.title} style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "5px", flexShrink: 0, border: "1px solid #e5e7eb" }} />
-                        : <div style={{ width: "40px", height: "40px", borderRadius: "5px", background: "#f3f4f6", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #e5e7eb" }}><AdminIcon type={isCollections ? "folder" : "product"} size="small" /></div>
-                      }
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: "13px", fontWeight: "600", color: selected ? "#ffffff" : "#111827", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.title}</div>
-                      </div>
-                      {selected && <span style={{ width: "18px", height: "18px", background: "#000000", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><AdminIcon type="check" size="small" style={{ color: "#ffffff" }} /></span>}
-                    </label>
-                  );
-                })}
-              </div>
-              <div style={modalFooterStyle}>
-                <span style={{ fontSize: "12px", color: "#6b7280" }}>
-                  {scopeItems.length > 0 ? `${scopeItems.length} selected` : "None selected"}
-                </span>
-                <div style={{ display: "flex", gap: "8px" }}>
-                  <button type="button" onClick={() => setShowScopePicker(false)} style={{ background: "#000000", border: "1.5px solid #000000", borderRadius: "5px", padding: "8px 16px", fontSize: "13px", fontWeight: "500", cursor: "pointer", color: "#ffffff" }}>Cancel</button>
-                  <button type="button" onClick={() => setShowScopePicker(false)} style={{ background: "#000000", border: "none", borderRadius: "5px", padding: "8px 20px", fontSize: "13px", fontWeight: "700", cursor: "pointer", color: "#ffffff", boxShadow: "0 1px 6px rgba(0,0,0,0.35)" }}>
-                    Done{scopeItems.length > 0 ? ` (${scopeItems.length})` : ""}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+                  <Text tone="subdued" alignment="center" variant="bodySm">
+                    No {isCollections ? "collections" : "products"} found
+                  </Text>
+                ) : (
+                  <BlockStack gap="0">
+                    {filtered.map((item) => {
+                      const selected = isScopeSelected(item.id);
+                      return (
+                        <div
+                          key={item.id}
+                          role="option"
+                          aria-selected={selected}
+                          onClick={() => toggleScopeItem(item)}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "12px",
+                            padding: "10px 0",
+                            borderBottom: "1px solid #f3f4f6",
+                            background: selected ? "#f0fdf4" : "#fff",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <div onClick={(e) => e.stopPropagation()}>
+                            <Checkbox
+                              label={item.title}
+                              labelHidden
+                              checked={selected}
+                              onChange={() => toggleScopeItem(item)}
+                            />
+                          </div>
+                          {item.imageUrl ? (
+                            <img src={item.imageUrl} alt={item.title} style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "5px", flexShrink: 0, border: "1px solid #e5e7eb" }} />
+                          ) : (
+                            <div style={{ width: "40px", height: "40px", borderRadius: "5px", background: "#f3f4f6", flexShrink: 0, border: "1px solid #e5e7eb" }} />
+                          )}
+                          <Text variant="bodyMd" fontWeight={selected ? "semibold" : "regular"} as="span">{item.title}</Text>
+                        </div>
+                      );
+                    })}
+                  </BlockStack>
+                )}
+              </BlockStack>
+            </Modal.Section>
+          </Modal>
         );
       })()}
-    </s-section>
-    </s-page>
+
+      <Form
+        id="edit-box-form"
+        method="POST"
+        action={`/app/boxes/${box.id}${location.search ? location.search + "&index" : "?index"}`}
+        encType="multipart/form-data"
+      >
+        <input type="hidden" name="_action" value="save" />
+        <input type="hidden" name="bundlePrice" value={bundlePrice > 0 ? bundlePrice.toFixed(2) : ""} />
+        <input type="hidden" name="bundlePriceType" value={priceMode} />
+        <input type="hidden" name="discountType" value={priceMode === "dynamic" ? discountType : "none"} />
+        <input type="hidden" name="discountValue" value={priceMode === "dynamic" ? (discountType === "none" ? "0" : discountValue) : "0"} />
+        <input type="hidden" name="buyQuantity" value={priceMode === "dynamic" ? buyQuantity : "1"} />
+        <input type="hidden" name="getQuantity" value={priceMode === "dynamic" ? getQuantity : "1"} />
+        <input type="hidden" name="itemCount" value={itemCount} />
+        <input type="hidden" name="isGiftBox" value={String(options.isGiftBox)} />
+        <input type="hidden" name="allowDuplicates" value={String(options.allowDuplicates)} />
+        <input type="hidden" name="giftMessageEnabled" value={String(options.isGiftBox && options.giftMessageEnabled)} />
+        <input type="hidden" name="isActive" value={String(options.isActive)} />
+        <input type="hidden" name="scope" value={scope} />
+        <input type="hidden" name="removeBannerImage" value={String(removeBannerImage)} />
+        <input type="hidden" name="scopeItems" value={JSON.stringify(scopeItems.map(i => ({ id: i.id, title: i.title })))} />
+        {scope === "specific_products" && (
+          <input type="hidden" name="eligibleProducts" value={JSON.stringify(
+            scopeItems.map(item => ({
+              productId: item.id,
+              productTitle: item.title,
+              productHandle: item.handle || null,
+              productImageUrl: item.imageUrl || null,
+              variantIds: item.variantIds || [],
+              price: item.price || "0",
+            }))
+          )} />
+        )}
+
+        <BlockStack gap="400">
+          {/* Global error banner */}
+          {errors._global && (
+            <Banner tone="critical">
+              <Text>{errors._global}</Text>
+            </Banner>
+          )}
+
+          {/* Card 1 — Status */}
+          <Card>
+            <InlineGrid columns={{ xs: "1fr", sm: "1fr auto" }} gap="400">
+              <BlockStack gap="050">
+                <Text as="h2" variant="headingMd">{box.displayTitle || box.boxName || "Simple Box"}</Text>
+                <Text as="p" variant="bodySm" tone="subdued">Create and configure your Simple Box experience</Text>
+              </BlockStack>
+              <InlineStack gap="200" blockAlign="start">
+                <ToggleSwitch checked={options.isActive} onChange={() => toggleOption("isActive")} showStateText={false} />
+                <BlockStack gap="100">
+                  <Text as="p" variant="bodySm" fontWeight="semibold">Status</Text>
+                  <Text as="p" variant="bodySm" tone="subdued">Uncheck to hide this box from customers</Text>
+                </BlockStack>
+              </InlineStack>
+            </InlineGrid>
+          </Card>
+
+          {/* Card 2 — Basic Information */}
+          <Card>
+            <BlockStack gap="400">
+              <Text as="h2" variant="headingMd">General Configuration</Text>
+              <BlockStack gap="300">
+                <InlineGrid columns={{ xs: 1, md: 3 }} gap="300">
+                  <BlockStack gap="100">
+                    <Text as="label" variant="bodySm" fontWeight="semibold">Title *</Text>
+                    <input
+                      type="text"
+                      name="displayTitle"
+                      defaultValue={box.displayTitle}
+                      onChange={() => { if (clientErrors.displayTitle) setClientErrors((p) => ({ ...p, displayTitle: "" })); }}
+                      placeholder="e.g. Build Your Perfect Snack Box"
+                      style={{ ...inputStyle, borderColor: (clientErrors.displayTitle || errors.displayTitle) ? "#e11d48" : "#e5e7eb" }}
+                    />
+                    {(clientErrors.displayTitle || errors.displayTitle) && (
+                      <Text tone="critical" variant="bodySm">{clientErrors.displayTitle || errors.displayTitle}</Text>
+                    )}
+                  </BlockStack>
+                  <BlockStack gap="100">
+                    <Text as="label" variant="bodySm" fontWeight="semibold">CTA Button Text</Text>
+                    <input
+                      type="text"
+                      name="comboProductButtonTitle"
+                      defaultValue={box.comboProductButtonTitle || ""}
+                      placeholder="Build your own box"
+                      style={inputStyle}
+                    />
+                  </BlockStack>
+                  <BlockStack gap="100">
+                    <Text as="label" variant="bodySm" fontWeight="semibold">Add Button Text</Text>
+                    <input
+                      type="text"
+                      name="productButtonTitle"
+                      defaultValue={box.productButtonTitle || ""}
+                      placeholder="Add To Cart"
+                      style={inputStyle}
+                    />
+                  </BlockStack>
+                </InlineGrid>
+                <InlineGrid columns={{ xs: 1, md: 3 }} gap="300">
+                  <BlockStack gap="100">
+                    <Text as="label" variant="bodySm" fontWeight="semibold">Items Required *</Text>
+                    <input
+                      type="number"
+                      placeholder="e.g. 4"
+                      min="2"
+                      max="8"
+                      step="1"
+                      value={itemCount}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw === "") {
+                          setItemCount("");
+                        } else {
+                          const parsed = parseInt(raw, 10);
+                          if (Number.isNaN(parsed)) return;
+                          setItemCount(String(Math.min(8, Math.max(2, parsed))));
+                        }
+                        if (clientErrors.itemCount) setClientErrors((p) => ({ ...p, itemCount: "" }));
+                      }}
+                      style={{ ...inputStyle, borderColor: (clientErrors.itemCount || errors.itemCount) ? "#e11d48" : "#e5e7eb" }}
+                    />
+                    {(clientErrors.itemCount || errors.itemCount) && (
+                      <Text tone="critical" variant="bodySm">{clientErrors.itemCount || errors.itemCount}</Text>
+                    )}
+                    <Text variant="bodySm" tone="subdued">2 selections required (2–8)</Text>
+                  </BlockStack>
+
+                  {/* Bundle Price */}
+                  <BlockStack gap="200">
+                    <Text as="label" variant="bodySm" fontWeight="semibold">
+                      Pricing *
+                    </Text>
+                    {/* Price mode toggle tabs */}
+                    <div style={{ display: "flex", border: "1px solid #d1d5db", borderRadius: "6px", overflow: "hidden" }}>
+                      {["manual", "dynamic"].map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => { setPriceMode(mode); if (clientErrors.bundlePrice) setClientErrors((p) => ({ ...p, bundlePrice: "" })); }}
+                          style={{
+                            flex: 1,
+                            padding: "7px 0",
+                            fontSize: "12px",
+                            fontWeight: "600",
+                            border: "none",
+                            cursor: "pointer",
+                            background: priceMode === mode ? "#000000" : "#f9fafb",
+                            color: priceMode === mode ? "#ffffff" : "#374151",
+                            transition: "background 0.15s",
+                          }}
+                        >
+                          {mode === "manual" ? "Fixed Price" : "Dynamic Price"}
+                        </button>
+                      ))}
+                    </div>
+                    {priceMode === "manual" && (
+                      <>
+                      <input
+                        type="number"
+                        placeholder="e.g. 1200"
+                        min="0"
+                        step="0.01"
+                        value={manualPrice}
+                        onChange={(e) => { setManualPrice(e.target.value); if (clientErrors.bundlePrice) setClientErrors((p) => ({ ...p, bundlePrice: "" })); }}
+                        style={{ ...inputStyle, borderColor: clientErrors.bundlePrice ? "#e11d48" : "#e5e7eb" }}
+                      />
+                      {clientErrors.bundlePrice && <Text tone="critical" variant="bodySm">{clientErrors.bundlePrice}</Text>}
+                      </>
+                    )}
+                    {priceMode === "dynamic" && (
+                      <div style={{ border: "1px solid #d1d5db", borderRadius: "6px", padding: "12px", background: "#ffffff" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
+                          <BlockStack gap="100">
+                            <Text as="label" variant="bodySm" fontWeight="semibold">Discount Type</Text>
+                            <select
+                              value={discountType}
+                              onChange={(e) => setDiscountType(e.target.value)}
+                              style={{ ...inputStyle, fontSize: "12px" }}
+                            >
+                              <option value="percent">% Off Total</option>
+                              <option value="fixed">{currencySymbol} Fixed Discount</option>
+                              <option value="none">No Discount</option>
+                            </select>
+                          </BlockStack>
+                          {discountType !== "none" && (
+                            <BlockStack gap="100">
+                              <Text as="label" variant="bodySm" fontWeight="semibold">
+                                {discountType === "percent" ? "Discount %" : `Amount (${currencySymbol})`}
+                              </Text>
+                              <input
+                                type="number"
+                                min="0"
+                                step={discountType === "percent" ? "1" : "0.01"}
+                                max={discountType === "percent" ? "99" : undefined}
+                                value={discountValue}
+                                onChange={(e) => setDiscountValue(e.target.value)}
+                                style={{ ...inputStyle, fontSize: "12px" }}
+                              />
+                            </BlockStack>
+                          )}
+                        </div>
+                        <Text variant="bodySm" tone="subdued">
+                          {discountType !== "none" ? "Discount applied on total amount" : "No discount applied"}
+                        </Text>
+                      </div>
+                    )}
+                  </BlockStack>
+
+                  {/* Banner Image */}
+                  <BlockStack gap="200">
+                    <Text as="label" variant="bodySm" fontWeight="semibold">Image</Text>
+                    <input type="file" ref={bannerImageRef} name="bannerImage" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" style={{ display: "none" }} />
+                    {(box.bannerImageSrc && !removeBannerImage && !bannerImagePreview) ? (
+                      <div
+                        style={{ position: "relative", display: "inline-block", width: "120px" }}
+                        onMouseEnter={() => setBannerImageHover(true)}
+                        onMouseLeave={() => setBannerImageHover(false)}
+                      >
+                        <img src={box.bannerImageSrc} alt="Current banner" style={{ width: "120px", borderRadius: "6px", border: "1px solid #e5e7eb", display: "block" }} />
+                        {bannerImageHover && (
+                          <button
+                            type="button"
+                            onClick={() => setRemoveBannerImage(true)}
+                            style={{ position: "absolute", top: "4px", right: "4px", background: "rgba(0,0,0,0.65)", border: "none", borderRadius: "50%", width: "22px", height: "22px", cursor: "pointer", color: "#fff", fontSize: "14px", lineHeight: "22px", textAlign: "center", padding: 0 }}
+                            aria-label="Remove banner image"
+                          >×</button>
+                        )}
+                      </div>
+                    ) : bannerImagePreview ? (
+                      <div style={{ position: "relative", display: "inline-block", width: "120px" }}>
+                        <img src={bannerImagePreview} alt="New banner" style={{ width: "120px", borderRadius: "6px", border: "1px solid #e5e7eb", display: "block" }} />
+                        <button
+                          type="button"
+                          onClick={() => { setBannerImagePreview(null); if (bannerImageRef.current) bannerImageRef.current.value = ""; }}
+                          style={{ position: "absolute", top: "4px", right: "4px", background: "rgba(0,0,0,0.65)", border: "none", borderRadius: "50%", width: "22px", height: "22px", cursor: "pointer", color: "#fff", fontSize: "14px", lineHeight: "22px", textAlign: "center", padding: 0 }}
+                          aria-label="Remove new image"
+                        >×</button>
+                      </div>
+                    ) : (
+                      <DropZone accept="image/jpeg,image/png,image/webp,image/gif,image/avif" type="image" allowMultiple={false} onDrop={handleBannerDrop}>
+                        <DropZone.FileUpload />
+                      </DropZone>
+                    )}
+                    <Text variant="bodySm" tone="subdued">JPG, PNG, WEBP, GIF, or AVIF — max 5MB</Text>
+                    {errors.bannerImage && (
+                      <Text tone="critical" variant="bodySm">{errors.bannerImage}</Text>
+                    )}
+                  </BlockStack>
+                </InlineGrid>
+                <InlineGrid>
+                  <BlockStack gap="200">
+                    <InlineGrid columns={scope === "wholestore" ? 1 : 2} gap="200">
+                      <BlockStack gap="100">
+                        <Text as="label" variant="bodySm" fontWeight="semibold">Choose Display Scope</Text>
+                        <Select
+                          label="Choose Display Scope"
+                          labelHidden
+                          options={[
+                            { value: "wholestore", label: "Whole Store" },
+                            { value: "specific_collections", label: "Select Collections" },
+                            { value: "specific_products", label: "Select Products" },
+                          ]}
+                          value={scope}
+                          onChange={selectScope}
+                        />
+                      </BlockStack>
+                      {scope !== "wholestore" && (
+                        <BlockStack gap="100">
+                          <Text as="label" variant="bodySm" fontWeight="semibold">
+                            {scope === "specific_collections" ? "Select Collections" : "Select Products"}
+                          </Text>
+                          <Button
+                            variant="primary"
+                            onClick={() => {
+                              setScopeSearch("");
+                              setShowScopePicker(true);
+                              if (clientErrors.scopeItems) setClientErrors((p) => ({ ...p, scopeItems: "" }));
+                            }}
+                          >
+                            {scope === "specific_collections" ? "Choose Collections" : "Select Products"}
+                          </Button>
+                        </BlockStack>
+                      )}
+                    </InlineGrid>
+
+                    {scope === "wholestore" ? (
+                      <Text variant="bodySm" tone="subdued">All store products will be available in this bundle.</Text>
+                    ) : (
+                      <Text variant="bodySm" tone="subdued">{scopeItems.length} selected</Text>
+                    )}
+
+                    {clientErrors.scopeItems && (
+                      <Text tone="critical" variant="bodySm" role="alert">{clientErrors.scopeItems}</Text>
+                    )}
+
+                    {scope !== "wholestore" && scopeItems.length > 0 && (
+                      <InlineStack gap="150" wrap>
+                        {scopeItems.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => setScopeItems((prev) => prev.filter((i) => i.id !== item.id))}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "6px",
+                              padding: "4px 10px",
+                              background: "#e5e7eb",
+                              border: "1px solid #d1d5db",
+                              borderRadius: "5px",
+                              color: "#374151",
+                              cursor: "pointer",
+                              fontSize: "12px",
+                              fontWeight: 600,
+                            }}
+                          >
+                            {item.title}
+                            <span style={{ color: "#6b7280" }}>x</span>
+                          </button>
+                        ))}
+                      </InlineStack>
+                    )}
+                  </BlockStack>
+                </InlineGrid>
+              </BlockStack>
+            </BlockStack>
+          </Card>
+
+          {/* Card 3 — Options */}
+          <Card>
+            <BlockStack gap="400">
+              <Text as="h2" variant="headingMd">Options</Text>
+              <InlineGrid columns={{ xs: 1, sm: 3 }} gap="300">
+                <Card>
+                  <InlineStack gap="200" blockAlign="start">
+                    <ToggleSwitch checked={options.isGiftBox} onChange={() => toggleOption("isGiftBox")} showStateText={false} />
+                    <BlockStack gap="100">
+                      <Text as="p" variant="bodySm" fontWeight="semibold">Enable Gift Box Option</Text>
+                      <Text as="p" variant="bodySm" tone="subdued">Enables gift packaging option</Text>
+                    </BlockStack>
+                  </InlineStack>
+                </Card>
+                <Card>
+                  <InlineStack gap="200" blockAlign="start">
+                    <ToggleSwitch checked={options.isGiftBox && options.giftMessageEnabled} onChange={() => toggleOption("giftMessageEnabled")} disabled={!options.isGiftBox} showStateText={false} />
+                    <BlockStack gap="100">
+                      <Text as="p" variant="bodySm" fontWeight="semibold">Enable Gift Message Field</Text>
+                      <Text as="p" variant="bodySm" tone="subdued">Show text area for gift message</Text>
+                    </BlockStack>
+                  </InlineStack>
+                </Card>
+                <Card>
+                  <InlineStack gap="200" blockAlign="start">
+                    <ToggleSwitch checked={options.allowDuplicates} onChange={() => toggleOption("allowDuplicates")} showStateText={false} />
+                    <BlockStack gap="100">
+                      <Text as="p" variant="bodySm" fontWeight="semibold">Allow Duplicate Products</Text>
+                      <Text as="p" variant="bodySm" tone="subdued">Same product in multiple slots</Text>
+                    </BlockStack>
+                  </InlineStack>
+                </Card>
+              </InlineGrid>
+              {(optionValidationMessage || errors.giftMessageEnabled) && (
+                <Text tone="critical" variant="bodySm">
+                  {errors.giftMessageEnabled || optionValidationMessage}
+                </Text>
+              )}
+            </BlockStack>
+          </Card>
+        </BlockStack>
+      </Form>
+    </Page>
   );
 }
 

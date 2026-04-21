@@ -2,7 +2,7 @@
 
 client_id = "335f2a536c3bcb46c4450e5ecaa080b1"
 name = "MixBox – Box & Bundle Builder"
-application_url = "https://combo-products.vercel.app"
+application_url = "https://combo-product-ten.vercel.app/"
 embedded = true
 
 handle = "mixbox-box-bundle-builder"
@@ -11,7 +11,7 @@ handle = "mixbox-box-bundle-builder"
 automatically_update_urls_on_dev = true
 
 [app_proxy]
-url = "https://combo-products.vercel.app"
+url = "https://combo-product-ten.vercel.app/"
 subpath = "combo-builder"
 prefix = "apps"
 
@@ -27,6 +27,14 @@ api_version = "2026-04"
   uri = "/webhooks/app/scopes_update"
 
   [[webhooks.subscriptions]]
+  topics = [ "app_subscriptions/update" ]
+  uri = "/webhooks/app_subscriptions/update"
+
+  [[webhooks.subscriptions]]
+  topics = [ "orders/paid" ]
+  uri = "/webhooks/orders/paid"
+
+  [[webhooks.subscriptions]]
   compliance_topics = [ "customers/data_request" ]
   uri = "/webhooks/customers/data_request"
 
@@ -40,11 +48,11 @@ api_version = "2026-04"
 
 
 [access_scopes]
-scopes = "write_products,read_products,read_orders,read_inventory,read_themes,write_themes,read_publications,write_publications"
+scopes = "write_products,read_products,read_orders,read_inventory,read_themes,write_themes,read_publications,write_publications,write_discounts,read_discounts"
 
 [auth]
 redirect_urls = [
-  "https://combo-products.vercel.app/auth/callback",
-  "https://combo-products.vercel.app/shopify/callback",
-  "https://combo-products.vercel.app/api/auth/callback"
+  "https://combo-product-ten.vercel.app/auth/callback",
+  "https://combo-product-ten.vercel.app/shopify/callback",
+  "https://combo-product-ten.vercel.app/api/auth/callback"
 ]

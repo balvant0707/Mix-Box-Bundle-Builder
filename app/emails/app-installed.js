@@ -41,11 +41,11 @@ export function installedEmailHtml({ ownerName, shopName, shopDomain }) {
           <tr>
             <td style="background:linear-gradient(135deg,#2A7A4F 0%,#1b5c38 100%);
                        padding:36px 48px 32px;text-align:center;">
-              <h1 style="margin:0 0 8px;color:#ffffff;font-size:26px;font-weight:700;letter-spacing:-0.4px;
+              <h1 style="margin:0 0 8px;color:#000000;font-size:26px;font-weight:700;
                          text-shadow:0 1px 3px rgba(0,0,0,0.2);">
                 Welcome to ${APP_NAME}!
               </h1>
-              <p style="margin:0;color:rgba(255,255,255,0.88);font-size:15px;line-height:1.5;">
+              <p style="margin:0;font-size:15px;line-height:1.5;">
                 Your app has been successfully installed 🎉
               </p>
             </td>
@@ -110,14 +110,14 @@ export function installedEmailHtml({ ownerName, shopName, shopDomain }) {
               <table cellpadding="0" cellspacing="0" width="100%" style="margin-bottom:16px;">
                 <tr>
                   <td style="vertical-align:top;width:38px;padding-top:1px;">
-                    <div style="background:#2A7A4F;color:#fff;border-radius:50%;width:30px;height:30px;
+                    <div style="background:#2A7A4F;color:#000000;border-radius:50%;width:30px;height:30px;
                                 line-height:30px;text-align:center;font-size:13px;font-weight:700;">
                       ${num}
                     </div>
                   </td>
                   <td style="padding-left:14px;vertical-align:top;">
                     <p style="margin:2px 0 5px;font-size:14px;font-weight:600;color:#111827;">${title}</p>
-                    <p style="margin:0;font-size:13px;color:#6b7280;line-height:1.65;">${desc}</p>
+                    <p style="margin:0;font-size:13px;color: #000000;line-height:1.65;">${desc}</p>
                   </td>
                 </tr>
               </table>`).join("")}
@@ -148,7 +148,7 @@ export function installedEmailHtml({ ownerName, shopName, shopDomain }) {
               <p style="margin:0 0 4px;font-size:13px;color:#374151;font-weight:600;">
                 ${APP_NAME}
               </p>
-              <p style="margin:0 0 4px;font-size:12px;color:#6b7280;">
+              <p style="margin:0 0 4px;font-size:12px;color: #000000;">
                 A Shopify App by <strong>${ownerCompany}</strong>
               </p>
               <p style="margin:0;font-size:11px;color:#9ca3af;">

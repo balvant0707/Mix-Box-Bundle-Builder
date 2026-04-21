@@ -5,11 +5,12 @@ import {
   shopifyApp,
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
-import prisma, { ensureAppTables } from "./db.server";
+import prisma, { ensureAppTables, withDbRetry } from "./db.server";
 import { upsertSessionFromAuth, upsertShopFromAdmin } from "./models/shop.server";
 import { sendMail } from "./utils/mailer.server";
 import { installedEmailHtml } from "./emails/app-installed";
 import { ownerInstallNotifyHtml } from "./emails/owner-notify";
+import { BILLING_PLANS } from "./config/billing";
 
 const shouldEnsureAppTables =
   process.env.ENSURE_APP_TABLES === "true" ||
@@ -22,7 +23,67 @@ if (shouldEnsureAppTables) {
   });
 }
 
-const prismaSessionStorage = new PrismaSessionStorage(prisma, {
+const sessionDbRetries = Number.parseInt(process.env.SESSION_DB_RETRIES || "5", 10) || 5;
+const sessionDbRetryDelayMs = Number.parseInt(process.env.SESSION_DB_RETRY_DELAY_MS || "200", 10) || 200;
+const sessionReadyProbeCooldownMs =
+  Number.parseInt(process.env.SESSION_READY_PROBE_COOLDOWN_MS || "15000", 10) || 15000;
+
+class RetryPrismaSessionStorage extends PrismaSessionStorage {
+  _lastReadyProbeAt = 0;
+
+  async ensureSessionStorageReady() {
+    const now = Date.now();
+    if (this._lastReadyProbeAt && now - this._lastReadyProbeAt < sessionReadyProbeCooldownMs) {
+      return;
+    }
+
+    await withDbRetry(async () => {
+      const ready = await super.isReady();
+      if (!ready) {
+        throw new Error("Prisma session storage is not ready");
+      }
+    }, { retries: sessionDbRetries, delayMs: sessionDbRetryDelayMs });
+
+    this._lastReadyProbeAt = Date.now();
+  }
+
+  async loadSession(id) {
+    return withDbRetry(async () => {
+      await this.ensureSessionStorageReady();
+      return super.loadSession(id);
+    }, { retries: sessionDbRetries, delayMs: sessionDbRetryDelayMs });
+  }
+
+  async storeSession(session) {
+    return withDbRetry(async () => {
+      await this.ensureSessionStorageReady();
+      return super.storeSession(session);
+    }, { retries: sessionDbRetries, delayMs: sessionDbRetryDelayMs });
+  }
+
+  async deleteSession(id) {
+    return withDbRetry(async () => {
+      await this.ensureSessionStorageReady();
+      return super.deleteSession(id);
+    }, { retries: sessionDbRetries, delayMs: sessionDbRetryDelayMs });
+  }
+
+  async deleteSessions(ids) {
+    return withDbRetry(async () => {
+      await this.ensureSessionStorageReady();
+      return super.deleteSessions(ids);
+    }, { retries: sessionDbRetries, delayMs: sessionDbRetryDelayMs });
+  }
+
+  async findSessionsByShop(shop) {
+    return withDbRetry(async () => {
+      await this.ensureSessionStorageReady();
+      return super.findSessionsByShop(shop);
+    }, { retries: sessionDbRetries, delayMs: sessionDbRetryDelayMs });
+  }
+}
+
+const prismaSessionStorage = new RetryPrismaSessionStorage(prisma, {
   connectionRetries: 5,
   connectionRetryIntervalMs: 2000,
 });
@@ -36,6 +97,7 @@ const shopify = shopifyApp({
   authPathPrefix: "/auth",
   sessionStorage: prismaSessionStorage,
   distribution: AppDistribution.AppStore,
+  billing: BILLING_PLANS,
   future: {
     expiringOfflineAccessTokens: true,
   },
@@ -108,3 +170,4 @@ export const unauthenticated = shopify.unauthenticated;
 export const login = shopify.login;
 export const registerWebhooks = shopify.registerWebhooks;
 export const sessionStorage = shopify.sessionStorage;
+export { BILLING_IS_TEST, MONTHLY_PLAN, YEARLY_PLAN } from "./config/billing";

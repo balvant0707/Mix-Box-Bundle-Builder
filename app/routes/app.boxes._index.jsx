@@ -1,31 +1,153 @@
-import { useState, useMemo } from "react";
-import { useFetcher, useLoaderData, useLocation, useNavigate } from "react-router";
+﻿import { useState, useMemo, useEffect } from "react";
+import { useFetcher, useLoaderData, useLocation, useNavigate, useNavigation } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import {
   listBoxes,
   deleteBox,
+  toggleBoxStatus,
+  toggleComboConfigStatus,
   reorderBoxes,
   activateAllBundleProducts,
   repairMissingShopifyProducts,
   repairMissingShopifyVariantIds,
   upsertComboConfig,
+  getBoxListImageSrc,
 } from "../models/boxes.server";
+import { getShopCurrencyCode } from "../models/shop.server";
 import { AdminIcon } from "../components/admin-icons";
 import { withEmbeddedAppParams } from "../utils/embedded-app";
+import { formatCurrencyAmount, getCurrencySymbol } from "../utils/currency";
+import {
+  BlockStack,
+  Box,
+  Button,
+  Card,
+  EmptyState,
+  IndexTable,
+  InlineGrid,
+  InlineStack,
+  Modal,
+  Page,
+  Pagination,
+  Spinner,
+  Text,
+  TextField,
+  Tooltip,
+} from "@shopify/polaris";
+
+const BUNDLE_PREVIEW_PRODUCTS_QUERY = `#graphql
+  query BundlePreviewProducts($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on Product {
+        id
+        handle
+        onlineStoreUrl
+      }
+    }
+  }
+`;
+
+async function getBundlePreviewUrlByProductId(admin, shop, productIds = []) {
+  const uniqueIds = Array.from(
+    new Set(
+      (Array.isArray(productIds) ? productIds : [])
+        .map((id) => (typeof id === "string" ? id.trim() : ""))
+        .filter(Boolean),
+    ),
+  );
+  if (uniqueIds.length === 0) return new Map();
+
+  try {
+    const response = await admin.graphql(BUNDLE_PREVIEW_PRODUCTS_QUERY, {
+      variables: { ids: uniqueIds },
+    });
+    if (!response?.ok) {
+      if (response?.status === 401 || response?.status === 403) {
+        console.warn(
+          "[app.boxes._index] Skipping preview URL lookup due to unauthorized admin response",
+          { status: response.status },
+        );
+        return new Map();
+      }
+      throw new Error(`Shopify admin graphql failed (${response?.status || "unknown"})`);
+    }
+    const json = await response.json();
+    const nodes = Array.isArray(json?.data?.nodes) ? json.data.nodes : [];
+
+    const map = new Map();
+    for (const node of nodes) {
+      if (!node?.id || !node?.handle) continue;
+      const fallbackUrl = `https://${shop}/products/${node.handle}`;
+      map.set(node.id, node.onlineStoreUrl || fallbackUrl);
+    }
+    return map;
+  } catch (error) {
+    if (
+      (error instanceof Response && (error.status === 401 || error.status === 403)) ||
+      ((error?.status === 401 || error?.status === 403) && typeof error?.status !== "undefined")
+    ) {
+      console.warn(
+        "[app.boxes._index] Skipping preview URL lookup due to unauthorized admin error",
+        { status: error?.status ?? null },
+      );
+      return new Map();
+    }
+    console.error("[app.boxes._index] Failed to resolve bundle preview URLs", error);
+    return new Map();
+  }
+}
+
+function buildBundlePreviewUrl(shopDomain, previewToken, fallbackBaseUrl) {
+  if (!previewToken) return fallbackBaseUrl || null;
+  const safeToken = String(previewToken).trim();
+  if (!safeToken) return fallbackBaseUrl || null;
+
+  try {
+    // Use a real storefront page (bundle product URL when available), then pass preview token.
+    // Direct /{boxId} paths can 404 on themes without that route.
+    const baseUrl = fallbackBaseUrl || `https://${shopDomain}/`;
+    const url = new URL(baseUrl);
+    url.searchParams.set("cb_preview_box", safeToken);
+    return url.toString();
+  } catch {
+    return fallbackBaseUrl || null;
+  }
+}
+
+function getDiscountSummary(box) {
+  // Always read from comboStepsConfig JSON â€” works for both regular and specific combo boxes
+  const src = box.comboStepsConfig;
+  if (!src) return null;
+  try {
+    const p = JSON.parse(src);
+    const type = p?.discountType;
+    const value = p?.discountValue;
+    if (!type || type === "none") return null;
+    if (type !== "buy_x_get_y" && value == null) return null;
+    const buyQuantity = Math.max(1, parseInt(String(p?.buyQuantity ?? 1), 10) || 1);
+    const getQuantity = Math.max(1, parseInt(String(p?.getQuantity ?? 1), 10) || 1);
+    return { discountType: type, discountValue: value, buyQuantity, getQuantity };
+  } catch { return null; }
+}
 
 function getComboConfigSummary(box) {
   if (box.config) {
     const comboType = box.config.comboType;
-    if (!comboType || comboType <= 0) return null;
+    if (!comboType || comboType < 2) return null;
+    // Require at least one step to be saved â€” prevents misidentifying regular boxes
+    let hasSteps = false;
+    try { hasSteps = JSON.parse(box.config.stepsJson || "[]").length > 0; } catch {}
+    if (!hasSteps) return null;
     return { comboType, title: box.config.title, isActive: box.config.isActive, stepsJson: box.config.stepsJson };
   }
   if (!box.comboStepsConfig) return null;
   try {
     const parsed = JSON.parse(box.comboStepsConfig);
     const comboType = parseInt(parsed?.type) || 0;
-    if (comboType <= 0) return null;
+    if (comboType < 2) return null;
     const steps = Array.isArray(parsed?.steps) ? parsed.steps : [];
+    if (steps.length === 0) return null;
     return { comboType, title: parsed?.title || null, isActive: parsed?.isActive !== false, stepsJson: JSON.stringify(steps) };
   } catch { return null; }
 }
@@ -34,8 +156,11 @@ export const loader = async ({ request }) => {
   const { session, admin } = await authenticate.admin(request);
   await repairMissingShopifyProducts(session.shop, admin);
   await repairMissingShopifyVariantIds(session.shop, admin);
-  let boxes = await listBoxes(session.shop);
-  const boxesMissingTypedComboConfig = boxes.filter((box) => !box.config && box.comboStepsConfig);
+  let boxes = await listBoxes(session.shop, false, true);
+  const boxesMissingTypedComboConfig = boxes.filter((box) => {
+    if (box.config || !box.comboStepsConfig) return false;
+    try { const p = JSON.parse(box.comboStepsConfig); return parseInt(p?.type) >= 2; } catch { return false; }
+  });
   if (boxesMissingTypedComboConfig.length > 0) {
     await Promise.all(
       boxesMissingTypedComboConfig.map((box) =>
@@ -44,12 +169,20 @@ export const loader = async ({ request }) => {
         })
       )
     );
-    boxes = await listBoxes(session.shop);
+    boxes = await listBoxes(session.shop, false, true);
   }
   activateAllBundleProducts(session.shop, admin).catch(() => {});
+  const currencyCode = await getShopCurrencyCode(session.shop);
+  const previewUrlByProductId = await getBundlePreviewUrlByProductId(
+    admin,
+    session.shop,
+    boxes.map((b) => b.shopifyProductId),
+  );
   return {
+    currencyCode,
     boxes: boxes.map((b) => ({
       id: b.id,
+      boxCode: b.boxCode || null,
       boxName: b.boxName,
       displayTitle: b.displayTitle,
       itemCount: b.itemCount,
@@ -60,6 +193,13 @@ export const loader = async ({ request }) => {
       sortOrder: b.sortOrder,
       orderCount: b._count?.orders ?? 0,
       comboConfig: getComboConfigSummary(b),
+      discount: getDiscountSummary(b),
+      listImageSrc: getBoxListImageSrc(b),
+      previewUrl: buildBundlePreviewUrl(
+        session.shop,
+        b.boxCode || b.id,
+        b.shopifyProductId ? previewUrlByProductId.get(b.shopifyProductId) || null : null,
+      ),
     })),
   };
 };
@@ -77,6 +217,13 @@ export const action = async ({ request }) => {
   if (intent === "reorder") {
     const orderedIds = JSON.parse(formData.get("orderedIds") || "[]");
     await reorderBoxes(shop, orderedIds);
+    return { ok: true };
+  }
+  if (intent === "toggle_status") {
+    const id = formData.get("id");
+    const isActive = formData.get("isActive") === "true";
+    await toggleBoxStatus(id, shop, isActive);
+    await toggleComboConfigStatus(id, isActive).catch(() => {});
     return { ok: true };
   }
   return { ok: false };
@@ -98,47 +245,199 @@ function getAvatarColor(id) {
   return AVATAR_COLORS[id % AVATAR_COLORS.length];
 }
 
+function CopyCodeIcon({ size = 16 }) {
+  return (
+    <svg
+      width={`${size}px`}
+      height={`${size}px`}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M7.5 3H14.6C16.8402 3 17.9603 3 18.816 3.43597C19.5686 3.81947 20.1805 4.43139 20.564 5.18404C21 6.03969 21 7.15979 21 9.4V16.5M6.2 21H14.3C15.4201 21 15.9802 21 16.408 20.782C16.7843 20.5903 17.0903 20.2843 17.282 19.908C17.5 19.4802 17.5 18.9201 17.5 17.8V9.7C17.5 8.57989 17.5 8.01984 17.282 7.59202C17.0903 7.21569 16.7843 6.90973 16.408 6.71799C15.9802 6.5 15.4201 6.5 14.3 6.5H6.2C5.0799 6.5 4.51984 6.5 4.09202 6.71799C3.71569 6.90973 3.40973 7.21569 3.21799 7.59202C3 8.01984 3 8.57989 3 9.7V17.8C3 18.9201 3 19.4802 3.21799 19.908C3.40973 20.2843 3.71569 20.5903 4.09202 20.782C4.51984 21 5.0799 21 6.2 21Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function EyeIcon({ size = 16, color = "#ffffff" }) {
+  return (
+    <svg
+      width={`${size}px`}
+      height={`${size}px`}
+      viewBox="0 0 24 24"
+      fill="#ffffff"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M1.5 12s3.75-6.75 10.5-6.75S22.5 12 22.5 12s-3.75 6.75-10.5 6.75S1.5 12 1.5 12Z"
+        stroke="#ffffff"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="3.25" stroke={color} strokeWidth="2" />
+    </svg>
+  );
+}
+
+function GiftIcon({ size = 14, fill = "#ffffff" }) {
+  return (
+    <svg
+      width={`${size}px`}
+      height={`${size}px`}
+      viewBox="0 0 24 24"
+      fill={fill}
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M20.5 7H17.86A2.99 2.99 0 0 0 18.5 5.2C18.5 3.44 17.06 2 15.3 2c-1.25 0-2.39.73-2.9 1.87L12 4.8l-.4-.93A3.16 3.16 0 0 0 8.7 2C6.94 2 5.5 3.44 5.5 5.2c0 .65.2 1.26.54 1.8H3.5A1.5 1.5 0 0 0 2 8.5v2c0 .83.67 1.5 1.5 1.5H4v7.5A2.5 2.5 0 0 0 6.5 22h11a2.5 2.5 0 0 0 2.5-2.5V12h.5a1.5 1.5 0 0 0 1.5-1.5v-2A1.5 1.5 0 0 0 20.5 7ZM15.3 4c.66 0 1.2.54 1.2 1.2S15.96 6.4 15.3 6.4H13.2l.38-.87c.3-.67.97-1.53 1.72-1.53ZM7.5 5.2C7.5 4.54 8.04 4 8.7 4c.75 0 1.43.86 1.72 1.53l.38.87H8.7c-.66 0-1.2-.54-1.2-1.2ZM4 10V9h7v1H4Zm2 2h5v8H6v-8Zm7 8v-8h5v8h-5Zm7-10h-7V9h7v1Z"
+      />
+    </svg>
+  );
+}
+
+function CopyCodeBtn({ code }) {
+  const [copied, setCopied] = useState(false);
+  function handleCopy() {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+  return (
+    <InlineStack gap="100" blockAlign="center">
+      <span
+        style={{
+          fontSize: "12px",
+          fontWeight: 700,
+          letterSpacing: "0.1em",
+          color: "#1d4ed8",
+          background: "#eff6ff",
+          border: "1px solid #bfdbfe",
+          borderRadius: "5px",
+          padding: "3px 8px",
+          userSelect: "all",
+        }}
+      >
+        {code}
+      </span>
+      <Tooltip content={copied ? "Copied" : "Copy code"}>
+        <button
+          type="button"
+          onClick={handleCopy}
+          style={{
+            width: "24px",
+            height: "24px",
+            borderRadius: "5px",
+            border: `1px solid ${copied ? "#86efac" : "#e5e7eb"}`,
+            background: copied ? "#dcfce7" : "#fff",
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: copied ? "#16a34a" : "#9ca3af",
+            fontSize: "12px",
+            transition: "all 0.13s",
+            flexShrink: 0,
+          }}
+        >
+          <CopyCodeIcon size={16} />
+        </button>
+      </Tooltip>
+    </InlineStack>
+  );
+}
+
 export default function ManageBoxesPage() {
-  const { boxes } = useLoaderData();
+  const { boxes, currencyCode } = useLoaderData();
   const location = useLocation();
   const navigate = useNavigate();
+  const navigation = useNavigation();
   const fetcher = useFetcher();
+  const toggleFetcher = useFetcher();
 
+  const PAGE_SIZE = 10;
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [showCreateBoxModal, setShowCreateBoxModal] = useState(false);
+  const [pendingCreateRoute, setPendingCreateRoute] = useState(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [manualPageLoading, setManualPageLoading] = useState(false);
+  const isDeleteSubmitting =
+    fetcher.state !== "idle" &&
+    fetcher.formData?.get("_action") === "delete";
+  const isReorderSubmitting =
+    fetcher.state !== "idle" &&
+    fetcher.formData?.get("_action") === "reorder";
+  const isToggleSubmitting =
+    toggleFetcher.state !== "idle" &&
+    toggleFetcher.formData?.get("_action") === "toggle_status";
+  const pendingToggleId = isToggleSubmitting ? parseInt(toggleFetcher.formData?.get("id"), 10) : null;
+  const pendingToggleState = isToggleSubmitting ? toggleFetcher.formData?.get("isActive") === "true" : null;
+  const isPageLoading =
+    manualPageLoading ||
+    navigation.state !== "idle" ||
+    isDeleteSubmitting ||
+    isReorderSubmitting ||
+    isToggleSubmitting;
+
+  function startPageLoading() {
+    setManualPageLoading(true);
+  }
+
+  useEffect(() => {
+    if (
+      manualPageLoading &&
+      navigation.state === "idle" &&
+      !isDeleteSubmitting &&
+      !isReorderSubmitting &&
+      !isToggleSubmitting
+    ) {
+      setManualPageLoading(false);
+    }
+  }, [manualPageLoading, navigation.state, isDeleteSubmitting, isReorderSubmitting, isToggleSubmitting]);
 
   function navigateTo(path) {
+    startPageLoading();
     navigate(withEmbeddedAppParams(path, location.search));
+  }
+  function openCreateBoxModal() {
+    setShowCreateBoxModal(true);
+  }
+  function closeCreateBoxModal() {
+    setShowCreateBoxModal(false);
+    setPendingCreateRoute(null);
+  }
+  function goToCreateRoute(path) {
+    setPendingCreateRoute(path);
+    navigateTo(path);
   }
 
   function handleDelete(id, name) { setDeleteConfirm({ id, name }); }
 
   function confirmDelete() {
     if (deleteConfirm) {
+      startPageLoading();
       fetcher.submit({ _action: "delete", id: String(deleteConfirm.id) }, { method: "POST" });
     }
     setDeleteConfirm(null);
   }
 
-  let dragSrcId = null;
-
-  function onDragStart(e, id) { dragSrcId = id; e.currentTarget.style.opacity = "0.4"; }
-  function onDragEnd(e) { e.currentTarget.style.opacity = "1"; }
-  function onDragOver(e) { e.preventDefault(); e.currentTarget.style.background = "#f0fdf4"; }
-  function onDragLeave(e) { e.currentTarget.style.background = ""; }
-
-  function onDrop(e, targetId) {
-    e.preventDefault();
-    e.currentTarget.style.background = "";
-    if (dragSrcId === targetId) return;
-    const rows = Array.from(document.querySelectorAll("tr[data-box-id]")).map((r) => parseInt(r.getAttribute("data-box-id")));
-    const srcIdx = rows.indexOf(dragSrcId);
-    const tgtIdx = rows.indexOf(targetId);
-    if (srcIdx === -1 || tgtIdx === -1) return;
-    rows.splice(srcIdx, 1);
-    rows.splice(tgtIdx, 0, dragSrcId);
-    fetcher.submit({ _action: "reorder", orderedIds: JSON.stringify(rows) }, { method: "POST" });
+  function toggleStatus(id, nextState) {
+    toggleFetcher.submit(
+      { _action: "toggle_status", id: String(id), isActive: String(nextState) },
+      { method: "POST" },
+    );
   }
 
   const baseBoxes =
@@ -146,8 +445,17 @@ export default function ManageBoxesPage() {
       ? boxes.filter((b) => b.id !== parseInt(fetcher.formData.get("id")))
       : boxes;
 
-  const displayBoxes = useMemo(() => {
-    let result = baseBoxes;
+  const boxesWithPendingToggle = useMemo(
+    () => (
+      pendingToggleId === null
+        ? baseBoxes
+        : baseBoxes.map((b) => (b.id === pendingToggleId ? { ...b, isActive: pendingToggleState } : b))
+    ),
+    [baseBoxes, pendingToggleId, pendingToggleState],
+  );
+
+  const filteredBoxes = useMemo(() => {
+    let result = boxesWithPendingToggle;
     if (statusFilter === "active") result = result.filter((b) => b.isActive);
     if (statusFilter === "inactive") result = result.filter((b) => !b.isActive);
     if (search.trim()) {
@@ -156,449 +464,537 @@ export default function ManageBoxesPage() {
         (b) => b.boxName.toLowerCase().includes(q) || (b.displayTitle && b.displayTitle.toLowerCase().includes(q))
       );
     }
-    return result;
-  }, [baseBoxes, statusFilter, search]);
+    return result.sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
+  }, [boxesWithPendingToggle, statusFilter, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredBoxes.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const displayBoxes = filteredBoxes.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const hasMultiplePages = totalPages > 1;
+
+  // Reset to page 1 when filter/search changes
+  useEffect(() => { setCurrentPage(1); }, [statusFilter, search]);
 
   const totalOrders = baseBoxes.reduce((s, b) => s + b.orderCount, 0);
-  const activeCount = baseBoxes.filter((b) => b.isActive).length;
-  const inactiveCount = baseBoxes.length - activeCount;
+  const activeCount = boxesWithPendingToggle.filter((b) => b.isActive).length;
+  const inactiveCount = boxesWithPendingToggle.length - activeCount;
+
+  const statCards = [
+    { label: "Total Boxes",  value: baseBoxes.length,  icon: "package",    iconBg: "#eff6ff", iconColor: "#2563eb" },
+    { label: "Active Boxes", value: activeCount,        icon: "check",      iconBg: "#f0fdf4", iconColor: "#16a34a" },
+    { label: "Inactive Boxes", value: inactiveCount,    icon: "hide",       iconBg: "#fafafa", iconColor: "#9ca3af" },
+    { label: "Total Orders", value: totalOrders,        icon: "order",      iconBg: "#fdf4ff", iconColor: "#9333ea" },
+  ];
 
   return (
-    <s-page heading="Combo Boxes">
-      <style>{`
-        /* ── Stats bar ── */
-        .cb-stats {
-          display: flex;
-          gap: 12px;
-          margin-bottom: 16px;
-          flex-wrap: wrap;
-        }
-        .cb-stat-card {
-          flex: 1;
-          min-width: 120px;
-          background: #fff;
-          border: 1px solid #e5e7eb;
-          border-radius: 10px;
-          padding: 14px 18px;
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-        }
-        .cb-stat-icon {
-          width: 38px; height: 38px;
-          border-radius: 8px;
-          display: flex; align-items: center; justify-content: center;
-          flex-shrink: 0;
-        }
-        .cb-stat-val { font-size: 20px; font-weight: 800; color: #111827; line-height: 1; }
-        .cb-stat-lbl { font-size: 11px; color: #6b7280; margin-top: 2px; font-weight: 500; letter-spacing: 0.03em; }
-
-        /* ── Toolbar ── */
-        .cb-toolbar {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 12px 16px;
-          border-bottom: 1px solid #f0f0f0;
-          background: #fafafa;
-          flex-wrap: wrap;
-        }
-        .cb-search-wrap {
-          flex: 1;
-          min-width: 200px;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          background: #fff;
-          border: 1.5px solid #e5e7eb;
-          border-radius: 8px;
-          padding: 8px 12px;
-          transition: border-color 0.15s;
-        }
-        .cb-search-wrap:focus-within { border-color: #2A7A4F; box-shadow: 0 0 0 3px rgba(42,122,79,0.08); }
-        .cb-search-wrap input {
-          border: none; outline: none; background: transparent;
-          font-size: 13px; color: #111827; width: 100%;
-        }
-        .cb-search-wrap input::placeholder { color: #b0b7c3; }
-        .cb-clear-btn {
-          background: none; border: none; cursor: pointer;
-          color: #9ca3af; padding: 0; line-height: 1; font-size: 18px;
-          display: flex; align-items: center;
-        }
-        .cb-filter-tabs { display: flex; gap: 4px; }
-        .cb-ftab {
-          padding: 7px 14px;
-          border: 1.5px solid #e5e7eb;
-          border-radius: 8px;
-          background: #fff;
-          font-size: 12px; font-weight: 500; color: #6b7280;
-          cursor: pointer; transition: all 0.12s; white-space: nowrap;
-        }
-        .cb-ftab:hover { background: #f3f4f6; border-color: #d1d5db; color: #111827; }
-        .cb-ftab.f-all  { background: #111827; color: #fff; border-color: #111827; font-weight: 600; }
-        .cb-ftab.f-live { background: #dcfce7; color: #166534; border-color: #86efac; font-weight: 600; }
-        .cb-ftab.f-draft{ background: #f3f4f6; color: #374151; border-color: #d1d5db; font-weight: 600; }
-        .cb-count-pill {
-          display: inline-flex; align-items: center; justify-content: center;
-          background: rgba(255,255,255,0.25); border-radius: 99px;
-          padding: 0 6px; font-size: 11px; margin-left: 4px; min-width: 18px; height: 16px;
-        }
-        .cb-ftab.f-all .cb-count-pill { background: rgba(255,255,255,0.2); }
-        .cb-ftab.f-live .cb-count-pill { background: rgba(22,101,52,0.12); }
-        .cb-ftab.f-draft .cb-count-pill { background: rgba(0,0,0,0.07); }
-
-        /* ── Table ── */
-        .cb-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        .cb-table thead tr { background: #f9fafb; }
-        .cb-table thead th {
-          text-align: left; padding: 11px 16px;
-          font-size: 10px; font-weight: 700; color: #9ca3af;
-          text-transform: uppercase; letter-spacing: 0.08em;
-          border-bottom: 1px solid #e5e7eb; white-space: nowrap;
-        }
-        .cb-table thead th:last-child { text-align: right; padding-right: 20px; }
-        .cb-table tbody tr {
-          border-bottom: 1px solid #f3f4f6;
-          transition: background 0.1s;
-          cursor: default;
-        }
-        .cb-table tbody tr:last-child { border-bottom: none; }
-        .cb-table tbody tr:hover { background: #f8fffe; }
-        .cb-table td { padding: 13px 16px; vertical-align: middle; }
-        .cb-table td:last-child { text-align: right; padding-right: 20px; }
-
-        /* ── Box avatar ── */
-        .cb-avatar {
-          width: 36px; height: 36px; border-radius: 8px;
-          display: flex; align-items: center; justify-content: center;
-          font-weight: 800; font-size: 14px; flex-shrink: 0;
-          letter-spacing: -0.5px;
-        }
-
-        /* ── Badges ── */
-        .cb-badge {
-          display: inline-flex; align-items: center; gap: 4px;
-          padding: 2px 8px; border-radius: 4px;
-          font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
-          text-transform: uppercase;
-        }
-        .b-live   { color: #166534; background: #dcfce7; }
-        .b-draft  { color: #6b7280; background: #f3f4f6; }
-        .b-combo  { color: #1d4ed8; background: #dbeafe; }
-        .b-single { color: #6b7280; background: #f3f4f6; }
-        .b-gift   { color: #7c3aed; background: #ede9fe; }
-
-        /* ── Status dot ── */
-        .cb-dot {
-          width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0;
-        }
-        .dot-live { background: #22c55e; box-shadow: 0 0 0 2px rgba(34,197,94,0.2); }
-        .dot-draft { background: #d1d5db; }
-
-        /* ── Action buttons ── */
-        .cb-actions { display: flex; gap: 6px; justify-content: flex-end; }
-        .cb-btn {
-          width: 32px; height: 32px; border-radius: 7px;
-          border: 1.5px solid #e5e7eb; background: #fff;
-          cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
-          color: #6b7280; transition: all 0.13s;
-        }
-        .cb-btn:hover { background: #f0fdf4; border-color: #2A7A4F; color: #2A7A4F; transform: scale(1.05); }
-        .cb-btn.del:hover { background: #fef2f2; border-color: #fca5a5; color: #dc2626; }
-
-        /* ── Drag handle ── */
-        .cb-drag {
-          color: #d1d5db; cursor: grab; font-size: 15px;
-          line-height: 1; user-select: none; padding: 0 2px;
-          transition: color 0.12s;
-        }
-        .cb-drag:hover { color: #9ca3af; }
-
-        /* ── Price ── */
-        .cb-price { font-family: monospace; font-weight: 700; color: #111827; font-size: 13px; }
-        .cb-price-dynamic { font-size: 11px; color: #9ca3af; font-style: italic; }
-
-        /* ── Orders badge ── */
-        .cb-orders-val {
-          display: inline-flex; align-items: center; gap: 5px;
-          font-weight: 700; color: #111827; font-size: 13px;
-        }
-        .cb-orders-zero { color: #d1d5db; font-size: 13px; font-weight: 500; }
-
-        /* ── Empty state ── */
-        .cb-empty {
-          text-align: center; padding: 72px 24px;
-        }
-        .cb-empty-icon {
-          width: 64px; height: 64px; border-radius: 16px;
-          background: linear-gradient(135deg, #f0fdf4, #dcfce7);
-          border: 1px solid #bbf7d0;
-          display: flex; align-items: center; justify-content: center;
-          margin: 0 auto 20px;
-          box-shadow: 0 4px 12px rgba(42,122,79,0.12);
-        }
-        .cb-empty h3 { font-size: 16px; font-weight: 700; color: #111827; margin: 0 0 6px; }
-        .cb-empty p { font-size: 13px; color: #9ca3af; margin: 0 0 24px; }
-        .cb-empty-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
-
-        /* ── No results ── */
-        .cb-noresults {
-          text-align: center; padding: 40px 24px; color: #9ca3af;
-        }
-        .cb-noresults p { margin: 8px 0 0; font-size: 13px; }
-
-        /* ── Items chip ── */
-        .cb-items-chip {
-          display: inline-flex; align-items: center; justify-content: center;
-          min-width: 28px; height: 24px; padding: 0 8px;
-          background: #f3f4f6; border-radius: 6px;
-          font-size: 12px; font-weight: 700; color: #374151;
-        }
-      `}</style>
-
-      <ui-title-bar title="Combo Boxes">
-        <button onClick={() => navigateTo("/app/storefront-visibility")}>
-          Frontend Visibility
-        </button>
-        <button onClick={() => navigateTo("/app/boxes/specific-combo")}>
-          Specific Combo
-        </button>
-        <button variant="primary" onClick={() => navigateTo("/app/boxes/new")}>
+    <Page
+      title="Manage Boxes"
+      primaryAction={{ content: "+ Create Box", onAction: openCreateBoxModal }}
+    >
+      {/* <ui-title-bar title="MixBox â€“ Box & Bundle Builder">
+        <button variant="primary" onClick={openCreateBoxModal}>
           + Create Box
         </button>
-      </ui-title-bar>
+      </ui-title-bar> */}
 
-      {/* Stats row */}
-      <div className="cb-stats">
-        {[
-          { label: "Total Boxes",  value: baseBoxes.length,  icon: "package",    iconBg: "#eff6ff", iconColor: "#2563eb" },
-          { label: "Active",       value: activeCount,        icon: "checkmark",  iconBg: "#f0fdf4", iconColor: "#16a34a" },
-          { label: "Inactive",     value: inactiveCount,      icon: "hide",       iconBg: "#fafafa", iconColor: "#9ca3af" },
-          { label: "Total Orders", value: totalOrders,        icon: "orders",     iconBg: "#fdf4ff", iconColor: "#9333ea" },
-        ].map((s) => (
-          <div key={s.label} className="cb-stat-card">
-            <div className="cb-stat-icon" style={{ background: s.iconBg }}>
-              <AdminIcon type={s.icon} size="base" />
-            </div>
-            <div>
-              <div className="cb-stat-val">{s.value}</div>
-              <div className="cb-stat-lbl">{s.label}</div>
-            </div>
-          </div>
-        ))}
-      </div>
+      <BlockStack gap="400">
+        {/* Stats row */}
+        <InlineGrid columns={{ xs: 2, md: 4 }} gap="400">
+          {statCards.map((s) => (
+            <Card key={s.label} padding="400">
+              <InlineStack gap="300" blockAlign="center">
+                <div
+                  style={{
+                    width: "38px",
+                    height: "38px",
+                    borderRadius: "8px",
+                    background: s.iconBg,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  <AdminIcon type={s.icon} size="base" style={{ color: s.iconColor }} />
+                </div>
+                <BlockStack gap="050">
+                  <Text variant="headingLg" as="p" fontWeight="bold">{s.value}</Text>
+                  <Text variant="bodySm" as="p" tone="subdued">{s.label}</Text>
+                </BlockStack>
+              </InlineStack>
+            </Card>
+          ))}
+        </InlineGrid>
 
-      <s-section>
-        {/* Toolbar */}
-        <div className="cb-toolbar">
-          <div className="cb-search-wrap">
-            <svg width="14" height="14" viewBox="0 0 20 20" fill="none" style={{ flexShrink: 0, color: "#9ca3af" }}>
-              <circle cx="9" cy="9" r="7" stroke="currentColor" strokeWidth="1.8"/>
-              <path d="M14.5 14.5L18 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-            </svg>
-            <input
-              type="text"
-              placeholder="Search by box name…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            {search && (
-              <button className="cb-clear-btn" type="button" onClick={() => setSearch("")}>×</button>
-            )}
-          </div>
+        {/* Main content card */}
+        <Card padding="0">
+          {/* Toolbar */}
+          <Box padding="300" borderBlockEndWidth="025" borderColor="border-secondary">
+            <InlineStack gap="300" blockAlign="center" wrap>
+              <Box minWidth="200px" flexGrow="1">
+                <TextField
+                  label=""
+                  labelHidden
+                  placeholder="Search box by name..."
+                  value={search}
+                  onChange={(val) => setSearch(val)}
+                  clearButton
+                  onClearButtonClick={() => setSearch("")}
+                  prefix={(
+                    <span style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
+                      <AdminIcon type="search" size="small" style={{ color: "#9ca3af" }} />
+                    </span>
+                  )}
+                  autoComplete="off"
+                />
+              </Box>
+              <InlineStack gap="150" blockAlign="center">
+                <Button
+                  variant={statusFilter === "all" ? "primary" : "secondary"}
+                  onClick={() => setStatusFilter("all")}
+                  size="slim"
+                >
+                  All ({baseBoxes.length})
+                </Button>
+                <Button
+                  variant={statusFilter === "active" ? "primary" : "secondary"}
+                  tone={statusFilter === "active" ? "success" : undefined}
+                  onClick={() => setStatusFilter("active")}
+                  size="slim"
+                >
+                  Active ({activeCount})
+                </Button>
+                <Button
+                  variant={statusFilter === "inactive" ? "primary" : "secondary"}
+                  onClick={() => setStatusFilter("inactive")}
+                  size="slim"
+                >
+                  Inactive ({inactiveCount})
+                </Button>
+              </InlineStack>
+            </InlineStack>
+          </Box>
 
-          <div className="cb-filter-tabs">
-            <button type="button" className={`cb-ftab ${statusFilter === "all" ? "f-all" : ""}`} onClick={() => setStatusFilter("all")}>
-              All <span className="cb-count-pill">{baseBoxes.length}</span>
-            </button>
-            <button type="button" className={`cb-ftab ${statusFilter === "active" ? "f-live" : ""}`} onClick={() => setStatusFilter("active")}>
-              Active <span className="cb-count-pill">{activeCount}</span>
-            </button>
-            <button type="button" className={`cb-ftab ${statusFilter === "inactive" ? "f-draft" : ""}`} onClick={() => setStatusFilter("inactive")}>
-              Inactive <span className="cb-count-pill">{inactiveCount}</span>
-            </button>
-          </div>
-        </div>
-
-        {baseBoxes.length === 0 ? (
-          /* Empty state — no boxes at all */
-          <div className="cb-empty">
-            <div className="cb-empty-icon">
-              <AdminIcon type="package" size="large" tone="success" />
-            </div>
-            <h3>No combo boxes yet</h3>
-            <p>Create your first box to let customers build custom combos on your storefront.</p>
-            <div className="cb-empty-actions">
-              <s-button onClick={() => navigateTo("/app/boxes/new")}>+ Create Box</s-button>
-              <s-button onClick={() => navigateTo("/app/boxes/specific-combo")}>Specific Combo Box</s-button>
-            </div>
-          </div>
-        ) : displayBoxes.length === 0 ? (
-          /* No search/filter results */
-          <div className="cb-noresults">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" style={{ color: "#d1d5db" }}>
-              <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="1.5"/>
-              <path d="M17 17L21 21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              <path d="M8 11h6M11 8v6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
-            <p>No boxes match <strong>&ldquo;{search}&rdquo;</strong></p>
-          </div>
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table className="cb-table">
-              <thead>
-                <tr>
-                  <th style={{ width: 32, padding: "11px 8px" }}></th>
-                  <th>Box Name</th>
-                  <th>Items</th>
-                  <th>Price</th>
-                  <th>Type</th>
-                  <th>Orders</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayBoxes.map((box) => {
+          {baseBoxes.length === 0 ? (
+            /* Empty state â€” no boxes at all */
+            <EmptyState
+              heading="No Boxes yet"
+              action={{ content: "Create Box", onAction: openCreateBoxModal }}
+              secondaryAction={{ content: "Create Specific", onAction: () => navigateTo("/app/boxes/specific-combo") }}
+              image=""
+            >
+              <p>Create your first box to let customers build custom bundles on your storefront.</p>
+            </EmptyState>
+          ) : filteredBoxes.length === 0 ? (
+            /* No search/filter results */
+            <Box padding="800">
+              <BlockStack gap="200" align="center" inlineAlign="center">
+                <AdminIcon type="search" size="large" style={{ color: "#d1d5db" }} />
+                <Text as="p" tone="subdued">
+                  No boxes match &ldquo;<strong>{search}</strong>&rdquo;
+                </Text>
+              </BlockStack>
+            </Box>
+          ) : (
+            <>
+              <style>{`
+                .Polaris-IndexTable__TableHeading,
+                .Polaris-IndexTable__TableCell,
+                .Polaris-IndexTable__TableHeading *,
+                .Polaris-IndexTable__TableCell * {
+                  font-size: 12px !important;
+                }
+                .cb-action-buttons .Polaris-Button,
+                .cb-action-buttons .Polaris-Button__Content,
+                .cb-action-buttons .Polaris-Button__Icon {
+                  display: inline-flex !important;
+                  align-items: center !important;
+                  justify-content: center !important;
+                }
+                .cb-action-buttons .Polaris-Button__Icon {
+                  margin: 0 !important;
+                  line-height: 0 !important;
+                  height: 100% !important;
+                }
+                .cb-action-buttons .Polaris-Button__Icon svg {
+                  display: block !important;
+                }
+                  .Polaris-Button--textAlignCenter {
+                     justify-content: center;
+                      text-align: center;
+                      display: flex;
+                      align-items: end;
+                      font-size: 14px !important;
+                }
+              `}</style>
+              <IndexTable
+                resourceName={{ singular: "box", plural: "boxes" }}
+                itemCount={displayBoxes.length}
+                headings={[
+                  { title: "Name" },
+                  { title: "Code" },
+                  { title: "Price" },
+                  { title: "Type" },
+                  { title: "Orders" },
+                  { title: "Status" },
+                  { title: "Actions" },
+                ]}
+                selectable={false}
+              >
+                {displayBoxes.map((box, index) => {
                   const avatar = getAvatarColor(box.id);
+                  const isRowTogglePending = isToggleSubmitting && pendingToggleId === box.id;
                   return (
-                    <tr
-                      key={box.id}
-                      data-box-id={box.id}
-                      draggable
-                      onDragStart={(e) => onDragStart(e, box.id)}
-                      onDragEnd={onDragEnd}
-                      onDragOver={onDragOver}
-                      onDragLeave={onDragLeave}
-                      onDrop={(e) => onDrop(e, box.id)}
-                    >
-                      {/* Drag */}
-                      <td style={{ padding: "13px 8px", width: 32 }}>
-                        <span className="cb-drag" title="Drag to reorder">⠿</span>
-                      </td>
-
-                      {/* Box Name */}
-                      <td style={{ minWidth: 220 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                          <div className="cb-avatar" style={{ background: avatar.bg, color: avatar.color }}>
-                            {box.boxName.charAt(0).toUpperCase()}
-                          </div>
-                          <div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-                              <span style={{ fontWeight: 700, color: "#111827", fontSize: 13 }}>{box.boxName}</span>
-                              <span className={`cb-dot ${box.isActive ? "dot-live" : "dot-draft"}`} />
-                              <span className={`cb-badge ${box.isActive ? "b-live" : "b-draft"}`}>
-                                {box.isActive ? "Live" : "Draft"}
-                              </span>
-                              {box.isGiftBox && (
-                                <span className="cb-badge b-gift">🎁 Gift</span>
-                              )}
-                            </div>
-                            {box.displayTitle && box.displayTitle !== box.boxName && (
-                              <div style={{ fontSize: 11, color: "#9ca3af" }}>{box.displayTitle}</div>
+                    <IndexTable.Row key={box.id} id={String(box.id)} position={index}>
+                      {/* Bundle Name */}
+                      <IndexTable.Cell>
+                        <InlineStack gap="300" blockAlign="center">
+                          <div
+                            style={{
+                              width: "36px",
+                              height: "36px",
+                              borderRadius: "8px",
+                              background: avatar.bg,
+                              color: avatar.color,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontWeight: 800,
+                              fontSize: "14px",
+                              flexShrink: 0,
+                              letterSpacing: "-0.5px",
+                              overflow: "hidden",
+                              border: "1px solid rgba(0,0,0,0.04)",
+                            }}
+                          >
+                            {box.listImageSrc ? (
+                              <img
+                                src={box.listImageSrc}
+                                alt={`${box.boxName} image`}
+                                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                              />
+                            ) : (
+                              box.boxName.charAt(0).toUpperCase()
                             )}
                           </div>
-                        </div>
-                      </td>
+                          <BlockStack gap="050">
+                            <InlineStack gap="150" blockAlign="center">
+                              <Text variant="bodySm" fontWeight="semibold" as="span">{box.boxName}</Text>
+                              {box.isGiftBox && (
+                                <Tooltip content="Gift bundle">
+                                  <span
+                                    aria-label="Gift bundle"
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      width: "22px",
+                                      height: "22px",
+                                      borderRadius: "6px",
+                                      background: "#f59e0b",
+                                      border: "1px solid #d97706",
+                                    }}
+                                  >
+                                    <GiftIcon size={12} fill="#FFFFFF" />
+                                  </span>
+                                </Tooltip>
+                              )}
+                            </InlineStack>
+                          </BlockStack>
+                        </InlineStack>
+                      </IndexTable.Cell>
 
-                      {/* Items */}
-                      <td>
-                        <span className="cb-items-chip">{box.itemCount}</span>
-                      </td>
+                      {/* Code */}
+                      <IndexTable.Cell>
+                        {box.boxCode ? (
+                          <CopyCodeBtn code={box.boxCode} />
+                        ) : (
+                          <Text as="span" tone="disabled">â€”</Text>
+                        )}
+                      </IndexTable.Cell>
 
                       {/* Price */}
-                      <td>
+                      <IndexTable.Cell>
                         {box.bundlePriceType === "dynamic" ? (
-                          <span className="cb-price-dynamic">Dynamic</span>
+                          <BlockStack gap="050">
+                          <Text as="span" tone="subdued" variant="bodySm" fontStyle="italic">Dynamic</Text>
+                            {box.discount && (
+                              <Text as="span" variant="bodySm" tone="success" fontWeight="semibold">
+                                {box.discount.discountType === "percent"
+                                    ? `${box.discount.discountValue}% off`
+                                    : box.discount.discountType === "fixed"
+                                    ? `${getCurrencySymbol(currencyCode)}${box.discount.discountValue} off`
+                                    : box.discount.discountType === "buy_x_get_y"
+                                      ? `Buy ${box.discount.buyQuantity || 1} Get ${box.discount.getQuantity || 1} Free`
+                                      : `${box.discount.discountValue} off`}
+                              </Text>
+                            )}
+                          </BlockStack>
                         ) : (
-                          <span className="cb-price">
-                            &#8377;{Number(box.bundlePrice).toLocaleString("en-IN")}
-                          </span>
+                          <Text as="span" fontWeight="bold" variant="bodySm">
+                            {formatCurrencyAmount(Number(box.bundlePrice || 0), currencyCode)}
+                          </Text>
                         )}
-                      </td>
+                      </IndexTable.Cell>
 
                       {/* Type */}
-                      <td>
-                        {box.comboConfig && box.comboConfig.comboType > 0 ? (
-                          <span className="cb-badge b-combo">
-                            {box.comboConfig.comboType}-Step
-                          </span>
-                        ) : (
-                          <span className="cb-badge b-single">Single</span>
-                        )}
-                      </td>
+                      <IndexTable.Cell>
+                        {(() => {
+                          const isSpecific = box.comboConfig && box.comboConfig.comboType > 0;
+                          return (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                padding: "6px 12px",
+                                borderRadius: "8px",
+                                border: `1px solid ${isSpecific ? "#c7d2fe" : "#bbf7d0"}`,
+                                background: isSpecific ? "#eef2ff" : "#ecfdf3",
+                                color: isSpecific ? "#4f46e5" : "#166534",
+                                fontSize: "12px",
+                                fontWeight: 600,
+                                lineHeight: 1.1,
+                              }}
+                            >
+                              {isSpecific ? "Specific" : "Simple"}
+                            </span>
+                          );
+                        })()}
+                      </IndexTable.Cell>
 
                       {/* Orders */}
-                      <td>
+                      <IndexTable.Cell>
                         {box.orderCount > 0 ? (
-                          <span className="cb-orders-val">
-                            <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#2A7A4F", display: "inline-block" }} />
-                            {box.orderCount}
-                          </span>
+                          <InlineStack gap="100" blockAlign="center">
+                            <AdminIcon type="orders" size="small" style={{ color: "#2A7A4F" }} />
+                            <Text as="span" fontWeight="bold">{box.orderCount}</Text>
+                          </InlineStack>
                         ) : (
-                          <span className="cb-orders-zero">—</span>
+                          <Text as="span" tone="disabled">No</Text>
                         )}
-                      </td>
+                      </IndexTable.Cell>
+
+                      {/* Enabled toggle */}
+                      <IndexTable.Cell>
+                        <BlockStack gap="050">
+                          <button
+                            type="button"
+                            style={{
+                              position: "relative",
+                              width: "42px",
+                              height: "24px",
+                              border: "none",
+                              borderRadius: "999px",
+                              background: box.isActive ? "#111827" : "#d1d5db",
+                              padding: 0,
+                              cursor: isToggleSubmitting ? "not-allowed" : "pointer",
+                              transition: "background 0.16s",
+                              opacity: isToggleSubmitting ? 0.7 : 1,
+                            }}
+                            disabled={isToggleSubmitting}
+                            aria-label={box.isActive ? "Disable box" : "Enable box"}
+                            title={box.isActive ? "Disable on storefront" : "Enable on storefront"}
+                            onClick={() => toggleStatus(box.id, !box.isActive)}
+                          >
+                            <span
+                              style={{
+                                position: "absolute",
+                                top: "3px",
+                                left: box.isActive ? "21px" : "3px",
+                                width: "18px",
+                                height: "18px",
+                                borderRadius: "50%",
+                                background: "#ffffff",
+                                boxShadow: "0 1px 4px rgba(0,0,0,0.24)",
+                                transition: "left 0.16s",
+                              }}
+                            />
+                          </button>
+                        </BlockStack>
+                      </IndexTable.Cell>
 
                       {/* Actions */}
-                      <td>
-                        <div className="cb-actions">
-                          <button
-                            className="cb-btn"
-                            title="Edit"
-                            onClick={() => navigateTo(box.comboConfig ? `/app/boxes/${box.id}/combo` : `/app/boxes/${box.id}`)}
-                          >
-                            <AdminIcon type="edit" size="small" />
-                          </button>
-                          <button
-                            className="cb-btn del"
-                            title="Delete"
-                            onClick={() => handleDelete(box.id, box.boxName)}
-                          >
-                            <AdminIcon type="delete" size="small" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                      <IndexTable.Cell>
+                        <InlineStack gap="100" align="center" blockAlign="center" className="cb-action-buttons">
+                          <Tooltip content={box.previewUrl ? "Preview on storefront" : "Preview unavailable"}>
+                            <Button
+                              size="slim"
+                              url={box.previewUrl || undefined}
+                              target="_blank"
+                              disabled={!box.previewUrl}
+                              icon={<EyeIcon size={16} color="#FFFFFF" />}
+                              accessibilityLabel="Preview on storefront"
+                            >
+                            </Button>
+                          </Tooltip>
+                          <Tooltip content="Edit box">
+                            <Button
+                              size="slim"
+                              onClick={() => navigateTo(box.comboConfig ? `/app/boxes/${box.id}/combo` : `/app/boxes/${box.id}`)}
+                              icon={<AdminIcon type="edit" size="small" />}
+                            >
+                            </Button>
+                          </Tooltip>
+                          {box.orderCount === 0 && (
+                            <Tooltip content="Delete box">
+                              <Button
+                                size="slim"
+                                tone="critical"
+                                onClick={() => handleDelete(box.id, box.boxName)}
+                                icon={<AdminIcon type="delete" size="small" />}
+                              >
+                              </Button>
+                            </Tooltip>
+                          )}
+                        </InlineStack>
+                      </IndexTable.Cell>
+                    </IndexTable.Row>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </s-section>
+              </IndexTable>
 
-      {/* Delete modal */}
-      {deleteConfirm && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)", backdropFilter: "blur(3px)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-          <div style={{ background: "#fff", borderRadius: 12, width: "100%", maxWidth: 400, boxShadow: "0 24px 64px rgba(0,0,0,0.22)", overflow: "hidden" }}>
-            <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #f3f4f6", display: "flex", gap: 14, alignItems: "flex-start" }}>
-              <div style={{ width: 42, height: 42, borderRadius: "50%", background: "#fef2f2", border: "1.5px solid #fecaca", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <AdminIcon type="delete" size="base" />
-              </div>
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>Delete box?</div>
-                <div style={{ fontSize: 13, color: "#6b7280", marginTop: 3 }}>
-                  <strong style={{ color: "#111827" }}>&ldquo;{deleteConfirm.name}&rdquo;</strong> and its Shopify product will be permanently removed.
-                </div>
-              </div>
-            </div>
-            <div style={{ padding: "16px 24px", display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button type="button" onClick={() => setDeleteConfirm(null)} style={{ background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 7, padding: "8px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer", color: "#374151" }}>
-                Cancel
-              </button>
-              <button type="button" onClick={confirmDelete} style={{ background: "#dc2626", border: "none", borderRadius: 7, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", color: "#fff" }}>
-                Delete
-              </button>
-            </div>
-          </div>
+              {/* Pagination */}
+              <Box padding="400" borderBlockStartWidth="025" borderColor="border-secondary">
+                <InlineStack align="space-between" blockAlign="center" wrap>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Showing {filteredBoxes.length === 0 ? 0 : ((safePage - 1) * PAGE_SIZE + 1)}–{Math.min(safePage * PAGE_SIZE, filteredBoxes.length)} of {filteredBoxes.length} boxes (Page {safePage} of {totalPages})
+                  </Text>
+                  <Pagination
+                    hasPrevious={hasMultiplePages ? safePage > 1 : true}
+                    hasNext={hasMultiplePages ? safePage < totalPages : true}
+                    onPrevious={() => { if (!hasMultiplePages) return; setCurrentPage((p) => Math.max(1, p - 1)); }}
+                    onNext={() => { if (!hasMultiplePages) return; setCurrentPage((p) => Math.min(totalPages, p + 1)); }}
+                  />
+                </InlineStack>
+              </Box>
+            </>
+          )}
+        </Card>
+      </BlockStack>
+
+      {/* Loading overlay */}
+      {isPageLoading && (
+        <div
+          aria-live="polite"
+          aria-busy="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 10001,
+            background: "rgba(255,255,255,0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Spinner accessibilityLabel="Loading page" size="large" />
         </div>
       )}
-    </s-page>
+
+      {/* Create Box modal */}
+      <Modal
+        open={showCreateBoxModal}
+        onClose={closeCreateBoxModal}
+        title="Choose Type"
+        size="medium"
+      >
+        <Modal.Section  style={{ borderRadius: "0px !important", maxWidth: "30rem !important" }}>
+          <BlockStack gap="300">
+            <div style={{ border: "1px solid #e5e7eb", borderRadius: 0, padding: "16px" }}>
+              <BlockStack gap="200">
+                <InlineStack gap="200" blockAlign="center">
+                  <AdminIcon type="package" size="base" />
+                  <Text as="h3" variant="headingSm">Create Simple Box</Text>
+                </InlineStack>
+                <Text as="p" tone="subdued" variant="bodySm">
+                  Preconfigured Shopify product bundle to increase average order value faster.
+                </Text>
+                <button
+                  type="button"
+                  disabled={pendingCreateRoute !== null}
+                  onClick={() => goToCreateRoute("/app/boxes/new")}
+                  style={{
+                    width: "200px",
+                    maxWidth: "100%",
+                    border: "1px solid #000000",
+                    borderRadius: 0,
+                    background: "#000000",
+                    color: "#ffffff",
+                    padding: "9px 12px",
+                    fontSize: "15px",
+                    cursor: pendingCreateRoute !== null ? "not-allowed" : "pointer",
+                    opacity: pendingCreateRoute !== null && pendingCreateRoute !== "/app/boxes/new" ? 0.65 : 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "8px",
+                    minHeight: "40px",
+                  }}
+                >
+                  Create Box
+                </button>
+              </BlockStack>
+            </div>
+
+            <div style={{ border: "1px solid #e5e7eb", borderRadius: 0, padding: "16px" }}>
+              <BlockStack gap="200">
+                <InlineStack gap="200" blockAlign="center">
+                  <AdminIcon type="target" size="base" />
+                  <Text as="h3" variant="headingSm">Create Specific Box</Text>
+                </InlineStack>
+                <Text as="p" tone="subdued" variant="bodySm">
+                  Step-by-step bundle builder that lets shoppers create a personalized product box.
+                </Text>
+                <button
+                  type="button"
+                  disabled={pendingCreateRoute !== null}
+                  onClick={() => goToCreateRoute("/app/boxes/specific-combo")}
+                  style={{
+                    width: "200px",
+                    maxWidth: "100%",
+                    border: "1px solid #111827",
+                    borderRadius: 0,
+                    background: "#000000",
+                    color: "#ffffff",
+                    padding: "9px 12px",
+                    fontSize: "14px",
+                    cursor: pendingCreateRoute !== null ? "not-allowed" : "pointer",
+                    opacity: pendingCreateRoute !== null && pendingCreateRoute !== "/app/boxes/specific-combo" ? 0.65 : 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "8px",
+                    minHeight: "40px",
+                  }}
+                >
+                  Create Box
+                </button>
+              </BlockStack>
+            </div>
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
+
+      {/* Delete confirmation modal */}
+      <Modal
+        open={deleteConfirm !== null}
+        onClose={() => setDeleteConfirm(null)}
+        title="Delete box?"
+        primaryAction={{ content: "Delete", destructive: true, onAction: confirmDelete }}
+        secondaryActions={[{ content: "Cancel", onAction: () => setDeleteConfirm(null) }]}
+      >
+        <Modal.Section>
+          <Text as="p">
+            Are you sure you want to delete &ldquo;<strong>{deleteConfirm?.name}</strong>&rdquo;? Its Shopify product will be permanently removed.
+          </Text>
+        </Modal.Section>
+      </Modal>
+    </Page>
   );
 }
 
 export const headers = (headersArgs) => {
   return boundary.headers(headersArgs);
 };
+
+
