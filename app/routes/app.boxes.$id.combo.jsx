@@ -723,7 +723,7 @@ export default function SpecificComboBoxPage() {
       ...prev,
       steps: prev.steps.map((st, i) => {
         if (i !== stepIdx || st.scope === nextScope) return st;
-        return { ...st, scope: nextScope, collections: [], selectedProducts: [] };
+        return { ...st, scope: nextScope, collections: [], selectedProducts: [], resolvedProducts: [] };
       }),
     }));
   }
