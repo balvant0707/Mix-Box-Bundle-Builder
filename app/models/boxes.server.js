@@ -1372,8 +1372,13 @@ export async function upsertComboConfig(boxId, config, admin = null) {
     const defaultLabel = `Step ${index + 1}`;
     const rawLabel = typeof safeStep.label === "string" ? safeStep.label.trim() : "";
     const popup = safeStep.popup && typeof safeStep.popup === "object" ? safeStep.popup : {};
+    // When scope is product/wholestore, clear any stale resolvedProducts left over from a
+    // previous collection-scoped save — otherwise the widget uses old collection products
+    // instead of selectedProducts when the step is switched from collection to product.
+    const isProductScoped = safeStep.scope === "product" || safeStep.scope === "wholestore";
     return {
       ...safeStep,
+      resolvedProducts: isProductScoped ? [] : (safeStep.resolvedProducts || []),
       label: rawLabel || defaultLabel,
       optional: safeStep.optional === true || String(safeStep.optional).toLowerCase() === "true",
       popup: {
