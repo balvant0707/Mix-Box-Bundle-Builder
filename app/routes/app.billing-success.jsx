@@ -10,14 +10,19 @@ export const loader = async ({ request }) => {
 
   const { syncSubscription } = await import("../models/billing.server.js");
   const { setShopPlanStatus } = await import("../models/shop.server.js");
+  const { hasPlanAccess } = await import("../models/subscription.server.js");
 
   const { subscription } = await syncSubscription(billing, shop).catch(() => ({ subscription: null }));
 
-  if (subscription?.subscriptionId || process.env.SKIP_BILLING === "true") {
+  const planActive = hasPlanAccess(subscription) || process.env.SKIP_BILLING === "true";
+
+  if (planActive) {
     await setShopPlanStatus(shop, "active").catch(() => {});
+    throw redirect(withEmbeddedAppParamsFromRequest("/app?subscribed=1", request));
   }
 
-  throw redirect(withEmbeddedAppParamsFromRequest("/app?subscribed=1", request));
+  // Merchant declined or billing failed — go back to pricing.
+  throw redirect(withEmbeddedAppParamsFromRequest("/app/pricing?cancelled=1", request));
 };
 
 export default function BillingSuccessPage() {
