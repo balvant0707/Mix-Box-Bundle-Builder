@@ -167,25 +167,16 @@ export const action = async ({ request }) => {
     try {
       const returnUrl = buildShopifyAdminAppUrl({
         shop,
-        path: "/app?subscribed=1",
+        path: "/app/billing-success",
         request,
       });
-      const billingRequest = await createSubscription(billing, returnUrl, billingCycle, planKey);
-      if (billingRequest instanceof Response) return billingRequest;
-      if (typeof billingRequest === "string" && /^https?:\/\//i.test(billingRequest)) {
-        return { confirmationUrl: billingRequest };
-      }
-      if (
-        billingRequest &&
-        typeof billingRequest === "object" &&
-        typeof billingRequest.confirmationUrl === "string"
-      ) {
-        return { confirmationUrl: billingRequest.confirmationUrl };
-      }
+      await createSubscription(billing, returnUrl, billingCycle, planKey);
+      // billing.request() always throws a redirect to the Shopify confirmation page;
+      // reaching this line means something unexpected happened.
       return { error: "Unable to start Shopify billing. Please retry." };
     } catch (e) {
       if (e instanceof Response) throw e;
-      return { error: e.message, billingUnavailable: !!e.isBillingUnavailable };
+      return { error: e.message || "Billing error. Please try again.", billingUnavailable: !!e.isBillingUnavailable };
     }
   }
 
@@ -484,12 +475,6 @@ export default function PricingPage() {
   // +1 because each card prepends the order-limit line to displayFeatures.
   const maxFeatureCount = Math.max(...visiblePlans.map((plan) => plan.features.length + 1));
   const freeMonthlyLimit = getPlanLimit(orderLimitsByCycle, "FREE", "monthly");
-
-  useEffect(() => {
-    if (actionData?.confirmationUrl) {
-      window.open(actionData.confirmationUrl, "_top");
-    }
-  }, [actionData?.confirmationUrl]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
