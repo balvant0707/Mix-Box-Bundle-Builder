@@ -474,7 +474,6 @@ export default function PricingPage() {
     : PLAN_UI;
   // +1 because each card prepends the order-limit line to displayFeatures.
   const maxFeatureCount = Math.max(...visiblePlans.map((plan) => plan.features.length + 1));
-  const freeMonthlyLimit = getPlanLimit(orderLimitsByCycle, "FREE", "monthly");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -597,24 +596,6 @@ export default function PricingPage() {
         )}
 
         {/* ── Order limit info ── */}
-        <Banner tone="success" title="How order limits work">
-          <p>
-            When your store reaches the monthly order limit for your plan, an upgrade prompt
-            appears automatically. Upgrade anytime to increase your limit.
-          </p>
-        </Banner>
-        {!isPaid && (
-          <Banner tone="success" title="Free plan status">
-            <p>
-              {Number.isFinite(freeMonthlyLimit)
-                ? (freePlanLimitReached
-                  ? `Free plan lifetime limit reached (${freePlanOrderCount}/${freeMonthlyLimit} orders used).`
-                  : `Free plan usage (${freePlanOrderCount}/${freeMonthlyLimit} orders used).`)
-                : `Free plan usage (${freePlanOrderCount} orders used).`}
-            </p>
-          </Banner>
-        )}
-
         <Card>
           <InlineStack align="space-between" blockAlign="center" wrap>
             <Text as="h2" variant="headingMd">Billing cycle</Text>
