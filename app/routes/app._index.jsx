@@ -429,9 +429,6 @@ export default function DashboardPage() {
     embedBlockUrl,
     embedBlockEnabled,
     whatsappLink,
-    supportTicketLink,
-    knowledgeBaseLink,
-    reviewLink,
     recentOrders,
     currentPlanName,
     currencyCode,
@@ -641,13 +638,6 @@ export default function DashboardPage() {
     safeRecentOrdersPage * RECENT_ORDERS_PAGE_SIZE,
   );
 
-  const supportLinks = [
-    whatsappLink && { label: "WhatsApp", url: whatsappLink },
-    supportTicketLink && { label: "Support Ticket", url: supportTicketLink },
-    knowledgeBaseLink && { label: "Knowledge Base", url: knowledgeBaseLink },
-    reviewLink && { label: "Leave a Review", url: reviewLink },
-  ].filter(Boolean);
-
   return (
     <Page
       title={`Welcome To ${storeOwnerName}`}
@@ -814,22 +804,86 @@ export default function DashboardPage() {
         </Card>
 
         {/* Support */}
-        {supportLinks.length > 0 && (
-          <Card>
-            <BlockStack gap="300">
-              <Text as="h2" variant="headingMd">
-                Support
-              </Text>
-              <InlineStack gap="200" wrap>
-                {supportLinks.map((link) => (
-                  <Button key={link.label} url={link.url} target="_blank" variant="plain">
-                    {link.label}
-                  </Button>
-                ))}
-              </InlineStack>
-            </BlockStack>
-          </Card>
-        )}
+        <Card>
+          <BlockStack gap="400">
+            <Text as="h2" variant="headingMd">Support</Text>
+            <InlineGrid columns={{ xs: 1, md: 3 }} gap="400">
+
+              {/* Book a setup call */}
+              <Card>
+                <BlockStack gap="300">
+                  <Text as="h3" variant="headingSm">Book a free 30-minute setup call</Text>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Get help with app setup, best practices, and growth recommendations.
+                  </Text>
+                  <Box>
+                    <Button variant="primary">Schedule call</Button>
+                  </Box>
+                </BlockStack>
+              </Card>
+
+              {/* Support ticket */}
+              <Card>
+                <BlockStack gap="300">
+                  <InlineStack gap="200" blockAlign="center">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="#616161" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      <polyline points="22,6 12,13 2,6" stroke="#616161" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                    <Text as="h3" variant="headingSm">Support ticket</Text>
+                  </InlineStack>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Reach our team during office hours for issue resolution and guidance.
+                  </Text>
+                  <InlineStack gap="300" wrap>
+                    <Button url="https://mixboxbundlebuilder.tawk.help/category/features" target="_blank">
+                      Email support
+                    </Button>
+                    {whatsappLink && (
+                      <Button url={whatsappLink} target="_blank">
+                        WhatsApp
+                      </Button>
+                    )}
+                  </InlineStack>
+                </BlockStack>
+              </Card>
+
+              {/* Knowledge base */}
+              <Card>
+                <BlockStack gap="300">
+                  <InlineStack gap="200" blockAlign="center">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                      <circle cx="12" cy="12" r="10" stroke="#616161" strokeWidth="2"/>
+                      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" stroke="#616161" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      <line x1="12" y1="17" x2="12.01" y2="17" stroke="#616161" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                    <Text as="h3" variant="headingSm">Knowledge base</Text>
+                  </InlineStack>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Browse setup guides and troubleshooting docs.
+                  </Text>
+                  <InlineStack gap="300" wrap>
+                    <Button url="https://mixboxbundlebuilder.tawk.help/category/features" target="_blank">
+                      View docs
+                    </Button>
+                    <Button
+                      url="https://apps.shopify.com/mixbox-box-bundle-builder#modal-show=WriteReviewModal"
+                      target="_blank"
+                      icon={
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#fbbf24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.86L12 17.77l-6.18 3.23L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                        </svg>
+                      }
+                    >
+                      Write a review
+                    </Button>
+                  </InlineStack>
+                </BlockStack>
+              </Card>
+
+            </InlineGrid>
+          </BlockStack>
+        </Card>
         {/* ── Promoted Apps ── */}
         <Card>
           <BlockStack gap="400">
