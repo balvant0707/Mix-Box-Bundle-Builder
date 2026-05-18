@@ -5,6 +5,7 @@
  */
 
 import db from "../db.server";
+import { BILLING_IS_TEST } from "../config/billing";
 
 /* ─── Dev / skip-billing mode ─────────────────────────────────────── */
 //
@@ -336,8 +337,8 @@ export async function createSubscription(admin, planKey, returnUrl, currentPlanK
   // In skip-billing mode, redirect directly to returnUrl — no Shopify billing page
   if (SKIP_BILLING) return returnUrl;
 
-  // test:true = no real charge; controlled by BILLING_TEST; defaults to true for safety
-  const isTest    = process.env.BILLING_TEST !== "false";
+  // test:true = no real charge; only enabled when BILLING_TEST=true
+  const isTest    = BILLING_IS_TEST;
   const upgrading = isUpgrade(currentPlanKey, planKey);
 
   const resp = await admin.graphql(CREATE_SUBSCRIPTION_MUTATION, {

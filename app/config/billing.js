@@ -27,7 +27,7 @@ export const YEARLY_PRICE  = PLUS_YEARLY_PRICE;
 
 export const TRIAL_DAYS = 0;
 export const BILLING_CURRENCY_CODE = "USD";
-export const BILLING_IS_TEST = process.env.BILLING_TEST !== "false";
+export const BILLING_IS_TEST = String(process.env.BILLING_TEST || "").toLowerCase() === "true";
 
 const DEFAULT_ORDER_LIMITS_MONTHLY = {
   FREE: 10,
