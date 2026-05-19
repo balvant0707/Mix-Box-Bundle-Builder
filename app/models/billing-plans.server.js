@@ -5,7 +5,6 @@
  */
 
 import db from "../db.server";
-import { BILLING_IS_TEST } from "../config/billing";
 
 /* ─── Dev / skip-billing mode ─────────────────────────────────────── */
 //
@@ -134,7 +133,6 @@ const ACTIVE_SUBSCRIPTIONS_QUERY = `#graphql
         currentPeriodEnd
         createdAt
         trialDays
-        test
         lineItems {
           id
           plan {
@@ -157,7 +155,6 @@ const CREATE_SUBSCRIPTION_MUTATION = `#graphql
     $lineItems:           [AppSubscriptionLineItemInput!]!
     $returnUrl:           URL!
     $trialDays:           Int
-    $test:                Boolean
     $replacementBehavior: AppSubscriptionReplacementBehavior
   ) {
     appSubscriptionCreate(
@@ -165,7 +162,6 @@ const CREATE_SUBSCRIPTION_MUTATION = `#graphql
       lineItems:           $lineItems
       returnUrl:           $returnUrl
       trialDays:           $trialDays
-      test:                $test
       replacementBehavior: $replacementBehavior
     ) {
       confirmationUrl
@@ -196,7 +192,6 @@ function mockSubscription(planKey) {
     currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     createdAt:        new Date().toISOString(),
     trialDays:        0,
-    test:             true,
     lineItems: [
       {
         id: "gid://shopify/AppSubscriptionLineItem/dev",
@@ -279,7 +274,6 @@ export async function getCurrentPlan(admin) {
         currentPeriodEnd: sub.currentPeriodEnd,
         createdAt:        sub.createdAt,
         trialDays:        sub.trialDays,
-        test:             sub.test,
         price:            String(plan.price),
         currencyCode:     plan.currencyCode,
       },
@@ -312,7 +306,6 @@ export async function getCurrentPlan(admin) {
           currentPeriodEnd: subscription.currentPeriodEnd,
           createdAt:        subscription.createdAt,
           trialDays:        subscription.trialDays,
-          test:             subscription.test,
           price:            subscription.lineItems?.[0]?.plan?.pricingDetails?.price?.amount,
           currencyCode:     subscription.lineItems?.[0]?.plan?.pricingDetails?.price?.currencyCode,
         }
@@ -337,8 +330,6 @@ export async function createSubscription(admin, planKey, returnUrl, currentPlanK
   // In skip-billing mode, redirect directly to returnUrl — no Shopify billing page
   if (SKIP_BILLING) return returnUrl;
 
-  // test:true = no real charge; only enabled when BILLING_TEST=true
-  const isTest    = BILLING_IS_TEST;
   const upgrading = isUpgrade(currentPlanKey, planKey);
 
   const resp = await admin.graphql(CREATE_SUBSCRIPTION_MUTATION, {
@@ -356,7 +347,6 @@ export async function createSubscription(admin, planKey, returnUrl, currentPlanK
       ],
       returnUrl,
       trialDays:           plan.trialDays,
-      test:                isTest,
       replacementBehavior: upgrading ? "APPLY_IMMEDIATELY" : "APPLY_ON_NEXT_BILLING_CYCLE",
     },
   });
