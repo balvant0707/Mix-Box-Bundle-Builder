@@ -150,6 +150,7 @@ export async function createSubscription(
     return await billing.request({
       plan,
       returnUrl,
+      isTest: process.env.NODE_ENV !== "production",
       replacementBehavior: getBillingReplacementBehavior(currentSubscription?.name, plan),
     });
   } catch (error) {
