@@ -64,7 +64,9 @@ export async function getActiveShopifySubscription(billing) {
       plans: BILLING_PLAN_KEYS,
     });
 
-    return appSubscriptions.find((subscription) => subscription.status === "ACTIVE") || null;
+    const active = appSubscriptions.filter((s) => s.status === "ACTIVE");
+    // Prefer a real (non-test) subscription when multiple active ones exist
+    return active.find((s) => !s.test) || active[0] || null;
   } catch (error) {
     const message = getErrorMessage(error);
     if (isDistributionError(message)) throw tagError(message);
@@ -145,20 +147,31 @@ export async function createSubscription(
 
   const plan = getPlanNameForBillingCycle(billingCycle, String(planKey || "PLUS").toUpperCase());
   const currentSubscription = await getActiveShopifySubscription(billing);
-  const isTestMode = process.env.SHOPIFY_BILLING_TEST_MODE === "true";
 
-  // If the existing active subscription is a test subscription and we are now
-  // creating a real one, ignore it for replacement-behavior purposes so Shopify
-  // creates a completely fresh real subscription instead of a test-context replacement.
-  const subscriptionForReplacement =
-    currentSubscription?.test === true && !isTestMode ? null : currentSubscription;
+  // Cancel any active test subscription so Shopify creates a completely fresh
+  // real subscription instead of a test-context replacement (which would show
+  // the "You will not be billed for this test charge" banner).
+  if (currentSubscription?.test === true) {
+    try {
+      await billing.cancel({
+        subscriptionId: currentSubscription.id,
+        prorate: false,
+      });
+    } catch (err) {
+      console.warn("[billing] Could not cancel test subscription:", getErrorMessage(err));
+    }
+  }
+
+  // Use null for replacement when the existing sub was a test one (now cancelled),
+  // so Shopify treats this as a brand-new real subscription.
+  const realCurrent = currentSubscription?.test === true ? null : currentSubscription;
 
   try {
     return await billing.request({
       plan,
       returnUrl,
-      isTest: isTestMode,
-      replacementBehavior: getBillingReplacementBehavior(subscriptionForReplacement?.name, plan),
+      isTest: false,
+      replacementBehavior: getBillingReplacementBehavior(realCurrent?.name, plan),
     });
   } catch (error) {
     if (error instanceof Response) throw error;
