@@ -145,13 +145,20 @@ export async function createSubscription(
 
   const plan = getPlanNameForBillingCycle(billingCycle, String(planKey || "PLUS").toUpperCase());
   const currentSubscription = await getActiveShopifySubscription(billing);
+  const isTestMode = process.env.SHOPIFY_BILLING_TEST_MODE === "true";
+
+  // If the existing active subscription is a test subscription and we are now
+  // creating a real one, ignore it for replacement-behavior purposes so Shopify
+  // creates a completely fresh real subscription instead of a test-context replacement.
+  const subscriptionForReplacement =
+    currentSubscription?.test === true && !isTestMode ? null : currentSubscription;
 
   try {
     return await billing.request({
       plan,
       returnUrl,
-      isTest: process.env.NODE_ENV !== "production",
-      replacementBehavior: getBillingReplacementBehavior(currentSubscription?.name, plan),
+      isTest: isTestMode,
+      replacementBehavior: getBillingReplacementBehavior(subscriptionForReplacement?.name, plan),
     });
   } catch (error) {
     if (error instanceof Response) throw error;
