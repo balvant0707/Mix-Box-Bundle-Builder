@@ -170,4 +170,4 @@ export const unauthenticated = shopify.unauthenticated;
 export const login = shopify.login;
 export const registerWebhooks = shopify.registerWebhooks;
 export const sessionStorage = shopify.sessionStorage;
-export { BILLING_IS_TEST, MONTHLY_PLAN, YEARLY_PLAN } from "./config/billing";
+export { MONTHLY_PLAN, YEARLY_PLAN } from "./config/billing";

@@ -7,7 +7,6 @@
 import db from "../db.server";
 import {
   BILLING_CURRENCY_CODE,
-  BILLING_IS_TEST,
   BILLING_PLAN_KEYS,
   MONTHLY_PRICE,
   TRIAL_DAYS,
@@ -156,7 +155,6 @@ export async function createSubscription(
   try {
     return await billing.request({
       plan,
-      isTest: BILLING_IS_TEST,
       returnUrl,
       replacementBehavior: getBillingReplacementBehavior(currentSubscription?.name, plan),
     });
@@ -196,7 +194,6 @@ export async function cancelSubscription(billing, shop, subscriptionId) {
     try {
       const cancelledSubscription = await billing.cancel({
         subscriptionId: effectiveSubscriptionId,
-        isTest: BILLING_IS_TEST,
         prorate: false,
       });
 
