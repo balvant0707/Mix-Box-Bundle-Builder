@@ -17,8 +17,6 @@ import {
   getPlanKeyFromName,
 } from "../config/billing";
 
-const SKIP_BILLING = process.env.SKIP_BILLING === "true";
-
 function isDistributionError(message) {
   if (typeof message !== "string") return false;
   const lower = message.toLowerCase();
@@ -61,8 +59,6 @@ export const PLAN_CONFIG = {
  * official billing helper. Returns the first active subscription, or null.
  */
 export async function getActiveShopifySubscription(billing) {
-  if (SKIP_BILLING) return null;
-
   try {
     const { appSubscriptions } = await billing.check({
       plans: BILLING_PLAN_KEYS,
@@ -143,8 +139,6 @@ export async function createSubscription(
   billingCycle = "monthly",
   planKey = "PLUS",
 ) {
-  if (SKIP_BILLING) return null;
-
   if (typeof returnUrl !== "string" || !/^https?:\/\//i.test(returnUrl)) {
     throw new Error("Invalid billing return URL.");
   }
@@ -184,13 +178,13 @@ export async function cancelSubscription(billing, shop, subscriptionId) {
     normalizeShopifySubscriptionId(existing?.subscriptionId) ||
     null;
 
-  if (!SKIP_BILLING && !effectiveSubscriptionId) {
+  if (!effectiveSubscriptionId) {
     const activeSubscription = await getActiveShopifySubscription(billing);
     effectiveSubscriptionId = activeSubscription?.id || null;
     currentPeriodEnd = activeSubscription?.currentPeriodEnd || currentPeriodEnd;
   }
 
-  if (!SKIP_BILLING && effectiveSubscriptionId && !effectiveSubscriptionId.includes("/dev")) {
+  if (effectiveSubscriptionId) {
     try {
       const cancelledSubscription = await billing.cancel({
         subscriptionId: effectiveSubscriptionId,

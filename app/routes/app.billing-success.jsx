@@ -14,7 +14,7 @@ export const loader = async ({ request }) => {
 
   const { subscription } = await syncSubscription(billing, shop).catch(() => ({ subscription: null }));
 
-  const planActive = hasPlanAccess(subscription) || process.env.SKIP_BILLING === "true";
+  const planActive = hasPlanAccess(subscription);
 
   if (planActive) {
     await setShopPlanStatus(shop, "active").catch(() => {});
