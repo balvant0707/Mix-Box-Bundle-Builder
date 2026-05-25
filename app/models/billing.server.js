@@ -150,7 +150,7 @@ export async function createSubscription(
     return await billing.request({
       plan,
       returnUrl,
-      isTest: process.env.NODE_ENV !== "production",
+      isTest: process.env.SHOPIFY_BILLING_TEST_MODE === "true",
       replacementBehavior: getBillingReplacementBehavior(currentSubscription?.name, plan),
     });
   } catch (error) {
