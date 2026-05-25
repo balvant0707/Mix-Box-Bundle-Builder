@@ -73,8 +73,6 @@ export const loader = async ({ request }) => {
   const activeBillingCycle = activeShopifySubscription?.name
     ? getBillingCycleForPlanName(activeShopifySubscription.name)
     : "monthly";
-  const isDevMode = process.env.SKIP_BILLING === "true";
-
   if (
     url.searchParams.get("subscribed") === "1" &&
     (
@@ -115,8 +113,7 @@ export const loader = async ({ request }) => {
 
   return {
     subscription,
-    billingUnavailable: !isDevMode && billingUnavailable,
-    isDevMode,
+    billingUnavailable,
     freePlanOrderCount,
     freePlanLimitReached,
     orderLimitsByCycle,
@@ -135,7 +132,7 @@ export const action = async ({ request }) => {
   const intent = formData.get("intent");
 
   const { createSubscription, cancelSubscription } = await import("../models/billing.server.js");
-  const { activateFreePlan, activatePaidPlan, getSubscription } = await import("../models/subscription.server.js");
+  const { activateFreePlan, getSubscription } = await import("../models/subscription.server.js");
   const { setShopPlanStatus } = await import("../models/shop.server.js");
 
   if (intent === "free") {
@@ -153,26 +150,24 @@ export const action = async ({ request }) => {
   if (intent === "subscribe") {
     const planKey = formData.get("planKey") || "PLUS";
     const billingCycle = formData.get("billingCycle") || "monthly";
-    const isSkipBilling = process.env.SKIP_BILLING === "true";
-
-    if (isSkipBilling) {
-      await activatePaidPlan(shop, {
-        plan: planKey,
-        subscriptionId: `gid://shopify/AppSubscription/dev-${Date.now()}`,
-      });
-      await setShopPlanStatus(shop, "active");
-      return rrRedirect(withEmbeddedAppParamsFromRequest("/app?subscribed=1", request));
-    }
-
     try {
       const returnUrl = buildShopifyAdminAppUrl({
         shop,
         path: "/app/billing-success",
         request,
       });
-      await createSubscription(billing, returnUrl, billingCycle, planKey);
-      // billing.request() always throws a redirect to the Shopify confirmation page;
-      // reaching this line means something unexpected happened.
+      const billingRequest = await createSubscription(billing, returnUrl, billingCycle, planKey);
+      if (billingRequest instanceof Response) return billingRequest;
+      if (typeof billingRequest === "string" && /^https?:\/\//i.test(billingRequest)) {
+        return rrRedirect(billingRequest);
+      }
+      if (
+        billingRequest &&
+        typeof billingRequest === "object" &&
+        typeof billingRequest.confirmationUrl === "string"
+      ) {
+        return rrRedirect(billingRequest.confirmationUrl);
+      }
       return { error: "Unable to start Shopify billing. Please retry." };
     } catch (e) {
       if (e instanceof Response) throw e;
@@ -449,7 +444,6 @@ export default function PricingPage() {
   const {
     subscription,
     billingUnavailable,
-    isDevMode,
     freePlanOrderCount,
     freePlanLimitReached,
     orderLimitsByCycle,
@@ -528,11 +522,6 @@ export default function PricingPage() {
       <BlockStack gap="500">
 
         {/* ── Banners ── */}
-        {isDevMode && (
-          <Banner tone="success" title="Billing bypass active">
-            <p><code>SKIP_BILLING=true</code> is set — subscriptions activate instantly.</p>
-          </Banner>
-        )}
         {actionData?.error && (
           <Banner tone="critical" title="Billing error">
             <p>{actionData.error}</p>
@@ -552,8 +541,7 @@ export default function PricingPage() {
           <Banner tone="warning" title="Billing API unavailable">
             <p>
               Set the app to <strong>Public Distribution</strong> in the Shopify Partner Dashboard
-              to enable paid plans. During development, add <code>SKIP_BILLING=true</code> to
-              your <code>.env</code>.
+              to enable paid plans.
             </p>
           </Banner>
         )}

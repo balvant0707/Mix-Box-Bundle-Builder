@@ -42,9 +42,6 @@ export const loader = async ({ request }) => {
   const { getSubscription, hasPlanAccess } = await import("../models/subscription.server.js");
   const subscription = await getSubscription(session.shop);
   const hasAccess = hasPlanAccess(subscription);
-  if (!hasAccess && !isPricingRoute && !isBillingCallback) {
-    throw redirect(withEmbeddedAppParamsFromRequest("/app/pricing", request));
-  }
 
   await upsertSessionFromAuth(session);
   const installInfo = await upsertShopFromAdmin(session, admin);
@@ -80,6 +77,10 @@ export const loader = async ({ request }) => {
 
     // Must await — Vercel kills background promises before they complete (fire-and-forget doesn't work)
     await Promise.all(mailJobs);
+  }
+
+  if (!hasAccess && !isPricingRoute && !isBillingCallback) {
+    throw redirect(withEmbeddedAppParamsFromRequest("/app/pricing", request));
   }
 
   const reviewPrompt = await getShopReviewPromptState(session.shop);
