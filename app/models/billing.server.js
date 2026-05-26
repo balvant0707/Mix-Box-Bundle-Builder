@@ -58,11 +58,14 @@ export const PLAN_CONFIG = {
  * Fetches the active Shopify subscription for this installation using the
  * official billing helper. Returns the first active subscription, or null.
  */
-export async function getActiveShopifySubscription(billing) {
+export async function getActiveShopifySubscription(billing, { isTest = false } = {}) {
   try {
-    const { appSubscriptions } = await billing.check({
+    const checkOptions = {
       plans: BILLING_PLAN_KEYS,
-    });
+    };
+    if (typeof isTest === "boolean") checkOptions.isTest = isTest;
+
+    const { appSubscriptions } = await billing.check(checkOptions);
 
     const active = appSubscriptions.filter((s) => s.status === "ACTIVE");
     // Prefer a real (non-test) subscription when multiple active ones exist
@@ -146,15 +149,17 @@ export async function createSubscription(
   }
 
   const plan = getPlanNameForBillingCycle(billingCycle, String(planKey || "PLUS").toUpperCase());
-  const currentSubscription = await getActiveShopifySubscription(billing);
+  const testSubscription = await getActiveShopifySubscription(billing, { isTest: true });
+  const currentSubscription = await getActiveShopifySubscription(billing, { isTest: false });
 
   // Cancel any active test subscription so Shopify creates a completely fresh
   // real subscription instead of a test-context replacement (which would show
   // the "You will not be billed for this test charge" banner).
-  if (currentSubscription?.test === true) {
+  if (testSubscription?.test === true) {
     try {
       await billing.cancel({
-        subscriptionId: currentSubscription.id,
+        subscriptionId: testSubscription.id,
+        isTest: true,
         prorate: false,
       });
     } catch (err) {
@@ -162,16 +167,12 @@ export async function createSubscription(
     }
   }
 
-  // Use null for replacement when the existing sub was a test one (now cancelled),
-  // so Shopify treats this as a brand-new real subscription.
-  const realCurrent = currentSubscription?.test === true ? null : currentSubscription;
-
   try {
     return await billing.request({
       plan,
       returnUrl,
       isTest: false,
-      replacementBehavior: getBillingReplacementBehavior(realCurrent?.name, plan),
+      replacementBehavior: getBillingReplacementBehavior(currentSubscription?.name, plan),
     });
   } catch (error) {
     if (error instanceof Response) throw error;
@@ -209,6 +210,7 @@ export async function cancelSubscription(billing, shop, subscriptionId) {
     try {
       const cancelledSubscription = await billing.cancel({
         subscriptionId: effectiveSubscriptionId,
+        isTest: false,
         prorate: false,
       });
 

@@ -213,14 +213,14 @@ const PLAN_UI = [
     price:    BASIC_PRICE,
     yearlyPrice: BASIC_YEARLY_PRICE,
     priceLabel: "/month",
-    paymentMethod: "Shopify Billing (card on file)",
+    paymentMethod: "Merchant billing through Shopify",
     highlight: false,
     features: [
       "Unlimited Simple Box",
       "Unlimited Specific Box",
       "Email & live support",
     ],
-    cta: "Start Basic",
+    cta: "Subscribe Basic",
     badge: null,
   },
   {
@@ -229,14 +229,14 @@ const PLAN_UI = [
     price:    ADVANCE_PRICE,
     yearlyPrice: ADVANCE_YEARLY_PRICE,
     priceLabel: "/month",
-    paymentMethod: "Shopify Billing (card on file)",
+    paymentMethod: "Merchant billing through Shopify",
     highlight: true,
     features: [
       "Unlimited Simple Box",
       "Unlimited Specific Box",
       "Priority & developer support",
     ],
-    cta: "Start Advance",
+    cta: "Subscribe Advance",
     badge: "Popular",
   },
   {
@@ -245,7 +245,7 @@ const PLAN_UI = [
     price:    PLUS_PRICE,
     yearlyPrice: PLUS_YEARLY_PRICE,
     priceLabel: "/month",
-    paymentMethod: "Shopify Billing (card on file)",
+    paymentMethod: "Merchant billing through Shopify",
     highlight: false,
     features: [
       "Unlimited Simple Box",
@@ -253,7 +253,7 @@ const PLAN_UI = [
       "Setup support",
       "Highest priority support",
     ],
-    cta: "Start Plus",
+    cta: "Subscribe Plus",
     badge: null,
   },
 ];
@@ -461,7 +461,6 @@ export default function PricingPage() {
     : submittingIntent === "free" ? "free" : null;
 
   const activePlanKey = currentPlanKey(subscription);
-  const isPaid = activePlanKey && activePlanKey !== "FREE";
   const [billingCycle, setBillingCycle] = useState(activeBillingCycle || "monthly");
   const visiblePlans = billingCycle === "yearly"
     ? PLAN_UI.filter((plan) => plan.key !== "FREE")
@@ -545,44 +544,6 @@ export default function PricingPage() {
             </p>
           </Banner>
         )}
-        {subscription && activePlanKey && isPaid && (
-          <Banner
-            tone="success"
-            title={`Active: ${PLAN_UI.find((p) => p.key === activePlanKey)?.name || activePlanKey} Plan`}
-          >
-            <InlineStack gap="400" blockAlign="center">
-              <Text as="p">
-                {isPaid && subscription.currentPeriodEnd
-                  ? `Renews ${new Date(subscription.currentPeriodEnd).toLocaleDateString()}`
-                  : "Upgrade anytime to unlock more features."}
-              </Text>
-              {isPaid && (
-                <form method="post" style={{ display: "inline" }}>
-                  <input type="hidden" name="intent" value="cancel" />
-                  <input type="hidden" name="subscriptionId" value={subscription?.subscriptionId || ""} />
-                  <button
-                    type="submit"
-                    disabled={isSubmitting && submittingIntent === "cancel"}
-                    aria-label="Cancel current plan subscription"
-                    style={{
-                      padding: "6px 14px",
-                      borderRadius: "6px",
-                      border: "1px solid #d1d5db",
-                      background: "#fff",
-                      color: "#374151",
-                      fontSize: "12px",
-                      fontWeight: "500",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {isSubmitting && submittingIntent === "cancel" ? "Cancelling…" : "Cancel plan"}
-                  </button>
-                </form>
-              )}
-            </InlineStack>
-          </Banner>
-        )}
-
         {/* ── Order limit info ── */}
         <Card>
           <InlineStack align="space-between" blockAlign="center" wrap>
