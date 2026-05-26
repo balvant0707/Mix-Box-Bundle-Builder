@@ -26,8 +26,8 @@ export const loader = async ({ request }) => {
     throw redirect(withEmbeddedAppParamsFromRequest("/app?subscribed=1", request));
   }
 
-  // Merchant declined or billing failed — go back to pricing.
-  throw redirect(withEmbeddedAppParamsFromRequest("/app/pricing?cancelled=1", request));
+  // Merchant declined or Shopify could not accept the charge.
+  throw redirect(withEmbeddedAppParamsFromRequest("/app/pricing?billing=payment_required", request));
 };
 
 export default function BillingSuccessPage() {

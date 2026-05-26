@@ -58,6 +58,13 @@ async function getFreePlanUsageCount(shop, freeActivatedAt) {
   });
 }
 
+function buildShopifyBillingSettingsUrl(shop) {
+  const storeHandle = String(shop || "").replace(/\.myshopify\.com$/i, "");
+  return storeHandle
+    ? `https://admin.shopify.com/store/${storeHandle}/settings/billing`
+    : null;
+}
+
 /* ── Loader ─────────────────────────────────────────────────────── */
 
 export const loader = async ({ request }) => {
@@ -114,11 +121,13 @@ export const loader = async ({ request }) => {
   return {
     subscription,
     billingUnavailable,
+    billingSettingsUrl: buildShopifyBillingSettingsUrl(shop),
     freePlanOrderCount,
     freePlanLimitReached,
     orderLimitsByCycle,
     activeBillingCycle,
     subscribed: url.searchParams.get("subscribed") === "1",
+    billingPaymentRequired: url.searchParams.get("billing") === "payment_required",
     cancelled: url.searchParams.get("cancelled") === "1",
   };
 };
@@ -446,9 +455,11 @@ export default function PricingPage() {
     billingUnavailable,
     freePlanOrderCount,
     freePlanLimitReached,
+    billingSettingsUrl,
     orderLimitsByCycle,
     activeBillingCycle,
     subscribed,
+    billingPaymentRequired,
     cancelled,
   } = useLoaderData();
 
@@ -472,7 +483,7 @@ export default function PricingPage() {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
     let changed = false;
-    for (const key of ["subscribed", "cancelled"]) {
+    for (const key of ["subscribed", "cancelled", "billing"]) {
       if (url.searchParams.has(key)) {
         url.searchParams.delete(key);
         changed = true;
@@ -529,6 +540,19 @@ export default function PricingPage() {
         {subscribed && (
           <Banner tone="success" title="Plan activated!">
             <p>All features for your new plan are now unlocked.</p>
+          </Banner>
+        )}
+        {billingPaymentRequired && (
+          <Banner tone="warning" title="Billing details required">
+            <p>
+              You don't have any payment methods on file.{" "}
+              {billingSettingsUrl ? (
+                <a href={billingSettingsUrl} target="_top">Go to billing settings</a>
+              ) : (
+                "Go to Shopify billing settings"
+              )}{" "}
+              to add one, then choose a paid plan again.
+            </p>
           </Banner>
         )}
         {cancelled && (
