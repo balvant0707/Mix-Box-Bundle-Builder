@@ -8,15 +8,20 @@ export const loader = async ({ request }) => {
   const { billing, session, redirect } = await authenticate.admin(request);
   const shop = session.shop;
 
-  const { syncSubscription } = await import("../models/billing.server.js");
+  const { getActiveShopifySubscription, syncSubscription } = await import("../models/billing.server.js");
   const { setShopPlanStatus } = await import("../models/shop.server.js");
-  const { hasPlanAccess } = await import("../models/subscription.server.js");
 
   const { subscription } = await syncSubscription(billing, shop).catch(() => ({ subscription: null }));
+  const activeShopifySubscription = await getActiveShopifySubscription(billing).catch(() => null);
 
-  const planActive = hasPlanAccess(subscription);
+  const approvedPaidSubscription =
+    activeShopifySubscription?.status === "ACTIVE" &&
+    activeShopifySubscription?.id &&
+    subscription?.subscriptionId === activeShopifySubscription.id &&
+    subscription?.plan &&
+    subscription.plan !== "FREE";
 
-  if (planActive) {
+  if (approvedPaidSubscription) {
     await setShopPlanStatus(shop, "active").catch(() => {});
     throw redirect(withEmbeddedAppParamsFromRequest("/app?subscribed=1", request));
   }
