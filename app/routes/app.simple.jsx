@@ -528,7 +528,6 @@ export default function MixMatchBundleFormPolaris({
 
   return (
     <Page
-      fullWidth
       title="Create Mix n Match Bundle"
       backAction={onBack ? {content: 'Back', onAction: onBack} : undefined}
       primaryAction={{
