@@ -576,9 +576,9 @@ export default function MixMatchBundleFormPolaris({
       <Form onSubmit={handleSubmit}>
         <Grid>
           <Grid.Cell columnSpan={{xs: 6, sm: 6, md: 6, lg: 8, xl: 8}}>
-            <BlockStack gap="400">
+            <BlockStack gap="200" paddingBlockEnd="800">
               <Card>
-                <BlockStack gap="300" paddingBlockEnd="800">
+                <BlockStack gap="300">
                   <InlineStack align="space-between" blockAlign="center">
                     <Text as="h2" variant="headingMd">
                       Status
@@ -744,18 +744,20 @@ export default function MixMatchBundleFormPolaris({
                   />
 
                   {form.productConfiguration === 'whole_store' ? (
-                    <Box
-                      padding="400"
-                      background="bg-surface-secondary"
-                      borderRadius="300"
+                    <div
+                      style={{
+                        background: 'var(--p-color-bg-surface-secondary)',
+                        borderRadius: 'var(--p-border-radius-300)',
+                        padding: '16px',
+                        width: '100%',
+                      }}
                     >
                       <div
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
-                          justifyContent: 'flex-start',
                           gap: '8px',
-                          width: '100%',
+                          maxWidth: '100%',
                         }}
                       >
                         <Icon source={ProductIcon} />
@@ -763,7 +765,7 @@ export default function MixMatchBundleFormPolaris({
                           All active products in the store will be available.
                         </Text>
                       </div>
-                    </Box>
+                    </div>
                   ) : null}
 
                   {form.productConfiguration === 'selected_products' ? (
@@ -899,18 +901,20 @@ export default function MixMatchBundleFormPolaris({
                       ) : null}
                     </BlockStack>
                   ) : (
-                    <Box
-                      padding="400"
-                      background="bg-surface-secondary"
-                      borderRadius="300"
+                    <div
+                      style={{
+                        background: 'var(--p-color-bg-surface-secondary)',
+                        borderRadius: 'var(--p-border-radius-300)',
+                        padding: '16px',
+                        width: '100%',
+                      }}
                     >
                       <div
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
-                          justifyContent: 'flex-start',
                           gap: '8px',
-                          width: '100%',
+                          maxWidth: '100%',
                         }}
                       >
                         <Icon source={CalendarIcon} />
@@ -918,7 +922,7 @@ export default function MixMatchBundleFormPolaris({
                           The bundle will be available immediately after saving.
                         </Text>
                       </div>
-                    </Box>
+                    </div>
                   )}
                 </BlockStack>
               </AccordionSection>
