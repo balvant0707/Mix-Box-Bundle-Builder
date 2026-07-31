@@ -23,6 +23,7 @@ import {
   ResourceItem,
   ResourceList,
   Select,
+  Tabs,
   Text,
   TextField,
   Thumbnail,
@@ -55,6 +56,12 @@ const PRODUCT_CONFIGURATION_OPTIONS = [
 const SCHEDULE_OPTIONS = [
   {label: 'Publish immediately', value: 'immediately'},
   {label: 'Schedule bundle', value: 'scheduled'},
+];
+
+const FORM_TABS = [
+  {id: 'content', content: 'Content', panelID: 'content-panel'},
+  {id: 'design', content: 'Design', panelID: 'design-panel'},
+  {id: 'advanced', content: 'Advanced', panelID: 'advanced-panel'},
 ];
 
 function getCurrentDateTimeInput() {
@@ -463,6 +470,7 @@ export default function MixMatchBundleFormPolaris({
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [collectionModalOpen, setCollectionModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [selectedTab, setSelectedTab] = useState(0);
 
   const bannerPreview = useFilePreview(form.bannerImage);
   const bundlePreview = useFilePreview(form.bundleImage);
@@ -574,6 +582,10 @@ export default function MixMatchBundleFormPolaris({
       }}
     >
       <Form onSubmit={handleSubmit}>
+        <BlockStack gap="400">
+          <Tabs tabs={FORM_TABS} selected={selectedTab} onSelect={setSelectedTab} />
+
+          {selectedTab === 0 ? (
         <Grid>
           <Grid.Cell columnSpan={{xs: 6, sm: 6, md: 6, lg: 8, xl: 8}}>
             <BlockStack gap="200" paddingBlockEnd="800">
@@ -1075,6 +1087,34 @@ export default function MixMatchBundleFormPolaris({
             </BlockStack>
           </Grid.Cell>
         </Grid>
+          ) : null}
+
+          {selectedTab === 1 ? (
+            <Card>
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">
+                  Design
+                </Text>
+                <Text as="p" tone="subdued">
+                  Design settings will appear here.
+                </Text>
+              </BlockStack>
+            </Card>
+          ) : null}
+
+          {selectedTab === 2 ? (
+            <Card>
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">
+                  Advanced
+                </Text>
+                <Text as="p" tone="subdued">
+                  Advanced settings will appear here.
+                </Text>
+              </BlockStack>
+            </Card>
+          ) : null}
+        </BlockStack>
       </Form>
 
       <PickerModal

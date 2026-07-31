@@ -1,4 +1,4 @@
-const EMBEDDED_APP_PARAM_KEYS = ["embedded", "host", "shop", "locale"];
+export const EMBEDDED_APP_PARAM_KEYS = ["embedded", "host", "shop", "locale"];
 const SHOPIFY_ADMIN_HOST = "admin.shopify.com";
 const SHOPIFY_APP_HANDLE =
   process.env.SHOPIFY_APP_HANDLE?.trim() || "mixbox-box-bundle-builder";
@@ -6,14 +6,7 @@ const SHOPIFY_APP_HANDLE =
 export function withEmbeddedAppParams(target, currentSearch = "") {
   const baseUrl = new URL("https://app.local");
   const nextUrl = new URL(target, baseUrl);
-  const currentParams = new URLSearchParams(currentSearch);
-
-  for (const key of EMBEDDED_APP_PARAM_KEYS) {
-    const value = currentParams.get(key);
-    if (value && !nextUrl.searchParams.has(key)) {
-      nextUrl.searchParams.set(key, value);
-    }
-  }
+  void currentSearch;
 
   const search = nextUrl.searchParams.toString();
   return `${nextUrl.pathname}${search ? `?${search}` : ""}${nextUrl.hash}`;
