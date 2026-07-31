@@ -302,7 +302,6 @@ export default function MixMatchBundleForm({
 
   return (
     <Page
-      fullWidth
       title="Create Mix n Match Bundle"
       backAction={onBack ? {content: 'Back', onAction: onBack} : undefined}
       primaryAction={{content: 'Save Bundle', onAction: handleSubmit, loading: saving}}
@@ -503,7 +502,7 @@ export default function MixMatchBundleForm({
                     </BlockStack>
                   </Box>
 
-                  <Button variant="primary" fullWidth>{form.buttonLabel || 'Add bundle to cart'}</Button>
+                  <Button variant="primary">{form.buttonLabel || 'Add bundle to cart'}</Button>
                 </BlockStack>
               </Card>
             </BlockStack>
