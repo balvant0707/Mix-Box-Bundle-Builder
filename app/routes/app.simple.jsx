@@ -19,6 +19,7 @@ import {
   InlineStack,
   Modal,
   Page,
+  RadioButton,
   ResourceItem,
   ResourceList,
   Select,
@@ -61,7 +62,6 @@ function AccordionSection({
   id,
   title,
   description,
-  icon,
   open,
   onToggle,
   children,
@@ -72,22 +72,18 @@ function AccordionSection({
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: '32px minmax(0, 1fr) 32px',
+            gridTemplateColumns: 'minmax(0, 1fr) 32px',
             gap: '12px',
             alignItems: 'center',
             width: '100%',
           }}
         >
-          <InlineStack align="center" blockAlign="center">
-            {icon ? <Icon source={icon} /> : null}
-          </InlineStack>
-
-          <BlockStack gap="100" inlineAlign="center">
-            <Text as="h2" variant="headingMd" alignment="center">
+          <BlockStack gap="100">
+            <Text as="h2" variant="headingMd">
               {title}
             </Text>
             {description ? (
-              <Text as="p" tone="subdued" alignment="center">
+              <Text as="p" tone="subdued">
                 {description}
               </Text>
             ) : null}
@@ -535,12 +531,9 @@ export default function MixMatchBundleFormPolaris({
               <Card>
                 <BlockStack gap="300">
                   <InlineStack align="space-between" blockAlign="center">
-                    <InlineStack gap="200" blockAlign="center">
-                      <Icon source={ProductIcon} />
-                      <Text as="h2" variant="headingMd">
-                        Status
-                      </Text>
-                    </InlineStack>
+                    <Text as="h2" variant="headingMd">
+                      Status
+                    </Text>
 
                     <Badge tone={form.status === 'active' ? 'success' : undefined}>
                       {form.status === 'active' ? 'Active' : 'Inactive'}
@@ -549,17 +542,22 @@ export default function MixMatchBundleFormPolaris({
 
                   <Divider />
 
-                  <ChoiceList
-                    title="Bundle status"
-                    titleHidden
-                    choices={[
-                      {label: 'Active', value: 'active'},
-                      {label: 'Inactive', value: 'inactive'},
-                    ]}
-                    selected={[form.status]}
-                    onChange={(value) => setField('status', value[0])}
-                    alignment="horizontal"
-                  />
+                  <InlineStack gap="500" blockAlign="center">
+                    <RadioButton
+                      label="Active"
+                      checked={form.status === 'active'}
+                      id="bundle-status-active"
+                      name="bundleStatus"
+                      onChange={() => setField('status', 'active')}
+                    />
+                    <RadioButton
+                      label="Inactive"
+                      checked={form.status === 'inactive'}
+                      id="bundle-status-inactive"
+                      name="bundleStatus"
+                      onChange={() => setField('status', 'inactive')}
+                    />
+                  </InlineStack>
                 </BlockStack>
               </Card>
 
@@ -567,7 +565,6 @@ export default function MixMatchBundleFormPolaris({
                 id="bundleInformation"
                 title="Bundle Information"
                 description="Enter the main bundle details and images."
-                icon={ImageIcon}
                 open={openSections.bundleInformation}
                 onToggle={toggleSection}
               >
@@ -612,7 +609,6 @@ export default function MixMatchBundleFormPolaris({
                 id="configureBundle"
                 title="Configure Bundle"
                 description="Configure the customer selection step."
-                icon={PlusIcon}
                 open={openSections.configureBundle}
                 onToggle={toggleSection}
               >
@@ -655,7 +651,6 @@ export default function MixMatchBundleFormPolaris({
                 id="discount"
                 title="Discount"
                 description="Choose how the bundle price or discount is calculated."
-                icon={CollectionIcon}
                 open={openSections.discount}
                 onToggle={toggleSection}
               >
@@ -685,7 +680,6 @@ export default function MixMatchBundleFormPolaris({
                 id="productConfiguration"
                 title="Product Configuration"
                 description="Choose which store items customers can add to this bundle."
-                icon={ProductIcon}
                 open={openSections.productConfiguration}
                 onToggle={toggleSection}
               >
@@ -783,7 +777,6 @@ export default function MixMatchBundleFormPolaris({
                 id="schedule"
                 title="Schedule"
                 description="Publish immediately or schedule the bundle for a date and time."
-                icon={CalendarIcon}
                 open={openSections.schedule}
                 onToggle={toggleSection}
               >
