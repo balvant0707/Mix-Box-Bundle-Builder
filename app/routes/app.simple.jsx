@@ -748,7 +748,7 @@ export default function MixMatchBundleFormPolaris({
                       background="bg-surface-secondary"
                       borderRadius="300"
                     >
-                      <InlineStack gap="200" blockAlign="center" width="fit-content">
+                      <InlineStack gap="200" blockAlign="center" style={{width:"fit-content"}}>
                         <Icon source={ProductIcon} />
                         <Text as="p">
                           All active products in the store will be available.
@@ -827,6 +827,7 @@ export default function MixMatchBundleFormPolaris({
                 description="Publish immediately or schedule the bundle for a date and time."
                 open={openSections.schedule}
                 onToggle={toggleSection}
+                paddingBottom ="400"
               >
                 <BlockStack gap="400">
                   <ChoiceList
@@ -894,7 +895,7 @@ export default function MixMatchBundleFormPolaris({
                       background="bg-surface-secondary"
                       borderRadius="300"
                     >
-                      <InlineStack gap="200" blockAlign="center" width="fit-content">
+                      <InlineStack gap="200" blockAlign="center" style={{width:"fit-content"}}>
                         <Icon source={CalendarIcon} />
                         <Text as="p">
                           The bundle will be available immediately after saving.
