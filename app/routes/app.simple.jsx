@@ -7,6 +7,7 @@ import {
   Card,
   Checkbox,
   ChoiceList,
+  Collapsible,
   Divider,
   DropZone,
   EmptyState,
@@ -24,10 +25,16 @@ import {
   Text,
   TextField,
   Thumbnail,
+  Tooltip,
 } from '@shopify/polaris';
 import {
+  CalendarIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
   CollectionIcon,
+  DeleteIcon,
   ImageIcon,
+  InfoIcon,
   PlusIcon,
   ProductIcon,
   SearchIcon,
@@ -45,15 +52,73 @@ const PRODUCT_CONFIGURATION_OPTIONS = [
   {label: 'Select collections', value: 'selected_collections'},
 ];
 
-function SectionHeading({title, description}) {
+const SCHEDULE_OPTIONS = [
+  {label: 'Publish immediately', value: 'immediately'},
+  {label: 'Schedule bundle', value: 'scheduled'},
+];
+
+function HelpIcon({content}) {
   return (
-    <BlockStack gap="300">
-      <BlockStack gap="100">
-        <Text as="h2" variant="headingMd">{title}</Text>
-        {description ? <Text as="p" tone="subdued">{description}</Text> : null}
-      </BlockStack>
-      <Divider />
-    </BlockStack>
+    <Tooltip content={content} preferredPosition="above">
+      <Button
+        variant="plain"
+        icon={InfoIcon}
+        accessibilityLabel={content}
+      />
+    </Tooltip>
+  );
+}
+
+function AccordionSection({
+  id,
+  title,
+  description,
+  tooltip,
+  open,
+  onToggle,
+  children,
+}) {
+  return (
+    <Card padding="0">
+      <Box padding="400">
+        <InlineStack align="space-between" blockAlign="center" wrap={false}>
+          <BlockStack gap="100">
+            <InlineStack gap="100" blockAlign="center" wrap={false}>
+              <Text as="h2" variant="headingMd">
+                {title}
+              </Text>
+              {tooltip ? <HelpIcon content={tooltip} /> : null}
+            </InlineStack>
+            {description ? (
+              <Text as="p" tone="subdued">
+                {description}
+              </Text>
+            ) : null}
+          </BlockStack>
+
+          <Tooltip content={open ? `Collapse ${title}` : `Expand ${title}`}>
+            <Button
+              variant="plain"
+              icon={open ? ChevronUpIcon : ChevronDownIcon}
+              onClick={() => onToggle(id)}
+              accessibilityLabel={open ? `Collapse ${title}` : `Expand ${title}`}
+              ariaExpanded={open}
+              ariaControls={`${id}-content`}
+            />
+          </Tooltip>
+        </InlineStack>
+      </Box>
+
+      <Collapsible
+        id={`${id}-content`}
+        open={open}
+        transition={{duration: '200ms', timingFunction: 'ease-in-out'}}
+        expandOnPrint
+      >
+        <Divider />
+        <Box padding="400">{children}</Box>
+      </Collapsible>
+    </Card>
   );
 }
 
@@ -68,61 +133,108 @@ function useFilePreview(file) {
 
     const objectUrl = URL.createObjectURL(file);
     setUrl(objectUrl);
+
     return () => URL.revokeObjectURL(objectUrl);
   }, [file]);
 
   return url;
 }
 
-function ImageUploader({label, value, onChange}) {
+function ImageUploader({label, value, onChange, helpText}) {
   const previewUrl = useFilePreview(value);
 
   const handleDrop = useCallback(
-    (_droppedFiles, acceptedFiles) => onChange(acceptedFiles?.[0] ?? null),
+    (_droppedFiles, acceptedFiles) => {
+      onChange(acceptedFiles?.[0] ?? null);
+    },
     [onChange],
   );
 
   return (
     <BlockStack gap="200">
-      <Text as="p" variant="bodyMd" fontWeight="medium">{label}</Text>
-      <DropZone accept="image/*" type="image" allowMultiple={false} onDrop={handleDrop}>
+      <InlineStack gap="100" blockAlign="center">
+        <Text as="p" variant="bodyMd" fontWeight="medium">
+          {label}
+        </Text>
+        {helpText ? <HelpIcon content={helpText} /> : null}
+      </InlineStack>
+
+      <DropZone
+        accept="image/jpeg,image/png,image/webp,image/svg+xml"
+        type="image"
+        allowMultiple={false}
+        onDrop={handleDrop}
+      >
         {value ? (
           <Box padding="300">
             <InlineStack gap="300" blockAlign="center" wrap={false}>
-              <Thumbnail source={previewUrl || ImageIcon} alt={value?.name || label} size="large" />
+              <Thumbnail
+                source={previewUrl || ImageIcon}
+                alt={value?.name || label}
+                size="large"
+              />
+
               <BlockStack gap="100">
-                <Text as="p" fontWeight="semibold">{value?.name || label}</Text>
+                <Text as="p" fontWeight="semibold">
+                  {value?.name || label}
+                </Text>
+
                 {value?.size ? (
                   <Text as="p" tone="subdued" variant="bodySm">
                     {(value.size / 1024).toFixed(1)} KB
                   </Text>
                 ) : null}
-                <Button variant="plain" tone="critical" onClick={() => onChange(null)}>
-                  Remove
-                </Button>
+
+                <Tooltip content={`Remove ${label}`}>
+                  <Button
+                    variant="plain"
+                    tone="critical"
+                    icon={DeleteIcon}
+                    onClick={() => onChange(null)}
+                  >
+                    Remove
+                  </Button>
+                </Tooltip>
               </BlockStack>
             </InlineStack>
           </Box>
         ) : (
-          <DropZone.FileUpload actionTitle={`Upload ${label}`} actionHint="PNG, JPG, WEBP or SVG" />
+          <DropZone.FileUpload
+            actionTitle={`Upload ${label}`}
+            actionHint="PNG, JPG, WEBP or SVG"
+          />
         )}
       </DropZone>
     </BlockStack>
   );
 }
 
-function PickerModal({open, title, items, selectedIds, onClose, onSave, type}) {
+function PickerModal({
+  open,
+  title,
+  items,
+  selectedIds,
+  onClose,
+  onSave,
+  type,
+}) {
   const [query, setQuery] = useState('');
   const [draftSelected, setDraftSelected] = useState(selectedIds);
 
   useEffect(() => {
-    if (open) setDraftSelected(selectedIds);
+    if (open) {
+      setDraftSelected(selectedIds);
+      setQuery('');
+    }
   }, [open, selectedIds]);
 
   const filteredItems = useMemo(() => {
     const search = query.trim().toLowerCase();
     if (!search) return items;
-    return items.filter((item) => item.title.toLowerCase().includes(search));
+
+    return items.filter((item) =>
+      String(item.title || '').toLowerCase().includes(search),
+    );
   }, [items, query]);
 
   const toggleItem = useCallback((id) => {
@@ -133,11 +245,11 @@ function PickerModal({open, title, items, selectedIds, onClose, onSave, type}) {
     );
   }, []);
 
-  const handleClose = () => {
-    setQuery('');
+  const handleClose = useCallback(() => {
     setDraftSelected(selectedIds);
+    setQuery('');
     onClose();
-  };
+  }, [onClose, selectedIds]);
 
   return (
     <Modal
@@ -167,10 +279,14 @@ function PickerModal({open, title, items, selectedIds, onClose, onSave, type}) {
 
           {filteredItems.length ? (
             <ResourceList
-              resourceName={{singular: type === 'products' ? 'product' : 'collection', plural: type}}
+              resourceName={{
+                singular: type === 'products' ? 'product' : 'collection',
+                plural: type,
+              }}
               items={filteredItems}
               renderItem={(item) => {
                 const selected = draftSelected.includes(item.id);
+
                 return (
                   <ResourceItem
                     id={item.id}
@@ -178,17 +294,31 @@ function PickerModal({open, title, items, selectedIds, onClose, onSave, type}) {
                     onClick={() => toggleItem(item.id)}
                     media={
                       <Thumbnail
-                        source={item.image || (type === 'products' ? ProductIcon : CollectionIcon)}
+                        source={
+                          item.image ||
+                          (type === 'products' ? ProductIcon : CollectionIcon)
+                        }
                         alt={item.title}
                         size="small"
                       />
                     }
                   >
-                    <InlineStack align="space-between" blockAlign="center" wrap={false}>
+                    <InlineStack
+                      align="space-between"
+                      blockAlign="center"
+                      wrap={false}
+                    >
                       <BlockStack gap="050">
-                        <Text as="h3" variant="bodyMd" fontWeight="semibold">{item.title}</Text>
-                        {item.subtitle ? <Text as="p" tone="subdued">{item.subtitle}</Text> : null}
+                        <Text as="h3" variant="bodyMd" fontWeight="semibold">
+                          {item.title}
+                        </Text>
+                        {item.subtitle ? (
+                          <Text as="p" tone="subdued">
+                            {item.subtitle}
+                          </Text>
+                        ) : null}
                       </BlockStack>
+
                       <Checkbox
                         label={`Select ${item.title}`}
                         labelHidden
@@ -202,7 +332,7 @@ function PickerModal({open, title, items, selectedIds, onClose, onSave, type}) {
             />
           ) : (
             <EmptyState heading={`No ${type} found`} image="">
-              <p>Try another search term.</p>
+              <Text as="p">Try another search term.</Text>
             </EmptyState>
           )}
         </BlockStack>
@@ -211,11 +341,21 @@ function PickerModal({open, title, items, selectedIds, onClose, onSave, type}) {
   );
 }
 
-function SelectedItems({items, selectedIds, onRemove, emptyText}) {
+function SelectedItems({items, selectedIds, onRemove, emptyText, type}) {
   const selectedItems = items.filter((item) => selectedIds.includes(item.id));
 
   if (!selectedItems.length) {
-    return <Text as="p" tone="subdued">{emptyText}</Text>;
+    return (
+      <Box
+        padding="400"
+        background="bg-surface-secondary"
+        borderRadius="300"
+      >
+        <Text as="p" tone="subdued">
+          {emptyText}
+        </Text>
+      </Box>
+    );
   }
 
   return (
@@ -225,17 +365,38 @@ function SelectedItems({items, selectedIds, onRemove, emptyText}) {
       renderItem={(item) => (
         <ResourceItem
           id={item.id}
-          media={<Thumbnail source={item.image || ImageIcon} alt={item.title} size="small" />}
+          media={
+            <Thumbnail
+              source={
+                item.image || (type === 'products' ? ProductIcon : CollectionIcon)
+              }
+              alt={item.title}
+              size="small"
+            />
+          }
           accessibilityLabel={item.title}
         >
           <InlineStack align="space-between" blockAlign="center" wrap={false}>
             <BlockStack gap="050">
-              <Text as="p" fontWeight="semibold">{item.title}</Text>
-              {item.subtitle ? <Text as="p" tone="subdued" variant="bodySm">{item.subtitle}</Text> : null}
+              <Text as="p" fontWeight="semibold">
+                {item.title}
+              </Text>
+              {item.subtitle ? (
+                <Text as="p" tone="subdued" variant="bodySm">
+                  {item.subtitle}
+                </Text>
+              ) : null}
             </BlockStack>
-            <Button variant="plain" tone="critical" onClick={() => onRemove(item.id)}>
-              Remove
-            </Button>
+
+            <Tooltip content={`Remove ${item.title}`}>
+              <Button
+                variant="plain"
+                tone="critical"
+                icon={DeleteIcon}
+                onClick={() => onRemove(item.id)}
+                accessibilityLabel={`Remove ${item.title}`}
+              />
+            </Tooltip>
           </InlineStack>
         </ResourceItem>
       )}
@@ -243,7 +404,7 @@ function SelectedItems({items, selectedIds, onRemove, emptyText}) {
   );
 }
 
-export default function MixMatchBundleForm({
+export default function MixMatchBundleFormPolaris({
   initialData,
   products = [],
   collections = [],
@@ -257,62 +418,146 @@ export default function MixMatchBundleForm({
     bundleImage: initialData?.bundleImage || null,
     bannerImage: initialData?.bannerImage || null,
     stepTitle: initialData?.stepTitle || 'Choose your products',
-    stepDescription: initialData?.stepDescription || 'Select products to create your custom bundle.',
+    stepDescription:
+      initialData?.stepDescription ||
+      'Select products to create your custom bundle.',
     productItems: initialData?.productItems || '3',
     buttonLabel: initialData?.buttonLabel || 'Add bundle to cart',
-    discountType: initialData?.discountType || 'percentage',
-    discountValue: initialData?.discountValue || '10',
-    productConfiguration: initialData?.productConfiguration || 'whole_store',
+    discountType: initialData?.discountType || 'fixed_bundle_price',
+    discountValue: initialData?.discountValue || '',
+    productConfiguration:
+      initialData?.productConfiguration || 'whole_store',
+    scheduleType: initialData?.scheduleType || 'immediately',
+    startDate: initialData?.startDate || '',
+    startTime: initialData?.startTime || '',
+    hasEndDate: initialData?.hasEndDate || false,
+    endDate: initialData?.endDate || '',
+    endTime: initialData?.endTime || '',
   });
 
-  const [selectedProductIds, setSelectedProductIds] = useState(initialData?.selectedProductIds || []);
-  const [selectedCollectionIds, setSelectedCollectionIds] = useState(initialData?.selectedCollectionIds || []);
+  const [openSections, setOpenSections] = useState({
+    bundleInformation: true,
+    configureBundle: false,
+    discount: false,
+    productConfiguration: false,
+    schedule: false,
+  });
+
+  const [selectedProductIds, setSelectedProductIds] = useState(
+    initialData?.selectedProductIds || [],
+  );
+  const [selectedCollectionIds, setSelectedCollectionIds] = useState(
+    initialData?.selectedCollectionIds || [],
+  );
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [collectionModalOpen, setCollectionModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const bannerPreview = useFilePreview(form.bannerImage);
+  const bundlePreview = useFilePreview(form.bundleImage);
 
   const setField = useCallback((field, value) => {
     setForm((current) => ({...current, [field]: value}));
   }, []);
 
-  const selectedCount =
-    form.productConfiguration === 'selected_products'
-      ? selectedProductIds.length
-      : form.productConfiguration === 'selected_collections'
-        ? selectedCollectionIds.length
-        : products.length;
+  const toggleSection = useCallback((sectionId) => {
+    setOpenSections((current) => ({
+      ...current,
+      [sectionId]: !current[sectionId],
+    }));
+  }, []);
+
+  const selectedCount = useMemo(() => {
+    if (form.productConfiguration === 'selected_products') {
+      return selectedProductIds.length;
+    }
+
+    if (form.productConfiguration === 'selected_collections') {
+      return selectedCollectionIds.length;
+    }
+
+    return products.length;
+  }, [
+    form.productConfiguration,
+    products.length,
+    selectedCollectionIds.length,
+    selectedProductIds.length,
+  ]);
 
   const discountText = useMemo(() => {
     const value = form.discountValue || '0';
+
     if (form.discountType === 'percentage') return `${value}% off`;
     if (form.discountType === 'fixed_amount') return `$${value} off`;
+
     return `$${value} bundle price`;
   }, [form.discountType, form.discountValue]);
 
-  const handleSubmit = async () => {
+  const scheduleText = useMemo(() => {
+    if (form.scheduleType === 'immediately') return 'Publish immediately';
+
+    if (!form.startDate) return 'Schedule not completed';
+
+    const start = [form.startDate, form.startTime].filter(Boolean).join(' ');
+    const end = form.hasEndDate
+      ? [form.endDate, form.endTime].filter(Boolean).join(' ')
+      : '';
+
+    return end ? `${start} to ${end}` : `Starts ${start}`;
+  }, [
+    form.endDate,
+    form.endTime,
+    form.hasEndDate,
+    form.scheduleType,
+    form.startDate,
+    form.startTime,
+  ]);
+
+  const handleSubmit = useCallback(async () => {
     try {
       setSaving(true);
-      await onSubmit?.({...form, selectedProductIds, selectedCollectionIds});
+      await onSubmit?.({
+        ...form,
+        selectedProductIds,
+        selectedCollectionIds,
+      });
     } finally {
       setSaving(false);
     }
-  };
+  }, [form, onSubmit, selectedCollectionIds, selectedProductIds]);
 
   return (
     <Page
+      fullWidth
       title="Create Mix n Match Bundle"
       backAction={onBack ? {content: 'Back', onAction: onBack} : undefined}
-      primaryAction={{content: 'Save Bundle', onAction: handleSubmit, loading: saving}}
+      primaryAction={{
+        content: 'Save Bundle',
+        onAction: handleSubmit,
+        loading: saving,
+      }}
     >
       <Form onSubmit={handleSubmit}>
         <Grid>
           <Grid.Cell columnSpan={{xs: 6, sm: 6, md: 6, lg: 8, xl: 8}}>
             <BlockStack gap="400">
               <Card>
-                <BlockStack gap="400">
-                  <SectionHeading title="Status" description="Control whether this bundle is available on your storefront." />
+                <BlockStack gap="300">
+                  <InlineStack align="space-between" blockAlign="center">
+                    <InlineStack gap="100" blockAlign="center">
+                      <Text as="h2" variant="headingMd">
+                        Status
+                      </Text>
+                      <HelpIcon content="Choose whether the bundle is visible and available on the storefront." />
+                    </InlineStack>
+
+                    <Badge tone={form.status === 'active' ? 'success' : undefined}>
+                      {form.status === 'active' ? 'Active' : 'Inactive'}
+                    </Badge>
+                  </InlineStack>
+
+                  <Divider />
+
                   <ChoiceList
                     title="Bundle status"
                     titleHidden
@@ -326,9 +571,15 @@ export default function MixMatchBundleForm({
                 </BlockStack>
               </Card>
 
-              <Card>
+              <AccordionSection
+                id="bundleInformation"
+                title="1. Bundle Information"
+                description="Enter the main bundle details and images."
+                tooltip="This content appears in the bundle page and storefront preview."
+                open={openSections.bundleInformation}
+                onToggle={toggleSection}
+              >
                 <BlockStack gap="400">
-                  <SectionHeading title="Bundle Information" description="Enter the bundle content shown on the storefront." />
                   <TextField
                     label="Title"
                     requiredIndicator
@@ -337,6 +588,7 @@ export default function MixMatchBundleForm({
                     placeholder="Build your perfect bundle"
                     autoComplete="off"
                   />
+
                   <TextField
                     label="Description"
                     value={form.description}
@@ -345,18 +597,49 @@ export default function MixMatchBundleForm({
                     placeholder="Describe this bundle"
                     autoComplete="off"
                   />
+
                   <InlineGrid columns={{xs: 1, md: 2}} gap="400">
-                    <ImageUploader label="Bundle Image" value={form.bundleImage} onChange={(value) => setField('bundleImage', value)} />
-                    <ImageUploader label="Banner Image" value={form.bannerImage} onChange={(value) => setField('bannerImage', value)} />
+                    <ImageUploader
+                      label="Bundle Image"
+                      value={form.bundleImage}
+                      onChange={(value) => setField('bundleImage', value)}
+                      helpText="Used as the main bundle thumbnail or product-style image."
+                    />
+
+                    <ImageUploader
+                      label="Banner Image"
+                      value={form.bannerImage}
+                      onChange={(value) => setField('bannerImage', value)}
+                      helpText="Displayed as the wide banner at the top of the bundle preview."
+                    />
                   </InlineGrid>
                 </BlockStack>
-              </Card>
+              </AccordionSection>
 
-              <Card>
+              <AccordionSection
+                id="configureBundle"
+                title="2. Configure Bundle"
+                description="Configure the customer selection step."
+                tooltip="These labels guide customers while they build the bundle."
+                open={openSections.configureBundle}
+                onToggle={toggleSection}
+              >
                 <BlockStack gap="400">
-                  <SectionHeading title="Configure Bundle" description="Configure the selection step displayed to customers." />
-                  <TextField label="Step Title" value={form.stepTitle} onChange={(value) => setField('stepTitle', value)} autoComplete="off" />
-                  <TextField label="Step Description" value={form.stepDescription} onChange={(value) => setField('stepDescription', value)} multiline={3} autoComplete="off" />
+                  <TextField
+                    label="Step Title"
+                    value={form.stepTitle}
+                    onChange={(value) => setField('stepTitle', value)}
+                    autoComplete="off"
+                  />
+
+                  <TextField
+                    label="Step Description"
+                    value={form.stepDescription}
+                    onChange={(value) => setField('stepDescription', value)}
+                    multiline={3}
+                    autoComplete="off"
+                  />
+
                   <TextField
                     label="Product Items"
                     type="number"
@@ -366,56 +649,106 @@ export default function MixMatchBundleForm({
                     helpText="Number of products the customer must select."
                     autoComplete="off"
                   />
-                  <TextField label="Button Label" value={form.buttonLabel} onChange={(value) => setField('buttonLabel', value)} autoComplete="off" />
-                </BlockStack>
-              </Card>
 
-              <Card>
-                <BlockStack gap="400">
-                  <SectionHeading title="Discount" description="Choose how the bundle discount is calculated." />
-                  <InlineGrid columns={{xs: 1, md: 2}} gap="400">
-                    <Select label="Discount Type" options={DISCOUNT_OPTIONS} value={form.discountType} onChange={(value) => setField('discountType', value)} />
-                    <TextField
-                      label="Value"
-                      type="number"
-                      min={0}
-                      value={form.discountValue}
-                      onChange={(value) => setField('discountValue', value)}
-                      prefix={form.discountType === 'percentage' ? undefined : '$'}
-                      suffix={form.discountType === 'percentage' ? '%' : undefined}
-                      autoComplete="off"
-                    />
-                  </InlineGrid>
+                  <TextField
+                    label="Button Label"
+                    value={form.buttonLabel}
+                    onChange={(value) => setField('buttonLabel', value)}
+                    autoComplete="off"
+                  />
                 </BlockStack>
-              </Card>
+              </AccordionSection>
 
-              <Card>
+              <AccordionSection
+                id="discount"
+                title="3. Discount"
+                description="Choose how the bundle price or discount is calculated."
+                tooltip="Fixed bundle price is selected by default."
+                open={openSections.discount}
+                onToggle={toggleSection}
+              >
+                <InlineGrid columns={{xs: 1, md: 2}} gap="400">
+                  <Select
+                    label="Discount Type"
+                    options={DISCOUNT_OPTIONS}
+                    value={form.discountType}
+                    onChange={(value) => setField('discountType', value)}
+                  />
+
+                  <TextField
+                    label="Value"
+                    type="number"
+                    min={0}
+                    value={form.discountValue}
+                    onChange={(value) => setField('discountValue', value)}
+                    prefix={form.discountType === 'percentage' ? undefined : '$'}
+                    suffix={form.discountType === 'percentage' ? '%' : undefined}
+                    placeholder="0"
+                    autoComplete="off"
+                  />
+                </InlineGrid>
+              </AccordionSection>
+
+              <AccordionSection
+                id="productConfiguration"
+                title="4. Product Configuration"
+                description="Choose which store items customers can add to this bundle."
+                tooltip="Use whole store, selected products, or selected collections."
+                open={openSections.productConfiguration}
+                onToggle={toggleSection}
+              >
                 <BlockStack gap="400">
-                  <SectionHeading title="Product Configuration" description="Choose which products are available in this bundle." />
                   <ChoiceList
                     title="Product source"
                     titleHidden
                     choices={PRODUCT_CONFIGURATION_OPTIONS}
                     selected={[form.productConfiguration]}
-                    onChange={(value) => setField('productConfiguration', value[0])}
+                    onChange={(value) =>
+                      setField('productConfiguration', value[0])
+                    }
                   />
 
                   {form.productConfiguration === 'whole_store' ? (
-                    <Box padding="300" background="bg-surface-secondary" borderRadius="300">
-                      <Text as="p">All active products in the store will be available.</Text>
+                    <Box
+                      padding="400"
+                      background="bg-surface-secondary"
+                      borderRadius="300"
+                    >
+                      <InlineStack gap="200" blockAlign="center">
+                        <Icon source={ProductIcon} />
+                        <Text as="p">
+                          All active products in the store will be available.
+                        </Text>
+                      </InlineStack>
                     </Box>
                   ) : null}
 
                   {form.productConfiguration === 'selected_products' ? (
                     <BlockStack gap="300">
                       <InlineStack align="space-between" blockAlign="center">
-                        <Text as="h3" variant="headingSm">Selected products</Text>
-                        <Button icon={PlusIcon} onClick={() => setProductModalOpen(true)}>Add Products</Button>
+                        <Text as="h3" variant="headingSm">
+                          Selected products
+                        </Text>
+
+                        <Tooltip content="Open product selector">
+                          <Button
+                            icon={PlusIcon}
+                            onClick={() => setProductModalOpen(true)}
+                          >
+                            Add Products
+                          </Button>
+                        </Tooltip>
                       </InlineStack>
+
                       <SelectedItems
+                        type="products"
                         items={products}
                         selectedIds={selectedProductIds}
-                        onRemove={(id) => setSelectedProductIds((current) => current.filter((currentId) => currentId !== id))}
+                        onRemove={(id) =>
+                          setSelectedProductIds((current) =>
+                            current.filter((currentId) => currentId !== id),
+                          )
+                        }
                         emptyText="No products selected yet."
                       />
                     </BlockStack>
@@ -424,19 +757,118 @@ export default function MixMatchBundleForm({
                   {form.productConfiguration === 'selected_collections' ? (
                     <BlockStack gap="300">
                       <InlineStack align="space-between" blockAlign="center">
-                        <Text as="h3" variant="headingSm">Selected collections</Text>
-                        <Button icon={PlusIcon} onClick={() => setCollectionModalOpen(true)}>Add Collections</Button>
+                        <Text as="h3" variant="headingSm">
+                          Selected collections
+                        </Text>
+
+                        <Tooltip content="Open collection selector">
+                          <Button
+                            icon={PlusIcon}
+                            onClick={() => setCollectionModalOpen(true)}
+                          >
+                            Add Collections
+                          </Button>
+                        </Tooltip>
                       </InlineStack>
+
                       <SelectedItems
+                        type="collections"
                         items={collections}
                         selectedIds={selectedCollectionIds}
-                        onRemove={(id) => setSelectedCollectionIds((current) => current.filter((currentId) => currentId !== id))}
+                        onRemove={(id) =>
+                          setSelectedCollectionIds((current) =>
+                            current.filter((currentId) => currentId !== id),
+                          )
+                        }
                         emptyText="No collections selected yet."
                       />
                     </BlockStack>
                   ) : null}
                 </BlockStack>
-              </Card>
+              </AccordionSection>
+
+              <AccordionSection
+                id="schedule"
+                title="5. Schedule"
+                description="Publish immediately or schedule the bundle for a date and time."
+                tooltip="Optional end date automatically makes the bundle unavailable after the selected time."
+                open={openSections.schedule}
+                onToggle={toggleSection}
+              >
+                <BlockStack gap="400">
+                  <ChoiceList
+                    title="Publishing schedule"
+                    titleHidden
+                    choices={SCHEDULE_OPTIONS}
+                    selected={[form.scheduleType]}
+                    onChange={(value) => setField('scheduleType', value[0])}
+                  />
+
+                  {form.scheduleType === 'scheduled' ? (
+                    <BlockStack gap="400">
+                      <InlineGrid columns={{xs: 1, md: 2}} gap="400">
+                        <TextField
+                          label="Start Date"
+                          type="date"
+                          value={form.startDate}
+                          onChange={(value) => setField('startDate', value)}
+                          prefix={<Icon source={CalendarIcon} />}
+                          autoComplete="off"
+                        />
+
+                        <TextField
+                          label="Start Time"
+                          type="time"
+                          value={form.startTime}
+                          onChange={(value) => setField('startTime', value)}
+                          autoComplete="off"
+                        />
+                      </InlineGrid>
+
+                      <Checkbox
+                        label="Set an end date"
+                        checked={form.hasEndDate}
+                        onChange={(value) => setField('hasEndDate', value)}
+                        helpText="The bundle becomes unavailable after the end date and time."
+                      />
+
+                      {form.hasEndDate ? (
+                        <InlineGrid columns={{xs: 1, md: 2}} gap="400">
+                          <TextField
+                            label="End Date"
+                            type="date"
+                            value={form.endDate}
+                            onChange={(value) => setField('endDate', value)}
+                            prefix={<Icon source={CalendarIcon} />}
+                            autoComplete="off"
+                          />
+
+                          <TextField
+                            label="End Time"
+                            type="time"
+                            value={form.endTime}
+                            onChange={(value) => setField('endTime', value)}
+                            autoComplete="off"
+                          />
+                        </InlineGrid>
+                      ) : null}
+                    </BlockStack>
+                  ) : (
+                    <Box
+                      padding="400"
+                      background="bg-surface-secondary"
+                      borderRadius="300"
+                    >
+                      <InlineStack gap="200" blockAlign="center">
+                        <Icon source={CalendarIcon} />
+                        <Text as="p">
+                          The bundle will be available immediately after saving.
+                        </Text>
+                      </InlineStack>
+                    </Box>
+                  )}
+                </BlockStack>
+              </AccordionSection>
             </BlockStack>
           </Grid.Cell>
 
@@ -444,57 +876,139 @@ export default function MixMatchBundleForm({
             <BlockStack gap="400">
               <Card>
                 <BlockStack gap="400">
-                  <SectionHeading title="Summary" />
+                  <InlineStack gap="100" blockAlign="center">
+                    <Text as="h2" variant="headingMd">
+                      Summary
+                    </Text>
+                    <HelpIcon content="A quick overview of the current bundle configuration." />
+                  </InlineStack>
+
+                  <Divider />
+
                   <InlineStack align="space-between">
-                    <Text as="span" tone="subdued">Status</Text>
+                    <Text as="span" tone="subdued">
+                      Status
+                    </Text>
                     <Badge tone={form.status === 'active' ? 'success' : undefined}>
                       {form.status === 'active' ? 'Active' : 'Inactive'}
                     </Badge>
                   </InlineStack>
+
                   <InlineStack align="space-between">
-                    <Text as="span" tone="subdued">Required product items</Text>
-                    <Text as="span" fontWeight="semibold">{form.productItems || '0'}</Text>
+                    <Text as="span" tone="subdued">
+                      Required product items
+                    </Text>
+                    <Text as="span" fontWeight="semibold">
+                      {form.productItems || '0'}
+                    </Text>
                   </InlineStack>
+
                   <InlineStack align="space-between">
-                    <Text as="span" tone="subdued">Available items</Text>
-                    <Text as="span" fontWeight="semibold">{selectedCount}</Text>
+                    <Text as="span" tone="subdued">
+                      Available items
+                    </Text>
+                    <Text as="span" fontWeight="semibold">
+                      {selectedCount}
+                    </Text>
                   </InlineStack>
+
                   <InlineStack align="space-between">
-                    <Text as="span" tone="subdued">Discount</Text>
-                    <Text as="span" fontWeight="semibold">{discountText}</Text>
+                    <Text as="span" tone="subdued">
+                      Discount
+                    </Text>
+                    <Text as="span" fontWeight="semibold">
+                      {discountText}
+                    </Text>
                   </InlineStack>
+
+                  <BlockStack gap="100">
+                    <Text as="span" tone="subdued">
+                      Schedule
+                    </Text>
+                    <Text as="p" fontWeight="semibold">
+                      {scheduleText}
+                    </Text>
+                  </BlockStack>
                 </BlockStack>
               </Card>
 
               <Card>
                 <BlockStack gap="400">
-                  <SectionHeading title="Preview" description="Approximate storefront preview." />
+                  <InlineStack gap="100" blockAlign="center">
+                    <Text as="h2" variant="headingMd">
+                      Preview
+                    </Text>
+                    <HelpIcon content="Approximate storefront preview. Final styling can depend on the storefront theme." />
+                  </InlineStack>
+
+                  <Divider />
 
                   {bannerPreview ? (
                     <Image source={bannerPreview} alt="Bundle banner preview" />
                   ) : (
-                    <Box padding="600" background="bg-surface-secondary" borderRadius="300">
+                    <Box
+                      padding="600"
+                      background="bg-surface-secondary"
+                      borderRadius="300"
+                    >
                       <BlockStack gap="200" inlineAlign="center">
                         <Icon source={ImageIcon} />
-                        <Text as="p" tone="subdued">Banner preview</Text>
+                        <Text as="p" tone="subdued">
+                          Banner preview
+                        </Text>
                       </BlockStack>
                     </Box>
                   )}
 
-                  <BlockStack gap="200">
-                    <Text as="h2" variant="headingLg">{form.title || 'Bundle title'}</Text>
-                    <Text as="p" tone="subdued">{form.description || 'Your bundle description will appear here.'}</Text>
-                  </BlockStack>
+                  <InlineStack gap="300" blockAlign="center" wrap={false}>
+                    <Thumbnail
+                      source={bundlePreview || ImageIcon}
+                      alt="Bundle preview"
+                      size="large"
+                    />
 
-                  <Box padding="400" background="bg-surface-secondary" borderRadius="300">
-                    <BlockStack gap="200">
-                      <Text as="h3" variant="headingMd">{form.stepTitle || 'Choose your products'}</Text>
-                      <Text as="p" tone="subdued">{form.stepDescription || 'Step description'}</Text>
+                    <BlockStack gap="100">
+                      <Text as="h2" variant="headingLg">
+                        {form.title || 'Bundle title'}
+                      </Text>
+                      <Text as="p" tone="subdued">
+                        {form.description ||
+                          'Your bundle description will appear here.'}
+                      </Text>
+                    </BlockStack>
+                  </InlineStack>
+
+                  <Box
+                    padding="400"
+                    background="bg-surface-secondary"
+                    borderRadius="300"
+                  >
+                    <BlockStack gap="300">
+                      <BlockStack gap="100">
+                        <Text as="h3" variant="headingMd">
+                          {form.stepTitle || 'Choose your products'}
+                        </Text>
+                        <Text as="p" tone="subdued">
+                          {form.stepDescription || 'Step description'}
+                        </Text>
+                      </BlockStack>
+
                       <InlineGrid columns={{xs: 2, sm: 4}} gap="200">
-                        {Array.from({length: Math.min(Number(form.productItems) || 3, 4)}).map((_, index) => (
-                          <Box key={index} padding="400" background="bg-surface" borderRadius="300" borderWidth="025" borderColor="border">
+                        {Array.from({
+                          length: Math.min(Number(form.productItems) || 3, 4),
+                        }).map((_, index) => (
+                          <Box
+                            key={index}
+                            padding="400"
+                            background="bg-surface"
+                            borderRadius="300"
+                            borderWidth="025"
+                            borderColor="border"
+                          >
                             <BlockStack inlineAlign="center">
-                              <Text as="span" tone="subdued">{index + 1}</Text>
+                              <Text as="span" tone="subdued">
+                                {index + 1}
+                              </Text>
                             </BlockStack>
                           </Box>
                         ))}
@@ -502,7 +1016,9 @@ export default function MixMatchBundleForm({
                     </BlockStack>
                   </Box>
 
-                  <Button variant="primary">{form.buttonLabel || 'Add bundle to cart'}</Button>
+                  <Button variant="primary" fullWidth>
+                    {form.buttonLabel || 'Add bundle to cart'}
+                  </Button>
                 </BlockStack>
               </Card>
             </BlockStack>
