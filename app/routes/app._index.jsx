@@ -10,8 +10,10 @@ import {
   Card,
   DataTable,
   Divider,
+  EmptyState,
   InlineGrid,
   InlineStack,
+  Link,
   Modal,
   Pagination,
   Page,
@@ -375,7 +377,7 @@ function formatRecentOrderItems(selectedProducts) {
   const items = Array.isArray(selectedProducts)
     ? selectedProducts.map((entry) => String(entry || "").trim()).filter(Boolean)
     : [];
-  if (items.length === 0) return "—";
+  if (items.length === 0) return "-";
   return items[0];
 }
 
@@ -512,7 +514,7 @@ export default function DashboardPage() {
     },
     {
       label: "Conversion Rate",
-      value: bundleConversionRate == null ? "—" : `${Number(bundleConversionRate).toFixed(0)}%`,
+      value: bundleConversionRate == null ? "-" : `${Number(bundleConversionRate).toFixed(0)}%`,
       sub: totalStoreOrdersLast30Days == null
         ? "Unavailable (orders permission/query)"
         : "Last 30 days",
@@ -525,61 +527,26 @@ export default function DashboardPage() {
       const label = formatOrderPrefixLabel(order.orderName, order.orderNumber, order.orderId);
       if (!orderUrl) return label;
       return (
-        <a
-          href={orderUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            display: "inline-block",
-            minWidth: "72px",
-            height: "26px",
-            borderRadius: "8px",
-            textAlign: "center",
-            lineHeight: "26px",
-            background: "#f3f4f6",
-            color: "#111827",
-            fontSize: "12px",
-            fontWeight: 700,
-            textDecoration: "none",
-          }}
-        >
-          {label}
-        </a>
+        <Link url={orderUrl} external monochrome removeUnderline>
+          <Badge tone="info">{label}</Badge>
+        </Link>
       );
     })(),
     (() => {
       const orderUrl = buildAdminOrderLink(shopDomain, order.orderId);
       if (!orderUrl) return order.boxTitle;
       return (
-        <a
-          href={orderUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ color: "#111827", fontWeight: 600, textDecoration: "none" }}
-        >
+        <Link url={orderUrl} external monochrome removeUnderline>
           {order.boxTitle}
-        </a>
+        </Link>
       );
     })(),
     (() => {
       const isSpecific = order.comboType === "specific";
       return (
-        <span
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            padding: "6px 12px",
-            borderRadius: "8px",
-            border: `1px solid ${isSpecific ? "#c7d2fe" : "#bbf7d0"}`,
-            background: isSpecific ? "#eef2ff" : "#ecfdf3",
-            color: isSpecific ? "#4f46e5" : "#166534",
-            fontSize: "13px",
-            fontWeight: 600,
-            lineHeight: 1.1,
-          }}
-        >
+        <Badge tone={isSpecific ? "info" : "success"}>
           {isSpecific ? "Specific" : "Simple"}
-        </span>
+        </Badge>
       );
     })(),
     (() => {
@@ -591,7 +558,8 @@ export default function DashboardPage() {
 
       return (
         <InlineStack gap="100" blockAlign="center">
-          <span
+          <Box
+            as="span"
             style={{
               display: "inline-block",
               maxWidth: "360px",
@@ -601,8 +569,10 @@ export default function DashboardPage() {
             }}
             title={items.join(", ")}
           >
-            {previewText}
-          </span>
+            <Text as="span" variant="bodySm">
+              {previewText}
+            </Text>
+          </Box>
           {moreCount > 0 && (
             <Button variant="plain" onClick={() => openItemsPopup(order)}>
               +{moreCount} more
@@ -611,19 +581,9 @@ export default function DashboardPage() {
         </InlineStack>
       );
     })(),
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        padding: "6px 12px",
-        borderRadius: "8px",
-        background: "#ecfdf3",
-        color: "#15803d",
-        fontWeight: 700,
-      }}
-    >
+    <Badge tone="success">
       {formatCurrencyAmount(Number(order.bundlePrice || 0), currencyCode)}
-    </span>,
+    </Badge>,
     new Date(order.orderDate).toLocaleDateString(undefined, {
       day: "2-digit",
       month: "short",
@@ -757,16 +717,21 @@ export default function DashboardPage() {
             </InlineStack>
 
             {recentOrders.length === 0 ? (
-              <Box paddingBlock="800">
-                <BlockStack gap="200" align="center" inlineAlign="center">
-                  <Text as="p" variant="bodyMd" tone="subdued" alignment="center">
-                    No combo box orders yet.
-                  </Text>
-                  <Text as="p" variant="bodySm" tone="subdued" alignment="center">
-                    Once customers purchase a combo box, orders will appear here.
-                  </Text>
-                </BlockStack>
-              </Box>
+              <EmptyState
+                heading="No combo box orders yet"
+                action={{
+                  content: "Create bundle box",
+                  onAction: () => setShowCreateBoxModal(true),
+                }}
+                secondaryAction={{
+                  content: "View analytics",
+                  onAction: () => navigateTo("/app/analytics"),
+                }}
+              >
+                <Text as="p" variant="bodySm" tone="subdued" alignment="center">
+                  Once customers purchase a combo box, orders will appear here.
+                </Text>
+              </EmptyState>
             ) : (
               <>
                 <style>{`
