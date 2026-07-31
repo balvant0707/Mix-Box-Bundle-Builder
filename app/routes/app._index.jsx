@@ -947,15 +947,11 @@ export default function DashboardPage() {
         onClose={closeCreateBoxModal}
         title="Choose Bundle Type"
         size="medium"
-        style={{ maxWidth: "30.75rem", borderRadius: "0px" }}
       >
         <Modal.Section>
           <BlockStack gap="300">
             {createBoxActions.map((action) => (
-              <div
-                key={action.key}
-                style={{ border: "1px solid #e5e7eb", borderRadius: 0, padding: "16px" }}
-              >
+              <Card key={action.key}>
                 <BlockStack gap="200">
                   <InlineStack gap="200" blockAlign="center">
                     <AdminIcon type={action.icon} size="base" />
@@ -966,32 +962,15 @@ export default function DashboardPage() {
                   <Text as="p" tone="subdued" variant="bodySm">
                     {action.sub}
                   </Text>
-                  <button
-                    type="button"
+                  <Button
+                    variant="primary"
                     disabled={pendingCreateAction !== null}
                     onClick={() => handleCreateBoxAction(action)}
-                    style={{
-                      width: "200px",
-                      maxWidth: "100%",
-                      border: "1px solid #000000",
-                      borderRadius: 0,
-                      background: "#000000",
-                      color: "#ffffff",
-                      padding: "9px 12px",
-                      fontSize: "15px",
-                      cursor: pendingCreateAction !== null ? "not-allowed" : "pointer",
-                      opacity: pendingCreateAction !== null && pendingCreateAction !== action.key ? 0.65 : 1,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: "8px",
-                      minHeight: "40px",
-                    }}
                   >
                     Create Box
-                  </button>
+                  </Button>
                 </BlockStack>
-              </div>
+              </Card>
             ))}
           </BlockStack>
         </Modal.Section>

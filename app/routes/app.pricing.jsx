@@ -315,45 +315,36 @@ function PlanCard({
   ];
   const statusBadgeLabel = isActive ? "Active" : plan.badge;
 
-  const disabledBtnStyle = {
-    width: "100%", padding: "14px", border: "none",
-    fontSize: "14px", fontWeight: "700", textAlign: "center", cursor: "default",
-    borderRadius: "0", background: "#e5e7eb", color: "#9ca3af", opacity: 0.85,
-  };
-
   let btn;
 
   if (isActive) {
     btn = (
-      <button disabled aria-label={`${plan.name} — current plan`} style={{ ...disabledBtnStyle, background: "#6b7280", color: "#fff" }}>
+      <Button disabled fullWidth accessibilityLabel={`${plan.name} - current plan`}>
         Current plan
-      </button>
+      </Button>
     );
   } else if (isFree) {
     if (freePlanLimitReached) {
       btn = (
-        <button disabled aria-label="Free plan not available after limit reached" style={{ ...disabledBtnStyle }}>
+        <Button disabled fullWidth accessibilityLabel="Free plan not available after limit reached">
           Not available
-        </button>
+        </Button>
       );
     } else {
       const busy = isSubmitting && submittingPlan === "free";
       btn = (
         <form method="post" aria-label="Select Free plan">
           <input type="hidden" name="intent" value="free" />
-          <button
-            type="submit"
+          <Button
+            submit
+            fullWidth
+            variant="primary"
+            loading={busy}
             disabled={busy}
-            aria-label="Start free plan"
-            style={{
-              width: "100%", padding: "14px", borderRadius: "0", border: "none",
-              fontSize: "14px", fontWeight: "700", textAlign: "center",
-              cursor: busy ? "wait" : "pointer", background: "#111827",
-              color: "#fff", opacity: busy ? 0.8 : 1, transition: "opacity 0.2s",
-            }}
+            accessibilityLabel="Start free plan"
           >
-            {busy ? "Starting…" : plan.cta}
-          </button>
+            {plan.cta}
+          </Button>
         </form>
       );
     }
@@ -364,20 +355,16 @@ function PlanCard({
         <input type="hidden" name="intent"    value="subscribe" />
         <input type="hidden" name="planKey"   value={plan.key} />
         <input type="hidden" name="billingCycle" value={billingCycle} />
-        <button
-          type="submit"
+        <Button
+          submit
+          fullWidth
+          variant="primary"
+          loading={busy}
           disabled={busy}
-          aria-label={`Subscribe to ${plan.name} plan at $${displayPrice}/${isYearly ? "year" : "month"}`}
-          style={{
-            width: "100%", padding: "14px", borderRadius: "0", border: "none",
-            fontSize: "14px", fontWeight: "700", textAlign: "center",
-            cursor: busy ? "wait" : "pointer",
-            background: plan.highlight ? "#2A7A4F" : "#111827",
-            color: "#fff", opacity: busy ? 0.8 : 1, transition: "opacity 0.2s",
-          }}
+          accessibilityLabel={`Subscribe to ${plan.name} plan at $${displayPrice}/${isYearly ? "year" : "month"}`}
         >
-          {busy ? "Preparing billing..." : `${plan.cta}${isYearly ? " (Yearly)" : ""}`}
-        </button>
+          {`${plan.cta}${isYearly ? " (Yearly)" : ""}`}
+        </Button>
       </form>
     );
   }
@@ -526,7 +513,6 @@ export default function PricingPage() {
         }
         .cb-plan-cta button {
           min-height: 46px;
-          border-radius: 0 !important;
         }
       `}</style>
       <BlockStack gap="500">
