@@ -565,6 +565,7 @@ export default function MixMatchBundleFormPolaris({
   return (
     <Page
       title="Create Mix n Match Bundle"
+      paddingBlockEnd="800"
       backAction={onBack ? {content: 'Back', onAction: onBack} : undefined}
       primaryAction={{
         content: 'Save Bundle',
@@ -748,7 +749,7 @@ export default function MixMatchBundleFormPolaris({
                       background="bg-surface-secondary"
                       borderRadius="300"
                     >
-                      <InlineStack gap="200" blockAlign="center" style={{width:"fit-content"}}>
+                      <InlineStack gap="200" blockAlign="center" align="start" wrap={false}>
                         <Icon source={ProductIcon} />
                         <Text as="p">
                           All active products in the store will be available.
@@ -895,7 +896,7 @@ export default function MixMatchBundleFormPolaris({
                       background="bg-surface-secondary"
                       borderRadius="300"
                     >
-                      <InlineStack gap="200" blockAlign="center" style={{width:"fit-content"}}>
+                      <InlineStack gap="200" blockAlign="center" align="start" wrap={false}>
                         <Icon source={CalendarIcon} />
                         <Text as="p">
                           The bundle will be available immediately after saving.
