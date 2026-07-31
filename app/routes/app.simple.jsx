@@ -34,7 +34,6 @@ import {
   CollectionIcon,
   DeleteIcon,
   ImageIcon,
-  InfoIcon,
   PlusIcon,
   ProductIcon,
   SearchIcon,
@@ -57,23 +56,12 @@ const SCHEDULE_OPTIONS = [
   {label: 'Schedule bundle', value: 'scheduled'},
 ];
 
-function HelpIcon({content}) {
-  return (
-    <Tooltip content={content} preferredPosition="above">
-      <Button
-        variant="plain"
-        icon={InfoIcon}
-        accessibilityLabel={content}
-      />
-    </Tooltip>
-  );
-}
 
 function AccordionSection({
   id,
   title,
   description,
-  tooltip,
+  icon,
   open,
   onToggle,
   children,
@@ -83,11 +71,11 @@ function AccordionSection({
       <Box padding="400">
         <InlineStack align="space-between" blockAlign="center" wrap={false}>
           <BlockStack gap="100">
-            <InlineStack gap="100" blockAlign="center" wrap={false}>
+            <InlineStack gap="200" blockAlign="center" wrap={false}>
+              {icon ? <Icon source={icon} /> : null}
               <Text as="h2" variant="headingMd">
                 {title}
               </Text>
-              {tooltip ? <HelpIcon content={tooltip} /> : null}
             </InlineStack>
             {description ? (
               <Text as="p" tone="subdued">
@@ -96,16 +84,14 @@ function AccordionSection({
             ) : null}
           </BlockStack>
 
-          <Tooltip content={open ? `Collapse ${title}` : `Expand ${title}`}>
-            <Button
-              variant="plain"
-              icon={open ? ChevronUpIcon : ChevronDownIcon}
-              onClick={() => onToggle(id)}
-              accessibilityLabel={open ? `Collapse ${title}` : `Expand ${title}`}
-              ariaExpanded={open}
-              ariaControls={`${id}-content`}
-            />
-          </Tooltip>
+          <Button
+            variant="plain"
+            icon={open ? ChevronUpIcon : ChevronDownIcon}
+            onClick={() => onToggle(id)}
+            accessibilityLabel={open ? `Collapse ${title}` : `Expand ${title}`}
+            ariaExpanded={open}
+            ariaControls={`${id}-content`}
+          />
         </InlineStack>
       </Box>
 
@@ -152,12 +138,9 @@ function ImageUploader({label, value, onChange, helpText}) {
 
   return (
     <BlockStack gap="200">
-      <InlineStack gap="100" blockAlign="center">
-        <Text as="p" variant="bodyMd" fontWeight="medium">
-          {label}
-        </Text>
-        {helpText ? <HelpIcon content={helpText} /> : null}
-      </InlineStack>
+      <Text as="p" variant="bodyMd" fontWeight="medium">
+        {label}
+      </Text>
 
       <DropZone
         accept="image/jpeg,image/png,image/webp,image/svg+xml"
@@ -528,6 +511,7 @@ export default function MixMatchBundleFormPolaris({
 
   return (
     <Page
+      fullWidth
       title="Create Mix n Match Bundle"
       backAction={onBack ? {content: 'Back', onAction: onBack} : undefined}
       primaryAction={{
@@ -543,11 +527,11 @@ export default function MixMatchBundleFormPolaris({
               <Card>
                 <BlockStack gap="300">
                   <InlineStack align="space-between" blockAlign="center">
-                    <InlineStack gap="100" blockAlign="center">
+                    <InlineStack gap="200" blockAlign="center">
+                      <Icon source={ProductIcon} />
                       <Text as="h2" variant="headingMd">
                         Status
                       </Text>
-                      <HelpIcon content="Choose whether the bundle is visible and available on the storefront." />
                     </InlineStack>
 
                     <Badge tone={form.status === 'active' ? 'success' : undefined}>
@@ -566,15 +550,16 @@ export default function MixMatchBundleFormPolaris({
                     ]}
                     selected={[form.status]}
                     onChange={(value) => setField('status', value[0])}
+                    alignment="horizontal"
                   />
                 </BlockStack>
               </Card>
 
               <AccordionSection
                 id="bundleInformation"
-                title="1. Bundle Information"
+                title="Bundle Information"
                 description="Enter the main bundle details and images."
-                tooltip="This content appears in the bundle page and storefront preview."
+                icon={ImageIcon}
                 open={openSections.bundleInformation}
                 onToggle={toggleSection}
               >
@@ -617,9 +602,9 @@ export default function MixMatchBundleFormPolaris({
 
               <AccordionSection
                 id="configureBundle"
-                title="2. Configure Bundle"
+                title="Configure Bundle"
                 description="Configure the customer selection step."
-                tooltip="These labels guide customers while they build the bundle."
+                icon={PlusIcon}
                 open={openSections.configureBundle}
                 onToggle={toggleSection}
               >
@@ -660,9 +645,9 @@ export default function MixMatchBundleFormPolaris({
 
               <AccordionSection
                 id="discount"
-                title="3. Discount"
+                title="Discount"
                 description="Choose how the bundle price or discount is calculated."
-                tooltip="Fixed bundle price is selected by default."
+                icon={CollectionIcon}
                 open={openSections.discount}
                 onToggle={toggleSection}
               >
@@ -690,9 +675,9 @@ export default function MixMatchBundleFormPolaris({
 
               <AccordionSection
                 id="productConfiguration"
-                title="4. Product Configuration"
+                title="Product Configuration"
                 description="Choose which store items customers can add to this bundle."
-                tooltip="Use whole store, selected products, or selected collections."
+                icon={ProductIcon}
                 open={openSections.productConfiguration}
                 onToggle={toggleSection}
               >
@@ -788,9 +773,9 @@ export default function MixMatchBundleFormPolaris({
 
               <AccordionSection
                 id="schedule"
-                title="5. Schedule"
+                title="Schedule"
                 description="Publish immediately or schedule the bundle for a date and time."
-                tooltip="Optional end date automatically makes the bundle unavailable after the selected time."
+                icon={CalendarIcon}
                 open={openSections.schedule}
                 onToggle={toggleSection}
               >
@@ -875,12 +860,9 @@ export default function MixMatchBundleFormPolaris({
             <BlockStack gap="400">
               <Card>
                 <BlockStack gap="400">
-                  <InlineStack gap="100" blockAlign="center">
-                    <Text as="h2" variant="headingMd">
-                      Summary
-                    </Text>
-                    <HelpIcon content="A quick overview of the current bundle configuration." />
-                  </InlineStack>
+                  <Text as="h2" variant="headingMd">
+                    Summary
+                  </Text>
 
                   <Divider />
 
@@ -933,12 +915,9 @@ export default function MixMatchBundleFormPolaris({
 
               <Card>
                 <BlockStack gap="400">
-                  <InlineStack gap="100" blockAlign="center">
-                    <Text as="h2" variant="headingMd">
-                      Preview
-                    </Text>
-                    <HelpIcon content="Approximate storefront preview. Final styling can depend on the storefront theme." />
-                  </InlineStack>
+                  <Text as="h2" variant="headingMd">
+                    Preview
+                  </Text>
 
                   <Divider />
 
