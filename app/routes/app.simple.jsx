@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {
   Badge,
+  Banner,
   BlockStack,
   Box,
   Button,
@@ -20,6 +21,7 @@ import {
   Modal,
   Page,
   RadioButton,
+  RangeSlider,
   ResourceItem,
   ResourceList,
   Select,
@@ -64,6 +66,61 @@ const FORM_TABS = [
   {id: 'advanced', content: 'Advanced', panelID: 'advanced-panel'},
 ];
 
+const DESIGN_TABS = [
+  {id: 'product-card', content: 'Product Card', panelID: 'product-card-panel'},
+  {id: 'steps-page', content: 'Steps Page', panelID: 'steps-page-panel'},
+  {id: 'review-page', content: 'Review Page', panelID: 'review-page-panel'},
+];
+
+const SIZE_OPTIONS = [
+  {label: 'Small', value: 'Small'},
+  {label: 'Medium', value: 'Medium'},
+  {label: 'Large', value: 'Large'},
+];
+
+const FONT_STYLE_OPTIONS = [
+  {label: 'Light', value: 'Light'},
+  {label: 'Regular', value: 'Regular'},
+  {label: 'Medium', value: 'Medium'},
+  {label: 'Bold', value: 'Bold'},
+];
+
+const IMAGE_DISPLAY_OPTIONS = [
+  {label: 'Desktop/Mobile', value: 'Desktop/Mobile'},
+  {label: 'Desktop only', value: 'Desktop only'},
+  {label: 'Mobile only', value: 'Mobile only'},
+];
+
+const DEFAULT_DESIGN_SETTINGS = {
+  backgroundColor: '#FFFFFF00',
+  cardBorderColor: '#F2F2F2',
+  imageHeight: 200,
+  imageHeightMobile: 160,
+  imageDisplay: 'Desktop/Mobile',
+  productCardDesktopSize: 'Large',
+  productCardMobileSize: 'Medium',
+  borderWidth: '0',
+  borderRadius: 0,
+  titleTextColor: '#050505',
+  titleSize: '14',
+  titleStyle: 'Regular',
+  productPriceColor: '#000000',
+  productPriceSize: '14',
+  productPriceStyle: 'Medium',
+  compareAtPriceColor: '#9D9D9D',
+  compareAtPriceSize: '12',
+  compareAtPriceStyle: 'Light',
+  ctaBackgroundColor: '#303030',
+  ctaTextColor: '#F5F5F5',
+  ctaSize: '14',
+  ctaStyle: 'Bold',
+  variantSelectorColor: '#383838',
+  variantSelectorSize: '12',
+  variantSelectorStyle: 'Regular',
+  imagePopupBackgroundColor: '#FFFFFF',
+  imagePopupTextColor: '#303030',
+};
+
 function getCurrentDateTimeInput() {
   const now = new Date();
   const year = now.getFullYear();
@@ -81,6 +138,240 @@ function getCurrentDateTimeInput() {
 function clampDateInput(value, minDate) {
   if (!value) return value;
   return value < minDate ? minDate : value;
+}
+
+function ColorField({label, value, onChange}) {
+  const swatchColor = String(value || '#FFFFFF');
+  const pickerColor = /^#[0-9A-Fa-f]{6}/.test(swatchColor)
+    ? swatchColor.slice(0, 7)
+    : '#ffffff';
+
+  return (
+    <TextField
+      label={label}
+      value={value}
+      onChange={onChange}
+      autoComplete="off"
+      prefix={
+        <input
+          aria-label={`${label} color picker`}
+          type="color"
+          value={pickerColor}
+          onChange={(event) => onChange(event.target.value.toUpperCase())}
+          style={{
+            width: '48px',
+            height: '28px',
+            marginLeft: '-12px',
+            marginRight: '8px',
+            padding: 0,
+            background: swatchColor,
+            border: '1px solid var(--p-color-border)',
+            borderRadius: 'var(--p-border-radius-200)',
+            cursor: 'pointer',
+          }}
+        />
+      }
+    />
+  );
+}
+
+function PixelField({label, value, onChange}) {
+  return (
+    <TextField
+      label={label}
+      type="number"
+      value={String(value)}
+      onChange={onChange}
+      suffix="px"
+      autoComplete="off"
+    />
+  );
+}
+
+function DesignSection({title, children}) {
+  return (
+    <BlockStack gap="300">
+      {title ? (
+        <Text as="h3" variant="headingMd">
+          {title}
+        </Text>
+      ) : null}
+      {children}
+    </BlockStack>
+  );
+}
+
+function ProductCardDesignPanel({settings, onChange}) {
+  return (
+    <BlockStack gap="400">
+      <DesignSection title="General">
+        <InlineGrid columns={{xs: 1, md: 3}} gap="400">
+          <ColorField
+            label="Background Color"
+            value={settings.backgroundColor}
+            onChange={(value) => onChange('backgroundColor', value)}
+          />
+          <ColorField
+            label="Card Border Color"
+            value={settings.cardBorderColor}
+            onChange={(value) => onChange('cardBorderColor', value)}
+          />
+          <RangeSlider
+            label={`Image Height ${settings.imageHeight}px`}
+            min={80}
+            max={420}
+            step={1}
+            value={settings.imageHeight}
+            onChange={(value) => onChange('imageHeight', value)}
+            output
+          />
+          <RangeSlider
+            label={`Image Height Mobile ${settings.imageHeightMobile}px`}
+            min={80}
+            max={320}
+            step={1}
+            value={settings.imageHeightMobile}
+            onChange={(value) => onChange('imageHeightMobile', value)}
+            output
+          />
+          <Select
+            label="Image Display"
+            options={IMAGE_DISPLAY_OPTIONS}
+            value={settings.imageDisplay}
+            onChange={(value) => onChange('imageDisplay', value)}
+          />
+          <Select
+            label="Product Card Desktop Size"
+            options={SIZE_OPTIONS}
+            value={settings.productCardDesktopSize}
+            onChange={(value) => onChange('productCardDesktopSize', value)}
+          />
+          <Select
+            label="Product Card Mobile Size"
+            options={SIZE_OPTIONS}
+            value={settings.productCardMobileSize}
+            onChange={(value) => onChange('productCardMobileSize', value)}
+          />
+          <PixelField
+            label="Border Width"
+            value={settings.borderWidth}
+            onChange={(value) => onChange('borderWidth', value)}
+          />
+          <RangeSlider
+            label={`Border Radius ${settings.borderRadius}px`}
+            min={0}
+            max={40}
+            step={1}
+            value={settings.borderRadius}
+            onChange={(value) => onChange('borderRadius', value)}
+            output
+          />
+        </InlineGrid>
+      </DesignSection>
+
+      <Divider />
+
+      <DesignSection title="Title">
+        <InlineGrid columns={{xs: 1, md: 3}} gap="400">
+          <ColorField label="Text Color" value={settings.titleTextColor} onChange={(value) => onChange('titleTextColor', value)} />
+          <PixelField label="Size" value={settings.titleSize} onChange={(value) => onChange('titleSize', value)} />
+          <Select label="Style" options={FONT_STYLE_OPTIONS} value={settings.titleStyle} onChange={(value) => onChange('titleStyle', value)} />
+        </InlineGrid>
+      </DesignSection>
+
+      <Divider />
+
+      <DesignSection title="Price">
+        <InlineGrid columns={{xs: 1, md: 3}} gap="400">
+          <ColorField label="Product Price Color" value={settings.productPriceColor} onChange={(value) => onChange('productPriceColor', value)} />
+          <PixelField label="Product Price Size" value={settings.productPriceSize} onChange={(value) => onChange('productPriceSize', value)} />
+          <Select label="Product Price Style" options={FONT_STYLE_OPTIONS} value={settings.productPriceStyle} onChange={(value) => onChange('productPriceStyle', value)} />
+        </InlineGrid>
+      </DesignSection>
+
+      <Divider />
+
+      <DesignSection title="Compare at Price">
+        <InlineGrid columns={{xs: 1, md: 3}} gap="400">
+          <ColorField label="Compare-at Price" value={settings.compareAtPriceColor} onChange={(value) => onChange('compareAtPriceColor', value)} />
+          <PixelField label="Compare-at Price Size" value={settings.compareAtPriceSize} onChange={(value) => onChange('compareAtPriceSize', value)} />
+          <Select label="Compare-at Price Style" options={FONT_STYLE_OPTIONS} value={settings.compareAtPriceStyle} onChange={(value) => onChange('compareAtPriceStyle', value)} />
+        </InlineGrid>
+      </DesignSection>
+
+      <Divider />
+
+      <DesignSection title="CTA">
+        <InlineGrid columns={{xs: 1, md: 3}} gap="400">
+          <ColorField label="Background Color" value={settings.ctaBackgroundColor} onChange={(value) => onChange('ctaBackgroundColor', value)} />
+          <ColorField label="Text Color" value={settings.ctaTextColor} onChange={(value) => onChange('ctaTextColor', value)} />
+          <PixelField label="Size" value={settings.ctaSize} onChange={(value) => onChange('ctaSize', value)} />
+          <Select label="Style" options={FONT_STYLE_OPTIONS} value={settings.ctaStyle} onChange={(value) => onChange('ctaStyle', value)} />
+        </InlineGrid>
+      </DesignSection>
+
+      <Divider />
+
+      <DesignSection title="Variant Selector">
+        <InlineGrid columns={{xs: 1, md: 3}} gap="400">
+          <ColorField label="Color" value={settings.variantSelectorColor} onChange={(value) => onChange('variantSelectorColor', value)} />
+          <PixelField label="Size" value={settings.variantSelectorSize} onChange={(value) => onChange('variantSelectorSize', value)} />
+          <Select label="Style" options={FONT_STYLE_OPTIONS} value={settings.variantSelectorStyle} onChange={(value) => onChange('variantSelectorStyle', value)} />
+        </InlineGrid>
+      </DesignSection>
+
+      <Divider />
+
+      <DesignSection title="Image Popup">
+        <InlineGrid columns={{xs: 1, md: 3}} gap="400">
+          <ColorField label="Background Color" value={settings.imagePopupBackgroundColor} onChange={(value) => onChange('imagePopupBackgroundColor', value)} />
+          <ColorField label="Text Color" value={settings.imagePopupTextColor} onChange={(value) => onChange('imagePopupTextColor', value)} />
+        </InlineGrid>
+      </DesignSection>
+    </BlockStack>
+  );
+}
+
+function DesignTabPanel({settings, onChange, selectedDesignTab, onSelectDesignTab, onBack, onNext}) {
+  return (
+    <Card padding="0">
+      <BlockStack gap="0">
+        <Box padding="400">
+          <BlockStack gap="400">
+            <Banner tone="warning">
+              <p>Any changes made here will be applied to all Bundle Builder bundles.</p>
+            </Banner>
+            <Tabs tabs={DESIGN_TABS} selected={selectedDesignTab} onSelect={onSelectDesignTab} />
+          </BlockStack>
+        </Box>
+        <Divider />
+        <Box padding="400">
+          {selectedDesignTab === 0 ? (
+            <ProductCardDesignPanel settings={settings} onChange={onChange} />
+          ) : null}
+          {selectedDesignTab === 1 ? (
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">Steps Page</Text>
+              <Text as="p" tone="subdued">Steps page design settings will appear here.</Text>
+            </BlockStack>
+          ) : null}
+          {selectedDesignTab === 2 ? (
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">Review Page</Text>
+              <Text as="p" tone="subdued">Review page design settings will appear here.</Text>
+            </BlockStack>
+          ) : null}
+        </Box>
+        <Divider />
+        <Box padding="400">
+          <InlineStack align="space-between">
+            <Button onClick={onBack}>Back</Button>
+            <Button onClick={onNext}>Next</Button>
+          </InlineStack>
+        </Box>
+      </BlockStack>
+    </Card>
+  );
 }
 
 
@@ -471,6 +762,11 @@ export default function MixMatchBundleFormPolaris({
   const [collectionModalOpen, setCollectionModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selectedTab, setSelectedTab] = useState(0);
+  const [selectedDesignTab, setSelectedDesignTab] = useState(0);
+  const [designSettings, setDesignSettings] = useState({
+    ...DEFAULT_DESIGN_SETTINGS,
+    ...(initialData?.designSettings || {}),
+  });
 
   const bannerPreview = useFilePreview(form.bannerImage);
   const bundlePreview = useFilePreview(form.bundleImage);
@@ -503,6 +799,10 @@ export default function MixMatchBundleFormPolaris({
       return {...current, [field]: value};
     });
   }, [currentSchedule.time, minScheduleDate]);
+
+  const setDesignField = useCallback((field, value) => {
+    setDesignSettings((current) => ({...current, [field]: value}));
+  }, []);
 
   const toggleSection = useCallback((sectionId) => {
     setOpenSections((current) => ({
@@ -1090,16 +1390,14 @@ export default function MixMatchBundleFormPolaris({
           ) : null}
 
           {selectedTab === 1 ? (
-            <Card>
-              <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">
-                  Design
-                </Text>
-                <Text as="p" tone="subdued">
-                  Design settings will appear here.
-                </Text>
-              </BlockStack>
-            </Card>
+            <DesignTabPanel
+              settings={designSettings}
+              onChange={setDesignField}
+              selectedDesignTab={selectedDesignTab}
+              onSelectDesignTab={setSelectedDesignTab}
+              onBack={() => setSelectedTab(0)}
+              onNext={() => setSelectedTab(2)}
+            />
           ) : null}
 
           {selectedTab === 2 ? (
