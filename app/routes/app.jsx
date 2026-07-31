@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Outlet, redirect, useFetcher, useLoaderData, useLocation, useNavigate, useRevalidator, useRouteError } from "react-router";
+import { Outlet, redirect, useFetcher, useLoaderData, useLocation, useRevalidator, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider as ShopifyAppProvider } from "@shopify/shopify-app-react-router/react";
 import { AppProvider as PolarisAppProvider } from "@shopify/polaris";
@@ -192,7 +192,6 @@ export default function App() {
     nextPlanLabel,
   } = useLoaderData();
   const location = useLocation();
-  const navigate = useNavigate();
   const revalidator = useRevalidator();
   const reviewFetcher = useFetcher();
   const reviewSeenFetcher = useFetcher();
@@ -249,11 +248,8 @@ export default function App() {
 
     if (changed) {
       const nextSearch = params.toString();
-      navigate(
-        { pathname: location.pathname, search: nextSearch ? `?${nextSearch}` : "" },
-        { replace: true },
-      );
-      return;
+      const nextUrl = `${location.pathname}${nextSearch ? `?${nextSearch}` : ""}${location.hash || ""}`;
+      window.history.replaceState(window.history.state, "", nextUrl);
     }
 
     const message = params.get("toast");
@@ -267,11 +263,9 @@ export default function App() {
     params.delete("toast");
     params.delete("toastTone");
     const nextSearch = params.toString();
-    navigate(
-      { pathname: location.pathname, search: nextSearch ? `?${nextSearch}` : "" },
-      { replace: true },
-    );
-  }, [location.pathname, location.search, navigate, revalidator]);
+    const nextUrl = `${location.pathname}${nextSearch ? `?${nextSearch}` : ""}${location.hash || ""}`;
+    window.history.replaceState(window.history.state, "", nextUrl);
+  }, [location.hash, location.pathname, location.search, revalidator]);
 
   function dismissPopup() {
     if (reviewFetcher.state !== "idle") return;
@@ -341,12 +335,12 @@ export default function App() {
         }
       `}</style>
       <s-app-nav>
-        <s-link href="/app/singlebox">Single Boxes</s-link>
-        <s-link href="/app/simple">Simple Boxes</s-link>
-        <s-link href="/app/boxes">Manage Boxes</s-link>
-        <s-link href="/app/analytics">Analytics</s-link>
-        <s-link href="/app/widget-settings">Widget Settings</s-link>
-        <s-link href="/app/pricing">Price Plan</s-link>
+        <s-link href={withEmbeddedAppParams("/app/singlebox", location.search)}>Single Boxes</s-link>
+        <s-link href={withEmbeddedAppParams("/app/simple", location.search)}>Simple Boxes</s-link>
+        <s-link href={withEmbeddedAppParams("/app/boxes", location.search)}>Manage Boxes</s-link>
+        <s-link href={withEmbeddedAppParams("/app/analytics", location.search)}>Analytics</s-link>
+        <s-link href={withEmbeddedAppParams("/app/widget-settings", location.search)}>Widget Settings</s-link>
+        <s-link href={withEmbeddedAppParams("/app/pricing", location.search)}>Price Plan</s-link>
       </s-app-nav>
       {!embedBlockEnabled && (
         <Page>

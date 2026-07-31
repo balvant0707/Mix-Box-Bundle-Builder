@@ -6,7 +6,14 @@ const SHOPIFY_APP_HANDLE =
 export function withEmbeddedAppParams(target, currentSearch = "") {
   const baseUrl = new URL("https://app.local");
   const nextUrl = new URL(target, baseUrl);
-  void currentSearch;
+  const currentParams = new URLSearchParams(currentSearch);
+
+  for (const key of EMBEDDED_APP_PARAM_KEYS) {
+    const value = currentParams.get(key);
+    if (value && !nextUrl.searchParams.has(key)) {
+      nextUrl.searchParams.set(key, value);
+    }
+  }
 
   const search = nextUrl.searchParams.toString();
   return `${nextUrl.pathname}${search ? `?${search}` : ""}${nextUrl.hash}`;
