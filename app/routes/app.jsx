@@ -324,6 +324,7 @@ export default function App() {
         }
       `}</style>
       <s-app-nav>
+        <s-link href={withEmbeddedAppParams("/app/singlebox", location.search)}>Single Boxes</s-link>
         <s-link href={withEmbeddedAppParams("/app/boxes", location.search)}>Manage Boxes</s-link>
         <s-link href={withEmbeddedAppParams("/app/analytics", location.search)}>Analytics</s-link>
         <s-link href={withEmbeddedAppParams("/app/widget-settings", location.search)}>Widget Settings</s-link>
