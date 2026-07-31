@@ -232,7 +232,7 @@ export default function MixMatchBundleForm({
   };
 
   return (
-    <Page>
+    <Page fullWidth>
       <Form onSubmit={submit}>
         <BlockStack gap="500">
           <InlineStack gap="300" blockAlign="center">
