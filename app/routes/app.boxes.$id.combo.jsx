@@ -12,6 +12,7 @@ import { getBox, upsertComboConfig, saveComboStepImages, getComboStepImages, del
 import { getShopCurrencyCode } from "../models/shop.server";
 import { withEmbeddedAppParams, withEmbeddedAppToastFromRequest } from "../utils/embedded-app";
 import { formatCurrencyAmount, getCurrencySymbol } from "../utils/currency";
+import { AdminIcon } from "../components/admin-icons";
 import { ToggleSwitch } from "../components/toggle-switch";
 
 
@@ -439,6 +440,39 @@ const inputStyle = {
 };
 
 /* ─────────────────────────── Component ─────────────────────────── */
+function SectionHeader({ icon, title, description }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "32px minmax(0, 1fr) 24px",
+        gap: "12px",
+        alignItems: "center",
+        width: "100%",
+      }}
+    >
+      <Box minWidth="32px">
+        <InlineStack align="center" blockAlign="center">
+          <AdminIcon type={icon} size="base" tooltip={false} />
+        </InlineStack>
+      </Box>
+      <BlockStack gap="100" inlineAlign="center">
+        <Text as="h2" variant="headingMd" alignment="center">
+          {title}
+        </Text>
+        <Text as="p" variant="bodyMd" tone="subdued" alignment="center">
+          {description}
+        </Text>
+      </BlockStack>
+      <Box minWidth="24px">
+        <InlineStack align="end" blockAlign="center">
+          <AdminIcon type="chevron-down" size="small" tone="subdued" tooltip={false} />
+        </InlineStack>
+      </Box>
+    </div>
+  );
+}
+
 export default function SpecificComboBoxPage() {
   const { box, products, collections, stepImagesBase64, currencyCode } = useLoaderData();
   const comboFetcher = useFetcher();
@@ -875,10 +909,11 @@ export default function SpecificComboBoxPage() {
         {/* ── Status ── */}
         <Card>
           <InlineGrid columns={{ xs: "1fr", sm: "1fr auto" }} gap="400">
-            <BlockStack gap="050">
-              <Text as="h2" variant="headingMd">{box.displayTitle || box.boxName || "Specific Combo"}</Text>
-              <Text as="p" variant="bodySm" tone="subdued">Create and configure your Specific Bundle experience</Text>
-            </BlockStack>
+            <SectionHeader
+              icon="package"
+              title={box.displayTitle || box.boxName || "Specific Combo"}
+              description="Create and configure your Specific Bundle experience."
+            />
             <InlineStack gap="200" blockAlign="start">
               <ToggleSwitch checked={comboConfig.isActive !== false} onChange={() => updateComboField("isActive", !(comboConfig.isActive !== false))} showStateText={false} />
               <BlockStack gap="100">
@@ -892,7 +927,11 @@ export default function SpecificComboBoxPage() {
         {/* ── Combo Configuration ── */}
         <Card>
           <BlockStack gap="400">
-            <Text as="h2" variant="headingMd">General Configuration</Text>
+            <SectionHeader
+              icon="image"
+              title="Bundle Information"
+              description="Enter the main bundle details and images."
+            />
             <Divider />
 
             {/* Row 1: Title | Steps | Description | CTA Button */}
@@ -1076,7 +1115,11 @@ export default function SpecificComboBoxPage() {
         {/* ── Options ── */}
         <Card>
           <BlockStack gap="400">
-            <Text as="h2" variant="headingMd">Additional Options</Text>
+            <SectionHeader
+              icon="collection-list"
+              title="Product Configuration"
+              description="Choose which store items customers can add to this bundle."
+            />
             <InlineGrid columns={{ xs: 1, md: 3 }} gap="400">
               <InlineStack gap="200" blockAlign="start">
                 <ToggleSwitch checked={!!comboConfig.isGiftBox} onChange={() => updateComboField("isGiftBox", !comboConfig.isGiftBox)} showStateText={false} />
@@ -1111,17 +1154,23 @@ export default function SpecificComboBoxPage() {
         {/* ── Steps ── */}
         <Card>
           <BlockStack gap="400">
-            <InlineStack align="space-between" blockAlign="center">
-              <Text as="h2" variant="headingMd">Steps Configuration ({comboConfig.type} total)</Text>
-              <Button
-                onClick={() => setStepCount(comboConfig.type + 1)}
-                disabled={comboConfig.type >= MAX_COMBO_STEPS}
-                size="slim"
-                variant="primary"
-              >
-                Add New Step
-              </Button>
-            </InlineStack>
+            <BlockStack gap="300">
+              <SectionHeader
+                icon="plus"
+                title={`Configure Bundle (${comboConfig.type} total)`}
+                description="Configure the customer selection step."
+              />
+              <InlineStack align="end">
+                <Button
+                  onClick={() => setStepCount(comboConfig.type + 1)}
+                  disabled={comboConfig.type >= MAX_COMBO_STEPS}
+                  size="slim"
+                  variant="primary"
+                >
+                  Add New Step
+                </Button>
+              </InlineStack>
+            </BlockStack>
 
             <Tabs
               tabs={Array.from({ length: comboConfig.type }, (_, i) => ({

@@ -69,16 +69,25 @@ function AccordionSection({
   return (
     <Card padding="0">
       <Box padding="400">
-        <InlineStack align="space-between" blockAlign="center" wrap={false}>
-          <BlockStack gap="100">
-            <InlineStack gap="200" blockAlign="center" wrap={false}>
-              {icon ? <Icon source={icon} /> : null}
-              <Text as="h2" variant="headingMd">
-                {title}
-              </Text>
-            </InlineStack>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '32px minmax(0, 1fr) 32px',
+            gap: '12px',
+            alignItems: 'center',
+            width: '100%',
+          }}
+        >
+          <InlineStack align="center" blockAlign="center">
+            {icon ? <Icon source={icon} /> : null}
+          </InlineStack>
+
+          <BlockStack gap="100" inlineAlign="center">
+            <Text as="h2" variant="headingMd" alignment="center">
+              {title}
+            </Text>
             {description ? (
-              <Text as="p" tone="subdued">
+              <Text as="p" tone="subdued" alignment="center">
                 {description}
               </Text>
             ) : null}
@@ -92,7 +101,7 @@ function AccordionSection({
             ariaExpanded={open}
             ariaControls={`${id}-content`}
           />
-        </InlineStack>
+        </div>
       </Box>
 
       <Collapsible

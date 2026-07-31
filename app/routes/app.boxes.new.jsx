@@ -6,6 +6,7 @@ import { createBox } from "../models/boxes.server";
 import { getShopCurrencyCode } from "../models/shop.server";
 import { withEmbeddedAppParams, withEmbeddedAppToastFromRequest } from "../utils/embedded-app";
 import { getCurrencySymbol } from "../utils/currency";
+import { AdminIcon } from "../components/admin-icons";
 import { ToggleSwitch } from "../components/toggle-switch";
 import {
   Banner, BlockStack, Box, Button, Card, Checkbox,
@@ -227,6 +228,39 @@ const scopeOptions = [
   { value: "specific_collections", label: "Select Collections" },
   { value: "specific_products", label: "Select Products" },
 ];
+
+function SectionHeader({ icon, title, description }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "32px minmax(0, 1fr) 24px",
+        gap: "12px",
+        alignItems: "center",
+        width: "100%",
+      }}
+    >
+      <Box minWidth="32px">
+        <InlineStack align="center" blockAlign="center">
+          <AdminIcon type={icon} size="base" tooltip={false} />
+        </InlineStack>
+      </Box>
+      <BlockStack gap="100" inlineAlign="center">
+        <Text as="h2" variant="headingMd" alignment="center">
+          {title}
+        </Text>
+        <Text as="p" variant="bodyMd" tone="subdued" alignment="center">
+          {description}
+        </Text>
+      </BlockStack>
+      <Box minWidth="24px">
+        <InlineStack align="end" blockAlign="center">
+          <AdminIcon type="chevron-down" size="small" tone="subdued" tooltip={false} />
+        </InlineStack>
+      </Box>
+    </div>
+  );
+}
 
 export default function CreateBoxPage() {
   const { products, collections, currencyCode } = useLoaderData();
@@ -456,10 +490,11 @@ export default function CreateBoxPage() {
             {/* Card 1 — Status */}
             <Card>
               <InlineGrid columns={{ xs: "1fr", sm: "1fr auto" }} gap="400">
-                <BlockStack gap="050">
-                  <Text as="h2" variant="headingMd">Simple Box</Text>
-                  <Text as="p" variant="bodySm" tone="subdued">Create and configure your Simple Box experience</Text>
-                </BlockStack>
+                <SectionHeader
+                  icon="package"
+                  title="Simple Box"
+                  description="Create and configure your Simple Box experience."
+                />
                 <InlineStack gap="200" blockAlign="start">
                   <ToggleSwitch checked={options.isActive} onChange={() => toggleOption("isActive")} showStateText={false} />
                   <BlockStack gap="100">
@@ -473,7 +508,11 @@ export default function CreateBoxPage() {
             {/* Card 2 — Basic Information */}
             <Card>
               <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">General Configuration</Text>
+                <SectionHeader
+                  icon="image"
+                  title="Bundle Information"
+                  description="Enter the main bundle details and images."
+                />
                 <BlockStack gap="300">
                   <InlineGrid columns={{ xs: 1, md: 3 }} gap="300">
                     {/* Display Title */}
@@ -747,7 +786,11 @@ export default function CreateBoxPage() {
             {/* Card 3 — Options */}
             <Card>
               <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">Options</Text>
+                <SectionHeader
+                  icon="collection-list"
+                  title="Product Configuration"
+                  description="Choose which store items customers can add to this bundle."
+                />
                 <InlineGrid columns={{ xs: 1, md: 3 }} gap="400">
                   <InlineStack gap="200" blockAlign="start">
                     <ToggleSwitch checked={options.isGiftBox} onChange={() => toggleOption("isGiftBox")} showStateText={false} />
