@@ -578,7 +578,7 @@ export default function MixMatchBundleFormPolaris({
           <Grid.Cell columnSpan={{xs: 6, sm: 6, md: 6, lg: 8, xl: 8}}>
             <BlockStack gap="400">
               <Card>
-                <BlockStack gap="300">
+                <BlockStack gap="300" paddingBlockEnd="800">
                   <InlineStack align="space-between" blockAlign="center">
                     <Text as="h2" variant="headingMd">
                       Status
@@ -749,12 +749,20 @@ export default function MixMatchBundleFormPolaris({
                       background="bg-surface-secondary"
                       borderRadius="300"
                     >
-                      <InlineStack gap="200" blockAlign="center" align="start" wrap={false}>
+                      <div
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'flex-start',
+                          gap: '8px',
+                          width: '100%',
+                        }}
+                      >
                         <Icon source={ProductIcon} />
                         <Text as="p">
                           All active products in the store will be available.
                         </Text>
-                      </InlineStack>
+                      </div>
                     </Box>
                   ) : null}
 
@@ -896,12 +904,20 @@ export default function MixMatchBundleFormPolaris({
                       background="bg-surface-secondary"
                       borderRadius="300"
                     >
-                      <InlineStack gap="200" blockAlign="center" align="start" wrap={false}>
+                      <div
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'flex-start',
+                          gap: '8px',
+                          width: '100%',
+                        }}
+                      >
                         <Icon source={CalendarIcon} />
                         <Text as="p">
                           The bundle will be available immediately after saving.
                         </Text>
-                      </InlineStack>
+                      </div>
                     </Box>
                   )}
                 </BlockStack>
