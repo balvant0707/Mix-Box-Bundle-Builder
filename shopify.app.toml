@@ -1,18 +1,17 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = "335f2a536c3bcb46c4450e5ecaa080b1"
-name = "MixBox – Box & Bundle Builder"
-application_url = "https://combo-product.vercel.app/"
+client_id = "68871acfcee5a597108cc2d754c7ec3e"
+application_url = "https://mix-box-bundle-builder.vercel.app/"
 embedded = true
-
-handle = "mixbox-box-bundle-builder"
+name = "Mix Box & Bundle Builder"
+handle = "mix-box-bundle-builder"
 
 [build]
 automatically_update_urls_on_dev = true
 
 [app_proxy]
-url = "https://combo-product.vercel.app/"
-subpath = "combo-builder"
+url = "https://mix-box-bundle-builder.vercel.app/"
+subpath = "product-builder"
 prefix = "apps"
 
 [webhooks]
@@ -52,5 +51,7 @@ scopes = "write_products,read_products,read_orders,read_inventory,read_themes,wr
 
 [auth]
 redirect_urls = [
-  "https://combo-product.vercel.app/auth/callback"
+  "https://mix-box-bundle-builder.vercel.app/auth/callback",
+  "https://mix-box-bundle-builder.vercel.app/auth/shopify/callback",
+  "https://mix-box-bundle-builder.vercel.app/api/auth/callback"
 ]

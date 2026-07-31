@@ -13,7 +13,9 @@
       "Bash(python -c \"import PIL; print\\('PIL ok'\\)\")",
       "Bash(PYTHONIOENCODING=utf-8 python gen_new_screenshots.py)",
       "Bash(PYTHONIOENCODING=utf-8 python gen_new_docs.py)",
-      "Bash(PYTHONIOENCODING=utf-8 python generate_all.py)"
+      "Bash(PYTHONIOENCODING=utf-8 python generate_all.py)",
+      "Bash(git push *)",
+      "Bash(git add *)"
     ],
     "additionalDirectories": [
       "c:\\shopify apps\\combo-product\\knowledge-base\\screenshots"
