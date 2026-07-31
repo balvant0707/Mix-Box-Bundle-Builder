@@ -57,6 +57,25 @@ const SCHEDULE_OPTIONS = [
   {label: 'Schedule bundle', value: 'scheduled'},
 ];
 
+function getCurrentDateTimeInput() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+
+  return {
+    date: `${year}-${month}-${day}`,
+    time: `${hours}:${minutes}`,
+  };
+}
+
+function clampDateInput(value, minDate) {
+  if (!value) return value;
+  return value < minDate ? minDate : value;
+}
+
 
 function AccordionSection({
   id,
@@ -399,6 +418,8 @@ export default function MixMatchBundleFormPolaris({
   onBack,
   onSubmit,
 }) {
+  const currentSchedule = useMemo(() => getCurrentDateTimeInput(), []);
+  const minScheduleDate = currentSchedule.date;
   const [form, setForm] = useState({
     status: initialData?.status || 'active',
     title: initialData?.title || '',
@@ -416,10 +437,12 @@ export default function MixMatchBundleFormPolaris({
     productConfiguration:
       initialData?.productConfiguration || 'whole_store',
     scheduleType: initialData?.scheduleType || 'immediately',
-    startDate: initialData?.startDate || '',
-    startTime: initialData?.startTime || '',
+    startDate: clampDateInput(initialData?.startDate, minScheduleDate) || minScheduleDate,
+    startTime: initialData?.startTime || currentSchedule.time,
     hasEndDate: initialData?.hasEndDate || false,
-    endDate: initialData?.endDate || '',
+    endDate: initialData?.endDate
+      ? clampDateInput(initialData.endDate, initialData?.startDate || minScheduleDate)
+      : '',
     endTime: initialData?.endTime || '',
   });
 
@@ -445,8 +468,33 @@ export default function MixMatchBundleFormPolaris({
   const bundlePreview = useFilePreview(form.bundleImage);
 
   const setField = useCallback((field, value) => {
-    setForm((current) => ({...current, [field]: value}));
-  }, []);
+    setForm((current) => {
+      if (field === 'scheduleType' && value === 'scheduled') {
+        return {
+          ...current,
+          scheduleType: value,
+          startDate: clampDateInput(current.startDate, minScheduleDate) || minScheduleDate,
+          startTime: current.startTime || currentSchedule.time,
+        };
+      }
+
+      if (field === 'startDate') {
+        const startDate = clampDateInput(value, minScheduleDate) || minScheduleDate;
+        return {
+          ...current,
+          startDate,
+          endDate: current.endDate ? clampDateInput(current.endDate, startDate) : current.endDate,
+        };
+      }
+
+      if (field === 'endDate') {
+        const minEndDate = current.startDate || minScheduleDate;
+        return {...current, endDate: clampDateInput(value, minEndDate)};
+      }
+
+      return {...current, [field]: value};
+    });
+  }, [currentSchedule.time, minScheduleDate]);
 
   const toggleSection = useCallback((sectionId) => {
     setOpenSections((current) => ({
@@ -797,6 +845,7 @@ export default function MixMatchBundleFormPolaris({
                           type="date"
                           value={form.startDate}
                           onChange={(value) => setField('startDate', value)}
+                          min={minScheduleDate}
                           prefix={<Icon source={CalendarIcon} />}
                           autoComplete="off"
                         />
@@ -820,13 +869,14 @@ export default function MixMatchBundleFormPolaris({
                       {form.hasEndDate ? (
                         <InlineGrid columns={{xs: 1, md: 2}} gap="400">
                           <TextField
-                            label="End Date"
-                            type="date"
-                            value={form.endDate}
-                            onChange={(value) => setField('endDate', value)}
-                            prefix={<Icon source={CalendarIcon} />}
-                            autoComplete="off"
-                          />
+                          label="End Date"
+                          type="date"
+                          value={form.endDate}
+                          onChange={(value) => setField('endDate', value)}
+                          min={form.startDate || minScheduleDate}
+                          prefix={<Icon source={CalendarIcon} />}
+                          autoComplete="off"
+                        />
 
                           <TextField
                             label="End Time"
@@ -844,7 +894,7 @@ export default function MixMatchBundleFormPolaris({
                       background="bg-surface-secondary"
                       borderRadius="300"
                     >
-                      <InlineStack gap="200" blockAlign="center">
+                      <InlineStack gap="200" blockAlign="center" width="fit-content">
                         <Icon source={CalendarIcon} />
                         <Text as="p">
                           The bundle will be available immediately after saving.
