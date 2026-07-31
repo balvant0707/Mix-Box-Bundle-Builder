@@ -700,7 +700,7 @@ export default function MixMatchBundleFormPolaris({
                       background="bg-surface-secondary"
                       borderRadius="300"
                     >
-                      <InlineStack gap="200" blockAlign="center">
+                      <InlineStack gap="200" blockAlign="center" width="fit-content">
                         <Icon source={ProductIcon} />
                         <Text as="p">
                           All active products in the store will be available.
