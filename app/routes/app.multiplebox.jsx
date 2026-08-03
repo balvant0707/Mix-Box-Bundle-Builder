@@ -35,7 +35,6 @@ import {
   Tooltip,
 } from '@shopify/polaris';
 import {
-  CalendarIcon,
   ChevronDownIcon,
   ChevronUpIcon,
   CollectionIcon,
@@ -289,23 +288,6 @@ export const loader = async ({ request }) => {
     };
   }
 };
-
-const DISCOUNT_OPTIONS = [
-  { label: 'Fixed bundle price', value: 'fixed_bundle_price' },
-  { label: 'Percentage discount %', value: 'percentage' },
-  { label: 'Fixed amount discount $', value: 'fixed_amount' },
-];
-
-const PRODUCT_CONFIGURATION_OPTIONS = [
-  { label: 'Wholestore', value: 'whole_store' },
-  { label: 'Select products', value: 'selected_products' },
-  { label: 'Select collections', value: 'selected_collections' },
-];
-
-const SCHEDULE_OPTIONS = [
-  { label: 'Publish immediately', value: 'immediately' },
-  { label: 'Schedule bundle', value: 'scheduled' },
-];
 
 const CUSTOMER_ELIGIBILITY_OPTIONS = [
   { label: 'All Customers', value: 'all' },
@@ -2098,11 +2080,7 @@ export default function MixMatchBundleFormPolaris({
 
   const [openSections, setOpenSections] = useState({
     bundleInformation: false,
-    configureBundle: false,
-    discount: false,
-    productConfiguration: false,
     customerEligibility: false,
-    schedule: false,
   });
 
   const [selectedProductIds, setSelectedProductIds] = useState(
@@ -2272,183 +2250,6 @@ export default function MixMatchBundleFormPolaris({
                     >
                       <BundleInformationSection form={form} onChange={setField} />
                     </AccordionSection>
-                    <AccordionSection
-                      id="configureBundle"
-                      title="Configure Bundle"
-                      description="Configure the customer selection step."
-                      open={openSections.configureBundle}
-                      onToggle={toggleSection}
-                    >
-                      <BlockStack gap="400">
-                        <TextField
-                          label="Step Title"
-                          value={form.stepTitle}
-                          onChange={(value) => setField('stepTitle', value)}
-                          autoComplete="off"
-                        />
-
-                        <TextField
-                          label="Step Description"
-                          value={form.stepDescription}
-                          onChange={(value) => setField('stepDescription', value)}
-                          multiline={3}
-                          autoComplete="off"
-                        />
-
-                        <TextField
-                          label="Product Items"
-                          type="number"
-                          min={1}
-                          value={form.productItems}
-                          onChange={(value) => setField('productItems', value)}
-                          helpText="Number of products the customer must select."
-                          autoComplete="off"
-                        />
-
-                        <TextField
-                          label="Button Label"
-                          value={form.buttonLabel}
-                          onChange={(value) => setField('buttonLabel', value)}
-                          autoComplete="off"
-                        />
-                      </BlockStack>
-                    </AccordionSection>
-
-                    <AccordionSection
-                      id="discount"
-                      title="Discount"
-                      description="Choose how the bundle price or discount is calculated."
-                      open={openSections.discount}
-                      onToggle={toggleSection}
-                    >
-                      <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
-                        <Select
-                          label="Discount Type"
-                          options={DISCOUNT_OPTIONS}
-                          value={form.discountType}
-                          onChange={(value) => setField('discountType', value)}
-                        />
-
-                        <TextField
-                          label="Value"
-                          type="number"
-                          min={0}
-                          value={form.discountValue}
-                          onChange={(value) => setField('discountValue', value)}
-                          prefix={form.discountType === 'percentage' ? undefined : '$'}
-                          suffix={form.discountType === 'percentage' ? '%' : undefined}
-                          placeholder="0"
-                          autoComplete="off"
-                        />
-                      </InlineGrid>
-                    </AccordionSection>
-
-                    <AccordionSection
-                      id="productConfiguration"
-                      title="Product Configuration"
-                      description="Choose which store items customers can add to this bundle."
-                      open={openSections.productConfiguration}
-                      onToggle={toggleSection}
-                    >
-                      <BlockStack gap="400">
-                        <ChoiceList
-                          title="Product source"
-                          titleHidden
-                          choices={PRODUCT_CONFIGURATION_OPTIONS}
-                          selected={[form.productConfiguration]}
-                          onChange={(value) =>
-                            setField('productConfiguration', value[0])
-                          }
-                        />
-
-                        {form.productConfiguration === 'whole_store' ? (
-                          <div
-                            style={{
-                              background: 'var(--p-color-bg-surface-secondary)',
-                              borderRadius: 'var(--p-border-radius-300)',
-                              padding: '16px',
-                              width: '100%',
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                maxWidth: '100%',
-                              }}
-                            >
-                              <Icon source={ProductIcon} />
-                              <Text as="p">
-                                All products of the store will be available.
-                              </Text>
-                            </div>
-                          </div>
-                        ) : null}
-
-                        {form.productConfiguration === 'selected_products' ? (
-                          <BlockStack gap="300">
-                            <InlineStack align="space-between" blockAlign="center">
-                              <Text as="h3" variant="headingSm">
-                                Selected products
-                              </Text>
-
-                              <Tooltip content="Open product selector">
-                                <Button
-                                  icon={PlusIcon}
-                                  onClick={() => setProductModalOpen(true)}
-                                >
-                                  Add Products
-                                </Button>
-                              </Tooltip>
-                            </InlineStack>
-
-                            <SelectedItems
-                              type="products"
-                              items={products}
-                              selectedIds={selectedProductIds}
-                              onRemove={(id) =>
-                                setSelectedProductIds((current) =>
-                                  current.filter((currentId) => currentId !== id),
-                                )
-                              }
-                              emptyText="No products selected yet."
-                            />
-                          </BlockStack>
-                        ) : null}
-
-                        {form.productConfiguration === 'selected_collections' ? (
-                          <BlockStack gap="300">
-                            <InlineStack align="space-between" blockAlign="center">
-                              <Text as="h3" variant="headingSm">
-                                Selected collections
-                              </Text>
-
-                              <Tooltip content="Open collection selector">
-                                <Button
-                                  icon={PlusIcon}
-                                  onClick={() => setCollectionModalOpen(true)}
-                                >
-                                  Add Collections
-                                </Button>
-                              </Tooltip>
-                            </InlineStack>
-
-                            <SelectedItems
-                              type="collections"
-                              items={collections}
-                              selectedIds={selectedCollectionIds}
-                              onRemove={(id) =>
-                                setSelectedCollectionIds((current) =>
-                                  current.filter((currentId) => currentId !== id),
-                                )
-                              }
-                              emptyText="No collections selected yet."
-                            />
-                          </BlockStack>
-                        ) : null}
-                      </BlockStack>
-                    </AccordionSection>
 
                     <AccordionSection
                       id="customerEligibility"
@@ -2464,101 +2265,6 @@ export default function MixMatchBundleFormPolaris({
                         onBrowseCustomers={() => setCustomersModalOpen(true)}
                         customerDisplayValue={customerDisplayValue}
                       />
-                    </AccordionSection>
-
-                    <AccordionSection
-                      id="schedule"
-                      title="Schedule"
-                      description="Publish immediately or schedule the bundle for a date and time."
-                      open={openSections.schedule}
-                      onToggle={toggleSection}
-                      paddingBottom="400"
-                    >
-                      <BlockStack gap="400">
-                        <ChoiceList
-                          title="Publishing schedule"
-                          titleHidden
-                          choices={SCHEDULE_OPTIONS}
-                          selected={[form.scheduleType]}
-                          onChange={(value) => setField('scheduleType', value[0])}
-                        />
-
-                        {form.scheduleType === 'scheduled' ? (
-                          <BlockStack gap="400">
-                            <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
-                              <TextField
-                                label="Start Date"
-                                type="date"
-                                value={form.startDate}
-                                onChange={(value) => setField('startDate', value)}
-                                min={minScheduleDate}
-                                prefix={<Icon source={CalendarIcon} />}
-                                autoComplete="off"
-                              />
-
-                              <TextField
-                                label="Start Time"
-                                type="time"
-                                value={form.startTime}
-                                onChange={(value) => setField('startTime', value)}
-                                autoComplete="off"
-                              />
-                            </InlineGrid>
-
-                            <Checkbox
-                              label="Set an end date"
-                              checked={form.hasEndDate}
-                              onChange={(value) => setField('hasEndDate', value)}
-                              helpText="The bundle becomes unavailable after the end date and time."
-                            />
-
-                            {form.hasEndDate ? (
-                              <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
-                                <TextField
-                                  label="End Date"
-                                  type="date"
-                                  value={form.endDate}
-                                  onChange={(value) => setField('endDate', value)}
-                                  min={form.startDate || minScheduleDate}
-                                  prefix={<Icon source={CalendarIcon} />}
-                                  autoComplete="off"
-                                />
-
-                                <TextField
-                                  label="End Time"
-                                  type="time"
-                                  value={form.endTime}
-                                  onChange={(value) => setField('endTime', value)}
-                                  autoComplete="off"
-                                />
-                              </InlineGrid>
-                            ) : null}
-                          </BlockStack>
-                        ) : (
-                          <div
-                            style={{
-                              background: 'var(--p-color-bg-surface-secondary)',
-                              borderRadius: 'var(--p-border-radius-300)',
-                              padding: '16px',
-                              width: '100%',
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                maxWidth: '100%',
-                              }}
-                            >
-                              <Icon source={CalendarIcon} />
-                              <Text as="p">
-                                The bundle will be available immediately after saving.
-                              </Text>
-                            </div>
-                          </div>
-                        )}
-                      </BlockStack>
                     </AccordionSection>
                   </BlockStack>
                 </Grid.Cell>
