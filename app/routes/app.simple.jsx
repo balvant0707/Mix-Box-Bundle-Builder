@@ -338,7 +338,7 @@ const IMAGE_DISPLAY_OPTIONS = [
 ];
 
 const DEFAULT_DESIGN_SETTINGS = {
-  backgroundColor: '#FFFFFF00',
+  backgroundColor: '#FFFFFF',
   cardBorderColor: '#F2F2F2',
   imageHeight: 200,
   imageHeightMobile: 160,
