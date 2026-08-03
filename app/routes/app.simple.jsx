@@ -9,6 +9,7 @@ import {
   Checkbox,
   ChoiceList,
   Collapsible,
+  ColorPicker,
   Divider,
   DropZone,
   EmptyState,
@@ -20,6 +21,7 @@ import {
   InlineStack,
   Modal,
   Page,
+  Popover,
   RadioButton,
   RangeSlider,
   ResourceItem,
@@ -212,50 +214,236 @@ function clampDateInput(value, minDate) {
   return value < minDate ? minDate : value;
 }
 
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function normalizeHexColor(value, fallback = '#FFFFFF') {
+  const raw = String(value || '').trim();
+  const hex = raw.startsWith('#') ? raw : `#${raw}`;
+
+  if (/^#[0-9A-Fa-f]{3}$/.test(hex)) {
+    return `#${hex
+      .slice(1)
+      .split('')
+      .map((char) => `${char}${char}`)
+      .join('')}`.toUpperCase();
+  }
+
+  if (/^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$/.test(hex)) {
+    return hex.toUpperCase();
+  }
+
+  return fallback;
+}
+
+function hexToHsba(value) {
+  const hex = normalizeHexColor(value);
+  const red = parseInt(hex.slice(1, 3), 16) / 255;
+  const green = parseInt(hex.slice(3, 5), 16) / 255;
+  const blue = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const delta = max - min;
+  const alpha = hex.length === 9 ? parseInt(hex.slice(7, 9), 16) / 255 : 1;
+  let hue = 0;
+
+  if (delta !== 0) {
+    if (max === red) {
+      hue = ((green - blue) / delta) % 6;
+    } else if (max === green) {
+      hue = (blue - red) / delta + 2;
+    } else {
+      hue = (red - green) / delta + 4;
+    }
+    hue *= 60;
+    if (hue < 0) hue += 360;
+  }
+
+  return {
+    hue,
+    saturation: max === 0 ? 0 : delta / max,
+    brightness: max,
+    alpha,
+  };
+}
+
+function hsbaToHex({hue, saturation, brightness, alpha = 1}) {
+  const chroma = brightness * saturation;
+  const huePrime = hue / 60;
+  const x = chroma * (1 - Math.abs((huePrime % 2) - 1));
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+
+  if (huePrime >= 0 && huePrime < 1) {
+    red = chroma;
+    green = x;
+  } else if (huePrime < 2) {
+    red = x;
+    green = chroma;
+  } else if (huePrime < 3) {
+    green = chroma;
+    blue = x;
+  } else if (huePrime < 4) {
+    green = x;
+    blue = chroma;
+  } else if (huePrime < 5) {
+    red = x;
+    blue = chroma;
+  } else {
+    red = chroma;
+    blue = x;
+  }
+
+  const match = brightness - chroma;
+  const toHex = (channel) =>
+    Math.round(clampNumber((channel + match) * 255, 0, 255))
+      .toString(16)
+      .padStart(2, '0')
+      .toUpperCase();
+  const alphaHex = Math.round(clampNumber(alpha, 0, 1) * 255)
+    .toString(16)
+    .padStart(2, '0')
+    .toUpperCase();
+
+  return `#${toHex(red)}${toHex(green)}${toHex(blue)}${alpha < 1 ? alphaHex : ''}`;
+}
+
 function ColorField({label, value, onChange}) {
-  const swatchColor = String(value || '#FFFFFF');
-  const pickerColor = /^#[0-9A-Fa-f]{6}/.test(swatchColor)
-    ? swatchColor.slice(0, 7)
-    : '#ffffff';
+  const [popoverActive, setPopoverActive] = useState(false);
+  const colorValue = normalizeHexColor(value);
+  const swatchColor = colorValue.length === 9 ? colorValue.slice(0, 7) : colorValue;
+  const alpha = colorValue.length === 9 ? parseInt(colorValue.slice(7, 9), 16) / 255 : 1;
+  const swatchBackground = alpha < 1
+    ? `linear-gradient(45deg, #d1d5db 25%, transparent 25%), linear-gradient(-45deg, #d1d5db 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #d1d5db 75%), linear-gradient(-45deg, transparent 75%, #d1d5db 75%)`
+    : swatchColor;
+  const activator = (
+    <Button
+      onClick={() => setPopoverActive((active) => !active)}
+      accessibilityLabel={`Open ${label} color picker`}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          display: 'inline-block',
+          width: 18,
+          height: 18,
+          borderRadius: 4,
+          border: '1px solid var(--p-color-border)',
+          background: swatchBackground,
+          backgroundColor: swatchColor,
+          backgroundSize: '8px 8px',
+          backgroundPosition: '0 0, 0 4px, 4px -4px, -4px 0px',
+          verticalAlign: 'middle',
+        }}
+      />
+    </Button>
+  );
 
   return (
     <TextField
       label={label}
-      value={value}
-      onChange={onChange}
+      value={colorValue}
+      onChange={(nextValue) => onChange(normalizeHexColor(nextValue, nextValue))}
       autoComplete="off"
-      prefix={
-        <input
-          aria-label={`${label} color picker`}
-          type="color"
-          value={pickerColor}
-          onChange={(event) => onChange(event.target.value.toUpperCase())}
-          style={{
-            width: '48px',
-            height: '28px',
-            marginLeft: '-12px',
-            marginRight: '8px',
-            padding: 0,
-            background: swatchColor,
-            border: '1px solid var(--p-color-border)',
-            borderRadius: 'var(--p-border-radius-200)',
-            cursor: 'pointer',
-          }}
-        />
+      connectedRight={
+        <Popover
+          active={popoverActive}
+          activator={activator}
+          autofocusTarget="none"
+          onClose={() => setPopoverActive(false)}
+        >
+          <Popover.Section>
+            <BlockStack gap="300">
+              <ColorPicker
+                color={hexToHsba(colorValue)}
+                onChange={(color) => onChange(hsbaToHex(color))}
+                allowAlpha
+                fullWidth
+              />
+              <TextField
+                label={`${label} hex value`}
+                value={colorValue}
+                onChange={(nextValue) => onChange(normalizeHexColor(nextValue, nextValue))}
+                autoComplete="off"
+              />
+            </BlockStack>
+          </Popover.Section>
+        </Popover>
       }
     />
   );
 }
 
-function PixelField({label, value, onChange}) {
+function DesignNumberField({label, value, onChange, suffix, min = 0, max}) {
   return (
     <TextField
       label={label}
       type="number"
       value={String(value)}
+      min={min}
+      max={max}
+      onChange={onChange}
+      suffix={suffix}
+      autoComplete="off"
+    />
+  );
+}
+
+function DesignRangeField({label, value, min, max, step = 1, suffix = 'px', onChange}) {
+  return (
+    <BlockStack gap="200">
+      <RangeSlider
+        label={`${label}: ${value}${suffix}`}
+        min={min}
+        max={max}
+        step={step}
+        value={Number(value)}
+        onChange={onChange}
+        output
+      />
+      <DesignNumberField
+        label={`${label} value`}
+        value={value}
+        min={min}
+        max={max}
+        suffix={suffix}
+        onChange={(nextValue) =>
+          onChange(clampNumber(Number(nextValue) || min, min, max))
+        }
+      />
+    </BlockStack>
+  );
+}
+
+function DesignSelectField({label, options, value, onChange}) {
+  return (
+    <Select
+      label={label}
+      options={options}
+      value={value}
+      onChange={onChange}
+    />
+  );
+}
+
+function DesignFieldGroup({children}) {
+  return (
+    <InlineGrid columns={{xs: 1, md: 3}} gap="400">
+      {children}
+    </InlineGrid>
+  );
+}
+
+function PixelField({label, value, onChange}) {
+  return (
+    <DesignNumberField
+      label={label}
+      value={value}
       onChange={onChange}
       suffix="px"
-      autoComplete="off"
+      min={0}
     />
   );
 }
@@ -277,7 +465,7 @@ function ProductCardDesignPanel({settings, onChange}) {
   return (
     <BlockStack gap="400">
       <DesignSection title="General">
-        <InlineGrid columns={{xs: 1, md: 3}} gap="400">
+        <DesignFieldGroup>
           <ColorField
             label="Background Color"
             value={settings.backgroundColor}
@@ -288,37 +476,33 @@ function ProductCardDesignPanel({settings, onChange}) {
             value={settings.cardBorderColor}
             onChange={(value) => onChange('cardBorderColor', value)}
           />
-          <RangeSlider
-            label={`Image Height ${settings.imageHeight}px`}
+          <DesignRangeField
+            label="Image Height"
             min={80}
             max={420}
-            step={1}
             value={settings.imageHeight}
             onChange={(value) => onChange('imageHeight', value)}
-            output
           />
-          <RangeSlider
-            label={`Image Height Mobile ${settings.imageHeightMobile}px`}
+          <DesignRangeField
+            label="Image Height Mobile"
             min={80}
             max={320}
-            step={1}
             value={settings.imageHeightMobile}
             onChange={(value) => onChange('imageHeightMobile', value)}
-            output
           />
-          <Select
+          <DesignSelectField
             label="Image Display"
             options={IMAGE_DISPLAY_OPTIONS}
             value={settings.imageDisplay}
             onChange={(value) => onChange('imageDisplay', value)}
           />
-          <Select
+          <DesignSelectField
             label="Product Card Desktop Size"
             options={SIZE_OPTIONS}
             value={settings.productCardDesktopSize}
             onChange={(value) => onChange('productCardDesktopSize', value)}
           />
-          <Select
+          <DesignSelectField
             label="Product Card Mobile Size"
             options={SIZE_OPTIONS}
             value={settings.productCardMobileSize}
@@ -329,76 +513,74 @@ function ProductCardDesignPanel({settings, onChange}) {
             value={settings.borderWidth}
             onChange={(value) => onChange('borderWidth', value)}
           />
-          <RangeSlider
-            label={`Border Radius ${settings.borderRadius}px`}
+          <DesignRangeField
+            label="Border Radius"
             min={0}
             max={40}
-            step={1}
             value={settings.borderRadius}
             onChange={(value) => onChange('borderRadius', value)}
-            output
           />
-        </InlineGrid>
+        </DesignFieldGroup>
       </DesignSection>
 
       <Divider />
 
       <DesignSection title="Title">
-        <InlineGrid columns={{xs: 1, md: 3}} gap="400">
+        <DesignFieldGroup>
           <ColorField label="Text Color" value={settings.titleTextColor} onChange={(value) => onChange('titleTextColor', value)} />
           <PixelField label="Size" value={settings.titleSize} onChange={(value) => onChange('titleSize', value)} />
-          <Select label="Style" options={FONT_STYLE_OPTIONS} value={settings.titleStyle} onChange={(value) => onChange('titleStyle', value)} />
-        </InlineGrid>
+          <DesignSelectField label="Style" options={FONT_STYLE_OPTIONS} value={settings.titleStyle} onChange={(value) => onChange('titleStyle', value)} />
+        </DesignFieldGroup>
       </DesignSection>
 
       <Divider />
 
       <DesignSection title="Price">
-        <InlineGrid columns={{xs: 1, md: 3}} gap="400">
+        <DesignFieldGroup>
           <ColorField label="Product Price Color" value={settings.productPriceColor} onChange={(value) => onChange('productPriceColor', value)} />
           <PixelField label="Product Price Size" value={settings.productPriceSize} onChange={(value) => onChange('productPriceSize', value)} />
-          <Select label="Product Price Style" options={FONT_STYLE_OPTIONS} value={settings.productPriceStyle} onChange={(value) => onChange('productPriceStyle', value)} />
-        </InlineGrid>
+          <DesignSelectField label="Product Price Style" options={FONT_STYLE_OPTIONS} value={settings.productPriceStyle} onChange={(value) => onChange('productPriceStyle', value)} />
+        </DesignFieldGroup>
       </DesignSection>
 
       <Divider />
 
       <DesignSection title="Compare at Price">
-        <InlineGrid columns={{xs: 1, md: 3}} gap="400">
+        <DesignFieldGroup>
           <ColorField label="Compare-at Price" value={settings.compareAtPriceColor} onChange={(value) => onChange('compareAtPriceColor', value)} />
           <PixelField label="Compare-at Price Size" value={settings.compareAtPriceSize} onChange={(value) => onChange('compareAtPriceSize', value)} />
-          <Select label="Compare-at Price Style" options={FONT_STYLE_OPTIONS} value={settings.compareAtPriceStyle} onChange={(value) => onChange('compareAtPriceStyle', value)} />
-        </InlineGrid>
+          <DesignSelectField label="Compare-at Price Style" options={FONT_STYLE_OPTIONS} value={settings.compareAtPriceStyle} onChange={(value) => onChange('compareAtPriceStyle', value)} />
+        </DesignFieldGroup>
       </DesignSection>
 
       <Divider />
 
       <DesignSection title="CTA">
-        <InlineGrid columns={{xs: 1, md: 3}} gap="400">
+        <DesignFieldGroup>
           <ColorField label="Background Color" value={settings.ctaBackgroundColor} onChange={(value) => onChange('ctaBackgroundColor', value)} />
           <ColorField label="Text Color" value={settings.ctaTextColor} onChange={(value) => onChange('ctaTextColor', value)} />
           <PixelField label="Size" value={settings.ctaSize} onChange={(value) => onChange('ctaSize', value)} />
-          <Select label="Style" options={FONT_STYLE_OPTIONS} value={settings.ctaStyle} onChange={(value) => onChange('ctaStyle', value)} />
-        </InlineGrid>
+          <DesignSelectField label="Style" options={FONT_STYLE_OPTIONS} value={settings.ctaStyle} onChange={(value) => onChange('ctaStyle', value)} />
+        </DesignFieldGroup>
       </DesignSection>
 
       <Divider />
 
       <DesignSection title="Variant Selector">
-        <InlineGrid columns={{xs: 1, md: 3}} gap="400">
+        <DesignFieldGroup>
           <ColorField label="Color" value={settings.variantSelectorColor} onChange={(value) => onChange('variantSelectorColor', value)} />
           <PixelField label="Size" value={settings.variantSelectorSize} onChange={(value) => onChange('variantSelectorSize', value)} />
-          <Select label="Style" options={FONT_STYLE_OPTIONS} value={settings.variantSelectorStyle} onChange={(value) => onChange('variantSelectorStyle', value)} />
-        </InlineGrid>
+          <DesignSelectField label="Style" options={FONT_STYLE_OPTIONS} value={settings.variantSelectorStyle} onChange={(value) => onChange('variantSelectorStyle', value)} />
+        </DesignFieldGroup>
       </DesignSection>
 
       <Divider />
 
       <DesignSection title="Image Popup">
-        <InlineGrid columns={{xs: 1, md: 3}} gap="400">
+        <DesignFieldGroup>
           <ColorField label="Background Color" value={settings.imagePopupBackgroundColor} onChange={(value) => onChange('imagePopupBackgroundColor', value)} />
           <ColorField label="Text Color" value={settings.imagePopupTextColor} onChange={(value) => onChange('imagePopupTextColor', value)} />
-        </InlineGrid>
+        </DesignFieldGroup>
       </DesignSection>
     </BlockStack>
   );
@@ -477,6 +659,82 @@ function CustomerEligibilitySection({
   );
 }
 
+function BundleInformationSection({form, onChange}) {
+  return (
+    <BlockStack gap="400">
+      <TextField
+        label="Title"
+        requiredIndicator
+        value={form.title}
+        onChange={(value) => onChange('title', value)}
+        placeholder="Build your perfect bundle"
+        autoComplete="off"
+      />
+
+      <TextField
+        label="Description"
+        value={form.description}
+        onChange={(value) => onChange('description', value)}
+        multiline={4}
+        placeholder="Describe this bundle"
+        autoComplete="off"
+      />
+
+      <InlineGrid columns={{xs: 1, md: 2}} gap="400">
+        <ImageUploader
+          label="Bundle Image"
+          value={form.bundleImage}
+          onChange={(value) => onChange('bundleImage', value)}
+          helpText="Used as the main bundle thumbnail or product-style image."
+        />
+
+        <ImageUploader
+          label="Banner Image"
+          value={form.bannerImage}
+          onChange={(value) => onChange('bannerImage', value)}
+          helpText="Displayed as the wide banner at the top of the bundle preview."
+        />
+      </InlineGrid>
+    </BlockStack>
+  );
+}
+
+function StatusSummarySection({status, onChange}) {
+  return (
+    <Card>
+      <BlockStack gap="300">
+        <InlineStack align="space-between" blockAlign="center">
+          <Text as="h2" variant="headingMd">
+            Status
+          </Text>
+          <Badge tone={status === 'active' ? 'success' : undefined}>
+            {status === 'active' ? 'Active' : 'Inactive'}
+          </Badge>
+        </InlineStack>
+
+        <Divider />
+
+        <InlineStack gap="500" blockAlign="center">
+          <RadioButton
+            label="Active"
+            checked={status === 'active'}
+            id="bundle-status-active"
+            name="bundleStatus"
+            onChange={() => onChange('active')}
+          />
+          <RadioButton
+            label="Inactive"
+            checked={status === 'inactive'}
+            id="bundle-status-inactive"
+            name="bundleStatus"
+            onChange={() => onChange('inactive')}
+          />
+        </InlineStack>
+      </BlockStack>
+    </Card>
+  );
+}
+
 function SummaryPreviewPanel({
   form,
   selectedCount,
@@ -484,6 +742,7 @@ function SummaryPreviewPanel({
   scheduleText,
   bannerPreview,
   bundlePreview,
+  onStatusChange,
 }) {
   const selectedEligibility = Array.isArray(form.eligibility)
     ? form.eligibility[0]
@@ -494,6 +753,13 @@ function SummaryPreviewPanel({
 
   return (
     <BlockStack gap="400">
+      {onStatusChange ? (
+        <StatusSummarySection
+          status={form.status}
+          onChange={onStatusChange}
+        />
+      ) : null}
+
       <Card>
         <BlockStack gap="400">
           <Text as="h2" variant="headingMd">
@@ -501,15 +767,6 @@ function SummaryPreviewPanel({
           </Text>
 
           <Divider />
-
-          <InlineStack align="space-between">
-            <Text as="span" tone="subdued">
-              Status
-            </Text>
-            <Badge tone={form.status === 'active' ? 'success' : undefined}>
-              {form.status === 'active' ? 'Active' : 'Inactive'}
-            </Badge>
-          </InlineStack>
 
           <InlineStack align="space-between">
             <Text as="span" tone="subdued">
@@ -1421,89 +1678,22 @@ export default function MixMatchBundleFormPolaris({
     >
       <Form onSubmit={handleSubmit}>
         <BlockStack gap="400">
+          <AccordionSection
+            id="bundleInformation"
+            title="Bundle Information"
+            description="Enter the main bundle details and images."
+            open={openSections.bundleInformation}
+            onToggle={toggleSection}
+          >
+            <BundleInformationSection form={form} onChange={setField} />
+          </AccordionSection>
+
           <Tabs tabs={FORM_TABS} selected={selectedTab} onSelect={setSelectedTab} />
 
           {selectedTab === 0 ? (
         <Grid>
           <Grid.Cell columnSpan={{xs: 6, sm: 6, md: 6, lg: 8, xl: 8}}>
             <BlockStack gap="200" paddingBlockEnd="800">
-              <Card>
-                <BlockStack gap="300">
-                  <InlineStack align="space-between" blockAlign="center">
-                    <Text as="h2" variant="headingMd">
-                      Status
-                    </Text>
-
-                    <Badge tone={form.status === 'active' ? 'success' : undefined}>
-                      {form.status === 'active' ? 'Active' : 'Inactive'}
-                    </Badge>
-                  </InlineStack>
-
-                  <Divider />
-
-                  <InlineStack gap="500" blockAlign="center">
-                    <RadioButton
-                      label="Active"
-                      checked={form.status === 'active'}
-                      id="bundle-status-active"
-                      name="bundleStatus"
-                      onChange={() => setField('status', 'active')}
-                    />
-                    <RadioButton
-                      label="Inactive"
-                      checked={form.status === 'inactive'}
-                      id="bundle-status-inactive"
-                      name="bundleStatus"
-                      onChange={() => setField('status', 'inactive')}
-                    />
-                  </InlineStack>
-                </BlockStack>
-              </Card>
-
-              <AccordionSection
-                id="bundleInformation"
-                title="Bundle Information"
-                description="Enter the main bundle details and images."
-                open={openSections.bundleInformation}
-                onToggle={toggleSection}
-              >
-                <BlockStack gap="400">
-                  <TextField
-                    label="Title"
-                    requiredIndicator
-                    value={form.title}
-                    onChange={(value) => setField('title', value)}
-                    placeholder="Build your perfect bundle"
-                    autoComplete="off"
-                  />
-
-                  <TextField
-                    label="Description"
-                    value={form.description}
-                    onChange={(value) => setField('description', value)}
-                    multiline={4}
-                    placeholder="Describe this bundle"
-                    autoComplete="off"
-                  />
-
-                  <InlineGrid columns={{xs: 1, md: 2}} gap="400">
-                    <ImageUploader
-                      label="Bundle Image"
-                      value={form.bundleImage}
-                      onChange={(value) => setField('bundleImage', value)}
-                      helpText="Used as the main bundle thumbnail or product-style image."
-                    />
-
-                    <ImageUploader
-                      label="Banner Image"
-                      value={form.bannerImage}
-                      onChange={(value) => setField('bannerImage', value)}
-                      helpText="Displayed as the wide banner at the top of the bundle preview."
-                    />
-                  </InlineGrid>
-                </BlockStack>
-              </AccordionSection>
-
               <AccordionSection
                 id="configureBundle"
                 title="Configure Bundle"
@@ -1803,6 +1993,7 @@ export default function MixMatchBundleFormPolaris({
               scheduleText={scheduleText}
               bannerPreview={bannerPreview}
               bundlePreview={bundlePreview}
+              onStatusChange={(value) => setField('status', value)}
             />
           </Grid.Cell>
         </Grid>
@@ -1827,22 +2018,39 @@ export default function MixMatchBundleFormPolaris({
                   scheduleText={scheduleText}
                   bannerPreview={bannerPreview}
                   bundlePreview={bundlePreview}
+                  onStatusChange={(value) => setField('status', value)}
                 />
               </Grid.Cell>
             </Grid>
           ) : null}
 
           {selectedTab === 2 ? (
-            <Card>
-              <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">
-                  Advanced
-                </Text>
-                <Text as="p" tone="subdued">
-                  Advanced settings will appear here.
-                </Text>
-              </BlockStack>
-            </Card>
+            <Grid>
+              <Grid.Cell columnSpan={{xs: 6, sm: 6, md: 6, lg: 8, xl: 8}}>
+                <Card>
+                  <BlockStack gap="300">
+                    <Text as="h2" variant="headingMd">
+                      Advanced
+                    </Text>
+                    <Text as="p" tone="subdued">
+                      Advanced settings will appear here.
+                    </Text>
+                  </BlockStack>
+                </Card>
+              </Grid.Cell>
+
+              <Grid.Cell columnSpan={{xs: 6, sm: 6, md: 6, lg: 4, xl: 4}}>
+                <SummaryPreviewPanel
+                  form={form}
+                  selectedCount={selectedCount}
+                  discountText={discountText}
+                  scheduleText={scheduleText}
+                  bannerPreview={bannerPreview}
+                  bundlePreview={bundlePreview}
+                  onStatusChange={(value) => setField('status', value)}
+                />
+              </Grid.Cell>
+            </Grid>
           ) : null}
         </BlockStack>
       </Form>
