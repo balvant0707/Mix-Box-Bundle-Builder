@@ -1000,13 +1000,14 @@ function StatusSummarySection({ status, onChange }) {
   );
 }
 
-function ProductPreviewGrid({ products }) {
-  const visibleProducts = products.slice(0, 8);
+function ProductPreviewGrid({ products, maxItems }) {
+  const limit = Math.max(Number(maxItems) || 0, 0);
+  const visibleProducts = products.slice(0, limit || 2);
 
   if (!visibleProducts.length) return null;
 
   return (
-    <InlineGrid columns={{ xs: 2, sm: 4 }} gap="200">
+    <InlineGrid columns={{ xs: 2, sm: 2 }} gap="200">
       {visibleProducts.map((product) => (
         <Box
           key={product.id}
@@ -1177,7 +1178,10 @@ function SummaryPreviewPanel({
                 </Text>
               </BlockStack>
 
-              <ProductPreviewGrid products={previewProducts} />
+              <ProductPreviewGrid
+                products={previewProducts}
+                maxItems={form.productItems}
+              />
             </BlockStack>
           </Box>
 
