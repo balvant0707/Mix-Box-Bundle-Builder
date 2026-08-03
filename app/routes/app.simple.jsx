@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useLocation, useNavigate} from 'react-router';
 import {
   Badge,
-  Banner,
   BlockStack,
   Box,
   Button,
@@ -42,6 +42,7 @@ import {
   ProductIcon,
   SearchIcon,
 } from '@shopify/polaris-icons';
+import {withEmbeddedAppParams} from '../utils/embedded-app';
 
 const DISCOUNT_OPTIONS = [
   {label: 'Fixed bundle price', value: 'fixed_bundle_price'},
@@ -60,16 +61,16 @@ const SCHEDULE_OPTIONS = [
   {label: 'Schedule bundle', value: 'scheduled'},
 ];
 
+const CUSTOMER_ELIGIBILITY_OPTIONS = [
+  {label: 'All Customers', value: 'all'},
+  {label: 'Customer Tags', value: 'tags'},
+  {label: 'Specific Customer', value: 'specific'},
+];
+
 const FORM_TABS = [
   {id: 'content', content: 'Content', panelID: 'content-panel'},
   {id: 'design', content: 'Design', panelID: 'design-panel'},
   {id: 'advanced', content: 'Advanced', panelID: 'advanced-panel'},
-];
-
-const DESIGN_TABS = [
-  {id: 'product-card', content: 'Product Card', panelID: 'product-card-panel'},
-  {id: 'steps-page', content: 'Steps Page', panelID: 'steps-page-panel'},
-  {id: 'review-page', content: 'Review Page', panelID: 'review-page-panel'},
 ];
 
 const SIZE_OPTIONS = [
@@ -332,45 +333,256 @@ function ProductCardDesignPanel({settings, onChange}) {
   );
 }
 
-function DesignTabPanel({settings, onChange, selectedDesignTab, onSelectDesignTab, onBack, onNext}) {
+function DesignTabPanel({settings, onChange, onBack, onNext}) {
+  return (
+    <BlockStack gap="400">
+      <Card padding="0">
+        <BlockStack gap="0">
+          <Box padding="400">
+            <ProductCardDesignPanel settings={settings} onChange={onChange} />
+          </Box>
+          <Divider />
+          <Box padding="400">
+            <InlineStack align="space-between">
+              <Button onClick={onBack}>Back</Button>
+              <Button onClick={onNext}>Next</Button>
+            </InlineStack>
+          </Box>
+        </BlockStack>
+      </Card>
+    </BlockStack>
+  );
+}
+
+function CustomerEligibilitySection({form, onChange}) {
+  const selected = Array.isArray(form.eligibility)
+    ? form.eligibility
+    : [form.eligibility || 'all'];
+  const selectedValue = selected[0] || 'all';
+
   return (
     <Card padding="0">
       <BlockStack gap="0">
         <Box padding="400">
-          <BlockStack gap="400">
-            <Banner tone="warning">
-              <p>Any changes made here will be applied to all Bundle Builder bundles.</p>
-            </Banner>
-            <Tabs tabs={DESIGN_TABS} selected={selectedDesignTab} onSelect={onSelectDesignTab} />
+          <BlockStack gap="100">
+            <Text as="h2" variant="headingMd">
+              Customer Eligibility
+            </Text>
+            <Text as="p" tone="subdued">
+              Choose who can see the product
+            </Text>
           </BlockStack>
         </Box>
         <Divider />
         <Box padding="400">
-          {selectedDesignTab === 0 ? (
-            <ProductCardDesignPanel settings={settings} onChange={onChange} />
-          ) : null}
-          {selectedDesignTab === 1 ? (
-            <BlockStack gap="300">
-              <Text as="h2" variant="headingMd">Steps Page</Text>
-              <Text as="p" tone="subdued">Steps page design settings will appear here.</Text>
-            </BlockStack>
-          ) : null}
-          {selectedDesignTab === 2 ? (
-            <BlockStack gap="300">
-              <Text as="h2" variant="headingMd">Review Page</Text>
-              <Text as="p" tone="subdued">Review page design settings will appear here.</Text>
-            </BlockStack>
-          ) : null}
-        </Box>
-        <Divider />
-        <Box padding="400">
-          <InlineStack align="space-between">
-            <Button onClick={onBack}>Back</Button>
-            <Button onClick={onNext}>Next</Button>
-          </InlineStack>
+          <BlockStack gap="300">
+            <ChoiceList
+              title="Customer eligibility"
+              titleHidden
+              choices={CUSTOMER_ELIGIBILITY_OPTIONS}
+              selected={[selectedValue]}
+              onChange={(value) => onChange('eligibility', value)}
+            />
+
+            {selectedValue === 'tags' ? (
+              <TextField
+                label="Customer tags"
+                labelHidden
+                prefix={<Icon source={SearchIcon} />}
+                placeholder="Browse customers by tag"
+                value={form.customerTags}
+                onChange={(value) => onChange('customerTags', value)}
+                autoComplete="off"
+                connectedRight={<Button>Browse</Button>}
+              />
+            ) : null}
+
+            {selectedValue === 'specific' ? (
+              <TextField
+                label="Specific customers"
+                labelHidden
+                prefix={<Icon source={SearchIcon} />}
+                placeholder="Browse customer by email or tag"
+                value={form.customers}
+                onChange={(value) => onChange('customers', value)}
+                autoComplete="off"
+                connectedRight={<Button>Browse</Button>}
+              />
+            ) : null}
+          </BlockStack>
         </Box>
       </BlockStack>
     </Card>
+  );
+}
+
+function SummaryPreviewPanel({
+  form,
+  selectedCount,
+  discountText,
+  scheduleText,
+  bannerPreview,
+  bundlePreview,
+}) {
+  const selectedEligibility = Array.isArray(form.eligibility)
+    ? form.eligibility[0]
+    : form.eligibility;
+  const eligibilityLabel =
+    CUSTOMER_ELIGIBILITY_OPTIONS.find((item) => item.value === selectedEligibility)
+      ?.label || 'All Customers';
+
+  return (
+    <BlockStack gap="400">
+      <Card>
+        <BlockStack gap="400">
+          <Text as="h2" variant="headingMd">
+            Summary
+          </Text>
+
+          <Divider />
+
+          <InlineStack align="space-between">
+            <Text as="span" tone="subdued">
+              Status
+            </Text>
+            <Badge tone={form.status === 'active' ? 'success' : undefined}>
+              {form.status === 'active' ? 'Active' : 'Inactive'}
+            </Badge>
+          </InlineStack>
+
+          <InlineStack align="space-between">
+            <Text as="span" tone="subdued">
+              Required product items
+            </Text>
+            <Text as="span" fontWeight="semibold">
+              {form.productItems || '0'}
+            </Text>
+          </InlineStack>
+
+          <InlineStack align="space-between">
+            <Text as="span" tone="subdued">
+              Available items
+            </Text>
+            <Text as="span" fontWeight="semibold">
+              {selectedCount}
+            </Text>
+          </InlineStack>
+
+          <InlineStack align="space-between">
+            <Text as="span" tone="subdued">
+              Discount
+            </Text>
+            <Text as="span" fontWeight="semibold">
+              {discountText}
+            </Text>
+          </InlineStack>
+
+          <InlineStack align="space-between">
+            <Text as="span" tone="subdued">
+              Customer Eligibility
+            </Text>
+            <Text as="span" fontWeight="semibold">
+              {eligibilityLabel}
+            </Text>
+          </InlineStack>
+
+          <BlockStack gap="100">
+            <Text as="span" tone="subdued">
+              Schedule
+            </Text>
+            <Text as="p" fontWeight="semibold">
+              {scheduleText}
+            </Text>
+          </BlockStack>
+        </BlockStack>
+      </Card>
+
+      <Card>
+        <BlockStack gap="400">
+          <Text as="h2" variant="headingMd">
+            Preview
+          </Text>
+
+          <Divider />
+
+          {bannerPreview ? (
+            <Image source={bannerPreview} alt="Bundle banner preview" />
+          ) : (
+            <Box
+              padding="600"
+              background="bg-surface-secondary"
+              borderRadius="300"
+            >
+              <BlockStack gap="200" inlineAlign="center">
+                <Icon source={ImageIcon} />
+                <Text as="p" tone="subdued">
+                  Banner preview
+                </Text>
+              </BlockStack>
+            </Box>
+          )}
+
+          <InlineStack gap="300" blockAlign="center" wrap={false}>
+            <Thumbnail
+              source={bundlePreview || ImageIcon}
+              alt="Bundle preview"
+              size="large"
+            />
+
+            <BlockStack gap="100">
+              <Text as="h2" variant="headingLg">
+                {form.title || 'Bundle title'}
+              </Text>
+              <Text as="p" tone="subdued">
+                {form.description || 'Your bundle description will appear here.'}
+              </Text>
+            </BlockStack>
+          </InlineStack>
+
+          <Box
+            padding="400"
+            background="bg-surface-secondary"
+            borderRadius="300"
+          >
+            <BlockStack gap="300">
+              <BlockStack gap="100">
+                <Text as="h3" variant="headingMd">
+                  {form.stepTitle || 'Choose your products'}
+                </Text>
+                <Text as="p" tone="subdued">
+                  {form.stepDescription || 'Step description'}
+                </Text>
+              </BlockStack>
+
+              <InlineGrid columns={{xs: 2, sm: 4}} gap="200">
+                {Array.from({
+                  length: Math.min(Number(form.productItems) || 3, 4),
+                }).map((_, index) => (
+                  <Box
+                    key={index}
+                    padding="400"
+                    background="bg-surface"
+                    borderRadius="300"
+                    borderWidth="025"
+                    borderColor="border"
+                  >
+                    <BlockStack inlineAlign="center">
+                      <Text as="span" tone="subdued">
+                        {index + 1}
+                      </Text>
+                    </BlockStack>
+                  </Box>
+                ))}
+              </InlineGrid>
+            </BlockStack>
+          </Box>
+
+          <Button variant="primary" fullWidth>
+            {form.buttonLabel || 'Add bundle to cart'}
+          </Button>
+        </BlockStack>
+      </Card>
+    </BlockStack>
   );
 }
 
@@ -716,8 +928,19 @@ export default function MixMatchBundleFormPolaris({
   onBack,
   onSubmit,
 }) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const currentSchedule = useMemo(() => getCurrentDateTimeInput(), []);
   const minScheduleDate = currentSchedule.date;
+  const handleBack = useCallback(() => {
+    if (onBack) {
+      onBack();
+      return;
+    }
+
+    navigate(withEmbeddedAppParams('/app/boxes', location.search));
+  }, [location.search, navigate, onBack]);
+
   const [form, setForm] = useState({
     status: initialData?.status || 'active',
     title: initialData?.title || '',
@@ -742,6 +965,9 @@ export default function MixMatchBundleFormPolaris({
       ? clampDateInput(initialData.endDate, initialData?.startDate || minScheduleDate)
       : '',
     endTime: initialData?.endTime || '',
+    eligibility: initialData?.eligibility || ['all'],
+    customerTags: initialData?.customerTags || '',
+    customers: initialData?.customers || '',
   });
 
   const [openSections, setOpenSections] = useState({
@@ -749,6 +975,7 @@ export default function MixMatchBundleFormPolaris({
     configureBundle: false,
     discount: false,
     productConfiguration: false,
+    customerEligibility: false,
     schedule: false,
   });
 
@@ -762,7 +989,6 @@ export default function MixMatchBundleFormPolaris({
   const [collectionModalOpen, setCollectionModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selectedTab, setSelectedTab] = useState(0);
-  const [selectedDesignTab, setSelectedDesignTab] = useState(0);
   const [designSettings, setDesignSettings] = useState({
     ...DEFAULT_DESIGN_SETTINGS,
     ...(initialData?.designSettings || {}),
@@ -874,7 +1100,7 @@ export default function MixMatchBundleFormPolaris({
     <Page
       title="Create Mix n Match Bundle"
       paddingBlockEnd="800"
-      backAction={onBack ? {content: 'Back', onAction: onBack} : undefined}
+      backAction={{content: 'Boxes', onAction: handleBack}}
       primaryAction={{
         content: 'Save Bundle',
         onAction: handleSubmit,
@@ -1144,6 +1370,8 @@ export default function MixMatchBundleFormPolaris({
                 </BlockStack>
               </AccordionSection>
 
+              <CustomerEligibilitySection form={form} onChange={setField} />
+
               <AccordionSection
                 id="schedule"
                 title="Schedule"
@@ -1242,162 +1470,40 @@ export default function MixMatchBundleFormPolaris({
           </Grid.Cell>
 
           <Grid.Cell columnSpan={{xs: 6, sm: 6, md: 6, lg: 4, xl: 4}}>
-            <BlockStack gap="400">
-              <Card>
-                <BlockStack gap="400">
-                  <Text as="h2" variant="headingMd">
-                    Summary
-                  </Text>
-
-                  <Divider />
-
-                  <InlineStack align="space-between">
-                    <Text as="span" tone="subdued">
-                      Status
-                    </Text>
-                    <Badge tone={form.status === 'active' ? 'success' : undefined}>
-                      {form.status === 'active' ? 'Active' : 'Inactive'}
-                    </Badge>
-                  </InlineStack>
-
-                  <InlineStack align="space-between">
-                    <Text as="span" tone="subdued">
-                      Required product items
-                    </Text>
-                    <Text as="span" fontWeight="semibold">
-                      {form.productItems || '0'}
-                    </Text>
-                  </InlineStack>
-
-                  <InlineStack align="space-between">
-                    <Text as="span" tone="subdued">
-                      Available items
-                    </Text>
-                    <Text as="span" fontWeight="semibold">
-                      {selectedCount}
-                    </Text>
-                  </InlineStack>
-
-                  <InlineStack align="space-between">
-                    <Text as="span" tone="subdued">
-                      Discount
-                    </Text>
-                    <Text as="span" fontWeight="semibold">
-                      {discountText}
-                    </Text>
-                  </InlineStack>
-
-                  <BlockStack gap="100">
-                    <Text as="span" tone="subdued">
-                      Schedule
-                    </Text>
-                    <Text as="p" fontWeight="semibold">
-                      {scheduleText}
-                    </Text>
-                  </BlockStack>
-                </BlockStack>
-              </Card>
-
-              <Card>
-                <BlockStack gap="400">
-                  <Text as="h2" variant="headingMd">
-                    Preview
-                  </Text>
-
-                  <Divider />
-
-                  {bannerPreview ? (
-                    <Image source={bannerPreview} alt="Bundle banner preview" />
-                  ) : (
-                    <Box
-                      padding="600"
-                      background="bg-surface-secondary"
-                      borderRadius="300"
-                    >
-                      <BlockStack gap="200" inlineAlign="center">
-                        <Icon source={ImageIcon} />
-                        <Text as="p" tone="subdued">
-                          Banner preview
-                        </Text>
-                      </BlockStack>
-                    </Box>
-                  )}
-
-                  <InlineStack gap="300" blockAlign="center" wrap={false}>
-                    <Thumbnail
-                      source={bundlePreview || ImageIcon}
-                      alt="Bundle preview"
-                      size="large"
-                    />
-
-                    <BlockStack gap="100">
-                      <Text as="h2" variant="headingLg">
-                        {form.title || 'Bundle title'}
-                      </Text>
-                      <Text as="p" tone="subdued">
-                        {form.description ||
-                          'Your bundle description will appear here.'}
-                      </Text>
-                    </BlockStack>
-                  </InlineStack>
-
-                  <Box
-                    padding="400"
-                    background="bg-surface-secondary"
-                    borderRadius="300"
-                  >
-                    <BlockStack gap="300">
-                      <BlockStack gap="100">
-                        <Text as="h3" variant="headingMd">
-                          {form.stepTitle || 'Choose your products'}
-                        </Text>
-                        <Text as="p" tone="subdued">
-                          {form.stepDescription || 'Step description'}
-                        </Text>
-                      </BlockStack>
-
-                      <InlineGrid columns={{xs: 2, sm: 4}} gap="200">
-                        {Array.from({
-                          length: Math.min(Number(form.productItems) || 3, 4),
-                        }).map((_, index) => (
-                          <Box
-                            key={index}
-                            padding="400"
-                            background="bg-surface"
-                            borderRadius="300"
-                            borderWidth="025"
-                            borderColor="border"
-                          >
-                            <BlockStack inlineAlign="center">
-                              <Text as="span" tone="subdued">
-                                {index + 1}
-                              </Text>
-                            </BlockStack>
-                          </Box>
-                        ))}
-                      </InlineGrid>
-                    </BlockStack>
-                  </Box>
-
-                  <Button variant="primary" fullWidth>
-                    {form.buttonLabel || 'Add bundle to cart'}
-                  </Button>
-                </BlockStack>
-              </Card>
-            </BlockStack>
+            <SummaryPreviewPanel
+              form={form}
+              selectedCount={selectedCount}
+              discountText={discountText}
+              scheduleText={scheduleText}
+              bannerPreview={bannerPreview}
+              bundlePreview={bundlePreview}
+            />
           </Grid.Cell>
         </Grid>
           ) : null}
 
           {selectedTab === 1 ? (
-            <DesignTabPanel
-              settings={designSettings}
-              onChange={setDesignField}
-              selectedDesignTab={selectedDesignTab}
-              onSelectDesignTab={setSelectedDesignTab}
-              onBack={() => setSelectedTab(0)}
-              onNext={() => setSelectedTab(2)}
-            />
+            <Grid>
+              <Grid.Cell columnSpan={{xs: 6, sm: 6, md: 6, lg: 8, xl: 8}}>
+                <DesignTabPanel
+                  settings={designSettings}
+                  onChange={setDesignField}
+                  onBack={() => setSelectedTab(0)}
+                  onNext={() => setSelectedTab(2)}
+                />
+              </Grid.Cell>
+
+              <Grid.Cell columnSpan={{xs: 6, sm: 6, md: 6, lg: 4, xl: 4}}>
+                <SummaryPreviewPanel
+                  form={form}
+                  selectedCount={selectedCount}
+                  discountText={discountText}
+                  scheduleText={scheduleText}
+                  bannerPreview={bannerPreview}
+                  bundlePreview={bundlePreview}
+                />
+              </Grid.Cell>
+            </Grid>
           ) : null}
 
           {selectedTab === 2 ? (
