@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useLoaderData, useLocation, useNavigate } from 'react-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFetcher, useLoaderData, useLocation, useNavigate } from 'react-router';
 import {
   Badge,
   BlockStack,
@@ -27,6 +27,7 @@ import {
   ResourceItem,
   ResourceList,
   Select,
+  Spinner,
   Tabs,
   Text,
   TextField,
@@ -64,9 +65,16 @@ const CUSTOMERS_QUERY = `#graphql
   }
 `;
 
+const PICKER_PAGE_SIZE = 10;
+
+const EMPTY_PAGE_INFO = {
+  hasNextPage: false,
+  endCursor: null,
+};
+
 const PRODUCTS_QUERY = `#graphql
-  query SimpleBundleProducts($first: Int!) {
-    products(first: $first, query: "NOT vendor:ComboBuilder") {
+  query SimpleBundleProducts($first: Int!, $after: String) {
+    products(first: $first, after: $after, query: "NOT vendor:ComboBuilder") {
       edges {
         node {
           id
@@ -84,13 +92,17 @@ const PRODUCTS_QUERY = `#graphql
           }
         }
       }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
     }
   }
 `;
 
 const COLLECTIONS_QUERY = `#graphql
-  query SimpleBundleCollections($first: Int!) {
-    collections(first: $first) {
+  query SimpleBundleCollections($first: Int!, $after: String) {
+    collections(first: $first, after: $after) {
       edges {
         node {
           id
@@ -100,6 +112,10 @@ const COLLECTIONS_QUERY = `#graphql
             url
           }
         }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
       }
     }
   }
@@ -113,15 +129,98 @@ function colorFromString(value) {
   return colors[total % colors.length];
 }
 
+function mapProductEdges(edges) {
+  return (edges || []).map(({ node }) => {
+    const price = node.variants?.edges?.[0]?.node?.price;
+
+    return {
+      id: node.id,
+      title: node.title,
+      image: node.featuredImage?.url || null,
+      subtitle: price ? `$${price}` : node.handle || '',
+    };
+  });
+}
+
+function mapCollectionEdges(edges) {
+  return (edges || []).map(({ node }) => ({
+    id: node.id,
+    title: node.title,
+    image: node.image?.url || null,
+    subtitle: node.handle || '',
+  }));
+}
+
+function getPageInfo(connection) {
+  return connection?.pageInfo || EMPTY_PAGE_INFO;
+}
+
+async function loadPickerPage(admin, resource, after = null) {
+  const query = resource === 'collections' ? COLLECTIONS_QUERY : PRODUCTS_QUERY;
+  const response = await admin.graphql(query, {
+    variables: { first: PICKER_PAGE_SIZE, after: after || null },
+  });
+  const json = await response.json();
+
+  if (json?.errors?.length) {
+    console.warn(`[app.simple] ${resource} GraphQL errors`, json.errors);
+    return {
+      resource,
+      items: [],
+      pageInfo: EMPTY_PAGE_INFO,
+      error: `Unable to load ${resource}.`,
+    };
+  }
+
+  const connection =
+    resource === 'collections'
+      ? json?.data?.collections
+      : json?.data?.products;
+
+  return {
+    resource,
+    items:
+      resource === 'collections'
+        ? mapCollectionEdges(connection?.edges)
+        : mapProductEdges(connection?.edges),
+    pageInfo: getPageInfo(connection),
+    error: '',
+  };
+}
+
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
+  const url = new URL(request.url);
+  const pickerResource = url.searchParams.get('pickerResource');
+
+  if (pickerResource === 'products' || pickerResource === 'collections') {
+    try {
+      return await loadPickerPage(
+        admin,
+        pickerResource,
+        url.searchParams.get('after'),
+      );
+    } catch (error) {
+      console.warn(`[app.simple] failed to load ${pickerResource}`, error);
+      return {
+        resource: pickerResource,
+        items: [],
+        pageInfo: EMPTY_PAGE_INFO,
+        error: `Unable to load ${pickerResource}.`,
+      };
+    }
+  }
 
   try {
     const [customersResponse, productsResponse, collectionsResponse] =
       await Promise.all([
         admin.graphql(CUSTOMERS_QUERY, { variables: { first: 100 } }),
-        admin.graphql(PRODUCTS_QUERY, { variables: { first: 100 } }),
-        admin.graphql(COLLECTIONS_QUERY, { variables: { first: 100 } }),
+        admin.graphql(PRODUCTS_QUERY, {
+          variables: { first: PICKER_PAGE_SIZE, after: null },
+        }),
+        admin.graphql(COLLECTIONS_QUERY, {
+          variables: { first: PICKER_PAGE_SIZE, after: null },
+        }),
       ]);
     const [customersJson, productsJson, collectionsJson] = await Promise.all([
       customersResponse.json(),
@@ -158,25 +257,8 @@ export const loader = async ({ request }) => {
       };
     });
 
-    const products = (productsJson?.data?.products?.edges || []).map(({ node }) => {
-      const price = node.variants?.edges?.[0]?.node?.price;
-
-      return {
-        id: node.id,
-        title: node.title,
-        image: node.featuredImage?.url || null,
-        subtitle: price ? `$${price}` : node.handle || '',
-      };
-    });
-
-    const collections = (collectionsJson?.data?.collections?.edges || []).map(
-      ({ node }) => ({
-        id: node.id,
-        title: node.title,
-        image: node.image?.url || null,
-        subtitle: node.handle || '',
-      }),
-    );
+    const products = mapProductEdges(productsJson?.data?.products?.edges);
+    const collections = mapCollectionEdges(collectionsJson?.data?.collections?.edges);
 
     const customerTags = Array.from(
       new Set(customers.flatMap((customer) => customer.tags || [])),
@@ -185,10 +267,24 @@ export const loader = async ({ request }) => {
       .sort((a, b) => a.localeCompare(b))
       .map((tag) => ({ label: tag, value: tag }));
 
-    return { customers, customerTags, products, collections };
+    return {
+      customers,
+      customerTags,
+      products,
+      collections,
+      productsPageInfo: getPageInfo(productsJson?.data?.products),
+      collectionsPageInfo: getPageInfo(collectionsJson?.data?.collections),
+    };
   } catch (error) {
     console.warn('[app.simple] failed to load resources', error);
-    return { customers: [], customerTags: [], products: [], collections: [] };
+    return {
+      customers: [],
+      customerTags: [],
+      products: [],
+      collections: [],
+      productsPageInfo: EMPTY_PAGE_INFO,
+      collectionsPageInfo: EMPTY_PAGE_INFO,
+    };
   }
 };
 
@@ -1122,11 +1218,99 @@ function ImageUploader({ label, value, onChange, helpText }) {
   );
 }
 
+function mergeUniqueItems(currentItems, nextItems) {
+  const seen = new Set(currentItems.map((item) => item.id));
+  const merged = [...currentItems];
+
+  for (const item of nextItems || []) {
+    if (!seen.has(item.id)) {
+      seen.add(item.id);
+      merged.push(item);
+    }
+  }
+
+  return merged;
+}
+
+function useInfinitePickerPagination({
+  resource,
+  initialItems,
+  initialPageInfo,
+  open,
+}) {
+  const fetcher = useFetcher();
+  const pendingCursorRef = useRef(null);
+  const [items, setItems] = useState(initialItems || []);
+  const [pageInfo, setPageInfo] = useState(initialPageInfo || EMPTY_PAGE_INFO);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setItems(initialItems || []);
+    setPageInfo(initialPageInfo || EMPTY_PAGE_INFO);
+    setError('');
+    pendingCursorRef.current = null;
+  }, [initialItems, initialPageInfo]);
+
+  useEffect(() => {
+    if (!fetcher.data || fetcher.data.resource !== resource) return;
+
+    pendingCursorRef.current = null;
+
+    if (fetcher.data.error) {
+      setError(fetcher.data.error);
+      return;
+    }
+
+    setError('');
+    setItems((current) => mergeUniqueItems(current, fetcher.data.items || []));
+    setPageInfo(fetcher.data.pageInfo || EMPTY_PAGE_INFO);
+  }, [fetcher.data, resource]);
+
+  const loadingMore = fetcher.state !== 'idle';
+  const hasNextPage = Boolean(pageInfo?.hasNextPage);
+
+  const loadMore = useCallback(() => {
+    const after = pageInfo?.endCursor;
+
+    if (
+      !open ||
+      loadingMore ||
+      !hasNextPage ||
+      !after ||
+      pendingCursorRef.current === after
+    ) {
+      return;
+    }
+
+    pendingCursorRef.current = after;
+    setError('');
+
+    const params = new URLSearchParams({
+      pickerResource: resource,
+      after,
+    });
+
+    fetcher.load(`/app/simple?${params.toString()}`);
+  }, [fetcher, hasNextPage, loadingMore, open, pageInfo?.endCursor, resource]);
+
+  return {
+    items,
+    pageInfo,
+    error,
+    loadingMore,
+    hasNextPage,
+    loadMore,
+  };
+}
+
 function PickerModal({
   open,
   title,
   items,
+  loadingMore,
+  error,
   selectedIds,
+  onLoadMore,
   onClose,
   onSave,
   type,
@@ -1164,6 +1348,19 @@ function PickerModal({
     onClose();
   }, [onClose, selectedIds]);
 
+  const handleScroll = useCallback(
+    (event) => {
+      const target = event.currentTarget;
+      const distanceFromBottom =
+        target.scrollHeight - target.scrollTop - target.clientHeight;
+
+      if (distanceFromBottom <= 80) {
+        onLoadMore?.();
+      }
+    },
+    [onLoadMore],
+  );
+
   return (
     <Modal
       open={open}
@@ -1190,64 +1387,90 @@ function PickerModal({
             autoComplete="off"
           />
 
-          {filteredItems.length ? (
-            <ResourceList
-              resourceName={{
-                singular: type === 'products' ? 'product' : 'collection',
-                plural: type,
-              }}
-              items={filteredItems}
-              renderItem={(item) => {
-                const selected = draftSelected.includes(item.id);
+          <div
+            onScroll={handleScroll}
+            style={{
+              maxHeight: 460,
+              overflowY: 'auto',
+              paddingRight: 2,
+            }}
+          >
+            <BlockStack gap="300">
+              {filteredItems.length ? (
+                <ResourceList
+                  resourceName={{
+                    singular: type === 'products' ? 'product' : 'collection',
+                    plural: type,
+                  }}
+                  items={filteredItems}
+                  renderItem={(item) => {
+                    const selected = draftSelected.includes(item.id);
 
-                return (
-                  <ResourceItem
-                    id={item.id}
-                    accessibilityLabel={`Select ${item.title}`}
-                    onClick={() => toggleItem(item.id)}
-                    media={
-                      <Thumbnail
-                        source={
-                          item.image ||
-                          (type === 'products' ? ProductIcon : CollectionIcon)
+                    return (
+                      <ResourceItem
+                        id={item.id}
+                        accessibilityLabel={`Select ${item.title}`}
+                        onClick={() => toggleItem(item.id)}
+                        media={
+                          <Thumbnail
+                            source={
+                              item.image ||
+                              (type === 'products' ? ProductIcon : CollectionIcon)
+                            }
+                            alt={item.title}
+                            size="small"
+                          />
                         }
-                        alt={item.title}
-                        size="small"
-                      />
-                    }
-                  >
-                    <InlineStack
-                      align="space-between"
-                      blockAlign="center"
-                      wrap={false}
-                    >
-                      <BlockStack gap="050">
-                        <Text as="h3" variant="bodyMd" fontWeight="semibold">
-                          {item.title}
-                        </Text>
-                        {item.subtitle ? (
-                          <Text as="p" tone="subdued">
-                            {item.subtitle}
-                          </Text>
-                        ) : null}
-                      </BlockStack>
+                      >
+                        <InlineStack
+                          align="space-between"
+                          blockAlign="center"
+                          wrap={false}
+                        >
+                          <BlockStack gap="050">
+                            <Text as="h3" variant="bodyMd" fontWeight="semibold">
+                              {item.title}
+                            </Text>
+                            {item.subtitle ? (
+                              <Text as="p" tone="subdued">
+                                {item.subtitle}
+                              </Text>
+                            ) : null}
+                          </BlockStack>
 
-                      <Checkbox
-                        label={`Select ${item.title}`}
-                        labelHidden
-                        checked={selected}
-                        onChange={() => toggleItem(item.id)}
-                      />
-                    </InlineStack>
-                  </ResourceItem>
-                );
-              }}
-            />
-          ) : (
-            <EmptyState heading={`No ${type} found`} image="">
-              <Text as="p">Try another search term.</Text>
-            </EmptyState>
-          )}
+                          <Checkbox
+                            label={`Select ${item.title}`}
+                            labelHidden
+                            checked={selected}
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={() => toggleItem(item.id)}
+                          />
+                        </InlineStack>
+                      </ResourceItem>
+                    );
+                  }}
+                />
+              ) : (
+                <EmptyState heading={`No ${type} found`} image="">
+                  <Text as="p">Try another search term.</Text>
+                </EmptyState>
+              )}
+
+              {error ? (
+                <Text as="p" tone="critical">
+                  {error}
+                </Text>
+              ) : null}
+
+              {loadingMore ? (
+                <Box padding="400">
+                  <InlineStack align="center">
+                    <Spinner accessibilityLabel={`Loading more ${type}`} size="small" />
+                  </InlineStack>
+                </Box>
+              ) : null}
+            </BlockStack>
+          </div>
         </BlockStack>
       </Modal.Section>
     </Modal>
@@ -1570,10 +1793,16 @@ export default function MixMatchBundleFormPolaris({
   const navigate = useNavigate();
   const customerOptions = loaderData.customers || [];
   const customerTagOptions = loaderData.customerTags || [];
-  const products = propProducts.length ? propProducts : loaderData.products || [];
-  const collections = propCollections.length
+  const initialProducts = propProducts.length ? propProducts : loaderData.products || [];
+  const initialCollections = propCollections.length
     ? propCollections
     : loaderData.collections || [];
+  const initialProductsPageInfo = propProducts.length
+    ? EMPTY_PAGE_INFO
+    : loaderData.productsPageInfo || EMPTY_PAGE_INFO;
+  const initialCollectionsPageInfo = propCollections.length
+    ? EMPTY_PAGE_INFO
+    : loaderData.collectionsPageInfo || EMPTY_PAGE_INFO;
   const currentSchedule = useMemo(() => getCurrentDateTimeInput(), []);
   const minScheduleDate = currentSchedule.date;
   const handleBack = useCallback(() => {
@@ -1639,6 +1868,20 @@ export default function MixMatchBundleFormPolaris({
     ...DEFAULT_DESIGN_SETTINGS,
     ...(initialData?.designSettings || {}),
   });
+  const productPicker = useInfinitePickerPagination({
+    resource: 'products',
+    initialItems: initialProducts,
+    initialPageInfo: initialProductsPageInfo,
+    open: productModalOpen,
+  });
+  const collectionPicker = useInfinitePickerPagination({
+    resource: 'collections',
+    initialItems: initialCollections,
+    initialPageInfo: initialCollectionsPageInfo,
+    open: collectionModalOpen,
+  });
+  const products = productPicker.items;
+  const collections = collectionPicker.items;
 
   const bannerPreview = useFilePreview(form.bannerImage);
   const bundlePreview = useFilePreview(form.bundleImage);
@@ -2142,7 +2385,10 @@ export default function MixMatchBundleFormPolaris({
         open={productModalOpen}
         title="Add Products"
         items={products}
+        loadingMore={productPicker.loadingMore}
+        error={productPicker.error}
         selectedIds={selectedProductIds}
+        onLoadMore={productPicker.loadMore}
         onClose={() => setProductModalOpen(false)}
         onSave={(ids) => {
           setSelectedProductIds(ids);
@@ -2155,7 +2401,10 @@ export default function MixMatchBundleFormPolaris({
         open={collectionModalOpen}
         title="Add Collections"
         items={collections}
+        loadingMore={collectionPicker.loadingMore}
+        error={collectionPicker.error}
         selectedIds={selectedCollectionIds}
+        onLoadMore={collectionPicker.loadMore}
         onClose={() => setCollectionModalOpen(false)}
         onSave={(ids) => {
           setSelectedCollectionIds(ids);
