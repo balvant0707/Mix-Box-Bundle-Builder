@@ -1002,12 +1002,7 @@ function QuantityPackSection({
               Add Another Pack
             </Button>
 
-            <BlockStack gap="200">
-              <PackSectionPreview title="Configure Bundle" />
-              <PackSectionPreview title="Discount" />
-              <PackSectionPreview title="Product Configuration" />
-              <PackSectionPreview title="Schedule" />
-            </BlockStack>
+            <QuantityPackConfigurationList />
           </BlockStack>
         ) : (
           <div
@@ -1035,22 +1030,43 @@ function QuantityPackSection({
   );
 }
 
-function PackSectionPreview({ title }) {
+function QuantityPackConfigurationList() {
   return (
-    <Box
-      padding="300"
-      borderWidth="025"
-      borderColor="border"
-      borderRadius="200"
-      background="bg-surface"
+    <BlockStack gap="200">
+      <PackSectionPreview title="Quantity Pack" active />
+      <PackSectionPreview title="Configure Bundles" />
+      <PackSectionPreview title="Discounts" />
+      <PackSectionPreview title="Product Configuration" />
+      <PackSectionPreview title="Schedule" />
+    </BlockStack>
+  );
+}
+
+function PackSectionPreview({ title, active = false }) {
+  return (
+    <div
+      style={{
+        background: active ? '#202223' : 'var(--p-color-bg-surface)',
+        border: active ? '1px solid #202223' : '1px solid var(--p-color-border)',
+        borderRadius: 8,
+        color: active ? '#ffffff' : 'var(--p-color-text)',
+        padding: '12px 16px',
+      }}
     >
       <InlineStack align="space-between" blockAlign="center">
-        <Text as="span" fontWeight="semibold">
+        <span
+          style={{
+            color: active ? '#ffffff' : 'var(--p-color-text)',
+            fontWeight: 600,
+          }}
+        >
           {title}
-        </Text>
-        <Icon source={ChevronDownIcon} />
+        </span>
+        <span style={{ color: active ? '#ffffff' : 'var(--p-color-icon)' }}>
+          <Icon source={ChevronDownIcon} />
+        </span>
       </InlineStack>
-    </Box>
+    </div>
   );
 }
 
