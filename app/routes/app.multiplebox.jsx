@@ -41,6 +41,7 @@ import {
   CollectionIcon,
   DeleteIcon,
   ImageIcon,
+  PackageIcon,
   PlusIcon,
   ProductIcon,
   SearchIcon,
@@ -909,7 +910,147 @@ function BundleInformationSection({ form, onChange }) {
           helpText="Displayed as the wide banner at the top of the bundle preview."
         />
       </InlineGrid>
+
+      <QuantityPackSection
+        createNewProduct={form.createQuantityPackProduct}
+        packs={form.quantityPacks || []}
+        onCreateNewProductChange={(value) =>
+          onChange('createQuantityPackProduct', value)
+        }
+        onAddPack={() => {
+          const currentPacks = form.quantityPacks || [];
+          onChange('quantityPacks', [
+            ...currentPacks,
+            { id: `pack-${Date.now()}`, title: `Pack ${currentPacks.length + 1}` },
+          ]);
+          onChange('createQuantityPackProduct', true);
+        }}
+      />
     </BlockStack>
+  );
+}
+
+function QuantityPackSection({
+  createNewProduct,
+  packs,
+  onCreateNewProductChange,
+  onAddPack,
+}) {
+  const hasPacks = packs.length > 0;
+
+  return (
+    <Card padding="0">
+      <Box padding="400">
+        <InlineStack align="space-between" blockAlign="start" gap="400">
+          <BlockStack gap="100">
+            <Text as="h3" variant="headingMd">
+              Quantity Pack
+            </Text>
+            <Text as="p" tone="subdued">
+              Create quantity packs and options for your storefront.
+            </Text>
+          </BlockStack>
+
+          <Checkbox
+            label="Create a new product"
+            checked={Boolean(createNewProduct)}
+            onChange={onCreateNewProductChange}
+          />
+        </InlineStack>
+      </Box>
+
+      <Divider />
+
+      <Box padding="400">
+        {hasPacks ? (
+          <BlockStack gap="500">
+            <InlineStack gap="400" wrap>
+              {packs.map((pack) => (
+                <div
+                  key={pack.id}
+                  style={{
+                    width: 242,
+                    minHeight: 88,
+                    background: '#202223',
+                    borderRadius: 12,
+                    color: '#ffffff',
+                    padding: 24,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 14,
+                    fontWeight: 700,
+                  }}
+                >
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      width: 42,
+                      height: 42,
+                      color: '#ffffff',
+                    }}
+                  >
+                    <Icon source={PackageIcon} />
+                  </span>
+                  <Text as="span" fontWeight="bold">
+                    {pack.title}
+                  </Text>
+                </div>
+              ))}
+            </InlineStack>
+
+            <Button variant="primary" icon={PlusIcon} onClick={onAddPack}>
+              Add Another Pack
+            </Button>
+
+            <BlockStack gap="200">
+              <PackSectionPreview title="Configure Bundle" />
+              <PackSectionPreview title="Discount" />
+              <PackSectionPreview title="Product Configuration" />
+              <PackSectionPreview title="Schedule" />
+            </BlockStack>
+          </BlockStack>
+        ) : (
+          <div
+            style={{
+              border: '1px dashed var(--p-color-border)',
+              borderRadius: 8,
+              minHeight: 160,
+              display: 'grid',
+              placeItems: 'center',
+              padding: 24,
+            }}
+          >
+            <BlockStack gap="400" inlineAlign="center">
+              <Button variant="primary" icon={PlusIcon} onClick={onAddPack}>
+                Add Quantity Pack
+              </Button>
+              <Text as="p" tone="subdued">
+                Create custom quantity packs for your store.
+              </Text>
+            </BlockStack>
+          </div>
+        )}
+      </Box>
+    </Card>
+  );
+}
+
+function PackSectionPreview({ title }) {
+  return (
+    <Box
+      padding="300"
+      borderWidth="025"
+      borderColor="border"
+      borderRadius="200"
+      background="bg-surface"
+    >
+      <InlineStack align="space-between" blockAlign="center">
+        <Text as="span" fontWeight="semibold">
+          {title}
+        </Text>
+        <Icon source={ChevronDownIcon} />
+      </InlineStack>
+    </Box>
   );
 }
 
@@ -1935,6 +2076,8 @@ export default function MixMatchBundleFormPolaris({
     eligibility: initialData?.eligibility || ['all'],
     customerTags: initialData?.customerTags || '',
     customers: initialData?.customers || '',
+    createQuantityPackProduct: initialData?.createQuantityPackProduct || false,
+    quantityPacks: initialData?.quantityPacks || [],
   });
 
   const [openSections, setOpenSections] = useState({
