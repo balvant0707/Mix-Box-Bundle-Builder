@@ -1533,7 +1533,7 @@ export default function MixMatchBundleFormPolaris({
   });
 
   const [openSections, setOpenSections] = useState({
-    bundleInformation: true,
+    bundleInformation: false,
     configureBundle: false,
     discount: false,
     productConfiguration: false,
