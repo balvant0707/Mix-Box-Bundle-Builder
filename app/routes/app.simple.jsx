@@ -1,5 +1,5 @@
-import {useCallback, useEffect, useMemo, useState} from 'react';
-import {useLoaderData, useLocation, useNavigate} from 'react-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLoaderData, useLocation, useNavigate } from 'react-router';
 import {
   Badge,
   BlockStack,
@@ -44,8 +44,8 @@ import {
   ProductIcon,
   SearchIcon,
 } from '@shopify/polaris-icons';
-import {authenticate} from '../shopify.server';
-import {withEmbeddedAppParams} from '../utils/embedded-app';
+import { authenticate } from '../shopify.server';
+import { withEmbeddedAppParams } from '../utils/embedded-app';
 
 const CUSTOMERS_QUERY = `#graphql
   query SimpleBundleCustomers($first: Int!) {
@@ -64,6 +64,47 @@ const CUSTOMERS_QUERY = `#graphql
   }
 `;
 
+const PRODUCTS_QUERY = `#graphql
+  query SimpleBundleProducts($first: Int!) {
+    products(first: $first, query: "NOT vendor:ComboBuilder") {
+      edges {
+        node {
+          id
+          title
+          handle
+          featuredImage {
+            url
+          }
+          variants(first: 1) {
+            edges {
+              node {
+                price
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+const COLLECTIONS_QUERY = `#graphql
+  query SimpleBundleCollections($first: Int!) {
+    collections(first: $first) {
+      edges {
+        node {
+          id
+          title
+          handle
+          image {
+            url
+          }
+        }
+      }
+    }
+  }
+`;
+
 function colorFromString(value) {
   const colors = ['#6ee7df', '#f0abfc', '#f5b5f1', '#bae6fd', '#34d399', '#5eead4'];
   const text = String(value || '');
@@ -72,21 +113,35 @@ function colorFromString(value) {
   return colors[total % colors.length];
 }
 
-export const loader = async ({request}) => {
-  const {admin} = await authenticate.admin(request);
+export const loader = async ({ request }) => {
+  const { admin } = await authenticate.admin(request);
 
   try {
-    const response = await admin.graphql(CUSTOMERS_QUERY, {
-      variables: {first: 100},
-    });
-    const json = await response.json();
+    const [customersResponse, productsResponse, collectionsResponse] =
+      await Promise.all([
+        admin.graphql(CUSTOMERS_QUERY, { variables: { first: 100 } }),
+        admin.graphql(PRODUCTS_QUERY, { variables: { first: 100 } }),
+        admin.graphql(COLLECTIONS_QUERY, { variables: { first: 100 } }),
+      ]);
+    const [customersJson, productsJson, collectionsJson] = await Promise.all([
+      customersResponse.json(),
+      productsResponse.json(),
+      collectionsResponse.json(),
+    ]);
 
-    if (json?.errors?.length) {
-      console.warn('[app.simple] customer GraphQL errors', json.errors);
-      return {customers: [], customerTags: []};
+    if (
+      customersJson?.errors?.length ||
+      productsJson?.errors?.length ||
+      collectionsJson?.errors?.length
+    ) {
+      console.warn('[app.simple] GraphQL errors', {
+        customers: customersJson?.errors,
+        products: productsJson?.errors,
+        collections: collectionsJson?.errors,
+      });
     }
 
-    const customers = (json?.data?.customers?.nodes || []).map((customer) => {
+    const customers = (customersJson?.data?.customers?.nodes || []).map((customer) => {
       const email = customer.defaultEmailAddress?.emailAddress || '';
       const name =
         customer.displayName ||
@@ -103,66 +158,86 @@ export const loader = async ({request}) => {
       };
     });
 
+    const products = (productsJson?.data?.products?.edges || []).map(({ node }) => {
+      const price = node.variants?.edges?.[0]?.node?.price;
+
+      return {
+        id: node.id,
+        title: node.title,
+        image: node.featuredImage?.url || null,
+        subtitle: price ? `$${price}` : node.handle || '',
+      };
+    });
+
+    const collections = (collectionsJson?.data?.collections?.edges || []).map(
+      ({ node }) => ({
+        id: node.id,
+        title: node.title,
+        image: node.image?.url || null,
+        subtitle: node.handle || '',
+      }),
+    );
+
     const customerTags = Array.from(
       new Set(customers.flatMap((customer) => customer.tags || [])),
     )
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b))
-      .map((tag) => ({label: tag, value: tag}));
+      .map((tag) => ({ label: tag, value: tag }));
 
-    return {customers, customerTags};
+    return { customers, customerTags, products, collections };
   } catch (error) {
-    console.warn('[app.simple] failed to load customers', error);
-    return {customers: [], customerTags: []};
+    console.warn('[app.simple] failed to load resources', error);
+    return { customers: [], customerTags: [], products: [], collections: [] };
   }
 };
 
 const DISCOUNT_OPTIONS = [
-  {label: 'Fixed bundle price', value: 'fixed_bundle_price'},
-  {label: 'Percentage discount %', value: 'percentage'},
-  {label: 'Fixed amount discount $', value: 'fixed_amount'},
+  { label: 'Fixed bundle price', value: 'fixed_bundle_price' },
+  { label: 'Percentage discount %', value: 'percentage' },
+  { label: 'Fixed amount discount $', value: 'fixed_amount' },
 ];
 
 const PRODUCT_CONFIGURATION_OPTIONS = [
-  {label: 'Whole store', value: 'whole_store'},
-  {label: 'Select products', value: 'selected_products'},
-  {label: 'Select collections', value: 'selected_collections'},
+  { label: 'All products of the store', value: 'whole_store' },
+  { label: 'Select products', value: 'selected_products' },
+  { label: 'Select collections', value: 'selected_collections' },
 ];
 
 const SCHEDULE_OPTIONS = [
-  {label: 'Publish immediately', value: 'immediately'},
-  {label: 'Schedule bundle', value: 'scheduled'},
+  { label: 'Publish immediately', value: 'immediately' },
+  { label: 'Schedule bundle', value: 'scheduled' },
 ];
 
 const CUSTOMER_ELIGIBILITY_OPTIONS = [
-  {label: 'All Customers', value: 'all'},
-  {label: 'Customer Tags', value: 'tags'},
-  {label: 'Specific Customer', value: 'specific'},
+  { label: 'All Customers', value: 'all' },
+  { label: 'Customer Tags', value: 'tags' },
+  { label: 'Specific Customer', value: 'specific' },
 ];
 
 const FORM_TABS = [
-  {id: 'content', content: 'Content', panelID: 'content-panel'},
-  {id: 'design', content: 'Design', panelID: 'design-panel'},
-  {id: 'advanced', content: 'Advanced', panelID: 'advanced-panel'},
+  { id: 'content', content: 'Content', panelID: 'content-panel' },
+  { id: 'design', content: 'Design', panelID: 'design-panel' },
+  { id: 'advanced', content: 'Advanced', panelID: 'advanced-panel' },
 ];
 
 const SIZE_OPTIONS = [
-  {label: 'Small', value: 'Small'},
-  {label: 'Medium', value: 'Medium'},
-  {label: 'Large', value: 'Large'},
+  { label: 'Small', value: 'Small' },
+  { label: 'Medium', value: 'Medium' },
+  { label: 'Large', value: 'Large' },
 ];
 
 const FONT_STYLE_OPTIONS = [
-  {label: 'Light', value: 'Light'},
-  {label: 'Regular', value: 'Regular'},
-  {label: 'Medium', value: 'Medium'},
-  {label: 'Bold', value: 'Bold'},
+  { label: 'Light', value: 'Light' },
+  { label: 'Regular', value: 'Regular' },
+  { label: 'Medium', value: 'Medium' },
+  { label: 'Bold', value: 'Bold' },
 ];
 
 const IMAGE_DISPLAY_OPTIONS = [
-  {label: 'Desktop/Mobile', value: 'Desktop/Mobile'},
-  {label: 'Desktop only', value: 'Desktop only'},
-  {label: 'Mobile only', value: 'Mobile only'},
+  { label: 'Desktop/Mobile', value: 'Desktop/Mobile' },
+  { label: 'Desktop only', value: 'Desktop only' },
+  { label: 'Mobile only', value: 'Mobile only' },
 ];
 
 const DEFAULT_DESIGN_SETTINGS = {
@@ -268,7 +343,7 @@ function hexToHsba(value) {
   };
 }
 
-function hsbaToHex({hue, saturation, brightness, alpha = 1}) {
+function hsbaToHex({ hue, saturation, brightness, alpha = 1 }) {
   const chroma = brightness * saturation;
   const huePrime = hue / 60;
   const x = chroma * (1 - Math.abs((huePrime % 2) - 1));
@@ -310,7 +385,7 @@ function hsbaToHex({hue, saturation, brightness, alpha = 1}) {
   return `#${toHex(red)}${toHex(green)}${toHex(blue)}${alpha < 1 ? alphaHex : ''}`;
 }
 
-function ColorField({label, value, onChange}) {
+function ColorField({ label, value, onChange }) {
   const [popoverActive, setPopoverActive] = useState(false);
   const colorValue = normalizeHexColor(value);
   const swatchColor = colorValue.length === 9 ? colorValue.slice(0, 7) : colorValue;
@@ -376,7 +451,7 @@ function ColorField({label, value, onChange}) {
   );
 }
 
-function DesignNumberField({label, value, onChange, suffix, min = 0, max}) {
+function DesignNumberField({ label, value, onChange, suffix, min = 0, max }) {
   return (
     <TextField
       label={label}
@@ -391,7 +466,7 @@ function DesignNumberField({label, value, onChange, suffix, min = 0, max}) {
   );
 }
 
-function DesignRangeField({label, value, min, max, step = 1, suffix = 'px', onChange}) {
+function DesignRangeField({ label, value, min, max, step = 1, suffix = 'px', onChange }) {
   return (
     <BlockStack gap="200">
       <RangeSlider
@@ -417,7 +492,7 @@ function DesignRangeField({label, value, min, max, step = 1, suffix = 'px', onCh
   );
 }
 
-function DesignSelectField({label, options, value, onChange}) {
+function DesignSelectField({ label, options, value, onChange }) {
   return (
     <Select
       label={label}
@@ -428,15 +503,15 @@ function DesignSelectField({label, options, value, onChange}) {
   );
 }
 
-function DesignFieldGroup({children}) {
+function DesignFieldGroup({ children }) {
   return (
-    <InlineGrid columns={{xs: 1, md: 3}} gap="400">
+    <InlineGrid columns={{ xs: 1, md: 3 }} gap="400">
       {children}
     </InlineGrid>
   );
 }
 
-function PixelField({label, value, onChange}) {
+function PixelField({ label, value, onChange }) {
   return (
     <DesignNumberField
       label={label}
@@ -448,7 +523,7 @@ function PixelField({label, value, onChange}) {
   );
 }
 
-function DesignSection({title, children}) {
+function DesignSection({ title, children }) {
   return (
     <BlockStack gap="300">
       {title ? (
@@ -461,7 +536,7 @@ function DesignSection({title, children}) {
   );
 }
 
-function ProductCardDesignPanel({settings, onChange}) {
+function ProductCardDesignPanel({ settings, onChange }) {
   return (
     <BlockStack gap="400">
       <DesignSection title="General">
@@ -586,7 +661,7 @@ function ProductCardDesignPanel({settings, onChange}) {
   );
 }
 
-function DesignTabPanel({settings, onChange, onBack, onNext}) {
+function DesignTabPanel({ settings, onChange, onBack, onNext }) {
   return (
     <BlockStack gap="400">
       <Card padding="0">
@@ -649,7 +724,7 @@ function CustomerEligibilitySection({
           prefix={<Icon source={SearchIcon} />}
           placeholder="Browse customer by email or tag"
           value={customerDisplayValue}
-          onChange={() => {}}
+          onChange={() => { }}
           autoComplete="off"
           readOnly
           connectedRight={<Button onClick={onBrowseCustomers}>Browse</Button>}
@@ -659,7 +734,7 @@ function CustomerEligibilitySection({
   );
 }
 
-function BundleInformationSection({form, onChange}) {
+function BundleInformationSection({ form, onChange }) {
   return (
     <BlockStack gap="400">
       <TextField
@@ -680,7 +755,7 @@ function BundleInformationSection({form, onChange}) {
         autoComplete="off"
       />
 
-      <InlineGrid columns={{xs: 1, md: 2}} gap="400">
+      <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
         <ImageUploader
           label="Bundle Image"
           value={form.bundleImage}
@@ -699,7 +774,7 @@ function BundleInformationSection({form, onChange}) {
   );
 }
 
-function StatusSummarySection({status, onChange}) {
+function StatusSummarySection({ status, onChange }) {
   return (
     <Card>
       <BlockStack gap="300">
@@ -872,7 +947,7 @@ function SummaryPreviewPanel({
                 </Text>
               </BlockStack>
 
-              <InlineGrid columns={{xs: 2, sm: 4}} gap="200">
+              <InlineGrid columns={{ xs: 2, sm: 4 }} gap="200">
                 {Array.from({
                   length: Math.min(Number(form.productItems) || 3, 4),
                 }).map((_, index) => (
@@ -950,7 +1025,7 @@ function AccordionSection({
       <Collapsible
         id={`${id}-content`}
         open={open}
-        transition={{duration: '200ms', timingFunction: 'ease-in-out'}}
+        transition={{ duration: '200ms', timingFunction: 'ease-in-out' }}
         expandOnPrint
       >
         <Divider />
@@ -978,7 +1053,7 @@ function useFilePreview(file) {
   return url;
 }
 
-function ImageUploader({label, value, onChange, helpText}) {
+function ImageUploader({ label, value, onChange, helpText }) {
   const previewUrl = useFilePreview(value);
 
   const handleDrop = useCallback(
@@ -1098,7 +1173,7 @@ function PickerModal({
           setQuery('');
         },
       }}
-      secondaryActions={[{content: 'Cancel', onAction: handleClose}]}
+      secondaryActions={[{ content: 'Cancel', onAction: handleClose }]}
     >
       <Modal.Section>
         <BlockStack gap="400">
@@ -1189,7 +1264,7 @@ function listToCsv(values) {
   return values.filter(Boolean).join(', ');
 }
 
-function CustomerTagsModal({open, tags, selectedTags, onClose, onSave}) {
+function CustomerTagsModal({ open, tags, selectedTags, onClose, onSave }) {
   const [query, setQuery] = useState('');
   const [draftSelected, setDraftSelected] = useState(selectedTags);
 
@@ -1226,7 +1301,7 @@ function CustomerTagsModal({open, tags, selectedTags, onClose, onSave}) {
         content: 'Done',
         onAction: () => onSave(draftSelected),
       }}
-      secondaryActions={[{content: 'Close', onAction: onClose}]}
+      secondaryActions={[{ content: 'Close', onAction: onClose }]}
     >
       <Modal.Section>
         <BlockStack gap="400">
@@ -1262,7 +1337,7 @@ function CustomerTagsModal({open, tags, selectedTags, onClose, onSave}) {
   );
 }
 
-function CustomerAvatar({name, color}) {
+function CustomerAvatar({ name, color }) {
   const initial = String(name || '?').trim().charAt(0).toUpperCase();
 
   return (
@@ -1286,7 +1361,7 @@ function CustomerAvatar({name, color}) {
   );
 }
 
-function CustomersModal({open, customers, selectedCustomers, onClose, onSave}) {
+function CustomersModal({ open, customers, selectedCustomers, onClose, onSave }) {
   const [query, setQuery] = useState('');
   const [draftSelected, setDraftSelected] = useState(selectedCustomers);
 
@@ -1344,7 +1419,7 @@ function CustomersModal({open, customers, selectedCustomers, onClose, onSave}) {
         content: 'Done',
         onAction: () => onSave(draftSelected),
       }}
-      secondaryActions={[{content: 'Close', onAction: onClose}]}
+      secondaryActions={[{ content: 'Close', onAction: onClose }]}
     >
       <Modal.Section>
         <BlockStack gap="400">
@@ -1418,7 +1493,7 @@ function getCustomerSelectionLabel(selectedCustomers, customers) {
   );
 }
 
-function SelectedItems({items, selectedIds, onRemove, emptyText, type}) {
+function SelectedItems({ items, selectedIds, onRemove, emptyText, type }) {
   const selectedItems = items.filter((item) => selectedIds.includes(item.id));
 
   if (!selectedItems.length) {
@@ -1437,7 +1512,7 @@ function SelectedItems({items, selectedIds, onRemove, emptyText, type}) {
 
   return (
     <ResourceList
-      resourceName={{singular: 'item', plural: 'items'}}
+      resourceName={{ singular: 'item', plural: 'items' }}
       items={selectedItems}
       renderItem={(item) => (
         <ResourceItem
@@ -1482,8 +1557,8 @@ function SelectedItems({items, selectedIds, onRemove, emptyText, type}) {
 }
 export default function MixMatchBundleFormPolaris({
   initialData,
-  products = [],
-  collections = [],
+  products: propProducts = [],
+  collections: propCollections = [],
   onBack,
   onSubmit,
 }) {
@@ -1492,6 +1567,10 @@ export default function MixMatchBundleFormPolaris({
   const navigate = useNavigate();
   const customerOptions = loaderData.customers || [];
   const customerTagOptions = loaderData.customerTags || [];
+  const products = propProducts.length ? propProducts : loaderData.products || [];
+  const collections = propCollections.length
+    ? propCollections
+    : loaderData.collections || [];
   const currentSchedule = useMemo(() => getCurrentDateTimeInput(), []);
   const minScheduleDate = currentSchedule.date;
   const handleBack = useCallback(() => {
@@ -1588,15 +1667,15 @@ export default function MixMatchBundleFormPolaris({
 
       if (field === 'endDate') {
         const minEndDate = current.startDate || minScheduleDate;
-        return {...current, endDate: clampDateInput(value, minEndDate)};
+        return { ...current, endDate: clampDateInput(value, minEndDate) };
       }
 
-      return {...current, [field]: value};
+      return { ...current, [field]: value };
     });
   }, [currentSchedule.time, minScheduleDate]);
 
   const setDesignField = useCallback((field, value) => {
-    setDesignSettings((current) => ({...current, [field]: value}));
+    setDesignSettings((current) => ({ ...current, [field]: value }));
   }, []);
 
   const toggleSection = useCallback((sectionId) => {
@@ -1669,7 +1748,7 @@ export default function MixMatchBundleFormPolaris({
     <Page
       title="Create Mix n Match Bundle"
       paddingBlockEnd="800"
-      backAction={{content: 'Boxes', onAction: handleBack}}
+      backAction={{ content: 'Boxes', onAction: handleBack }}
       primaryAction={{
         content: 'Save Bundle',
         onAction: handleSubmit,
@@ -1682,328 +1761,327 @@ export default function MixMatchBundleFormPolaris({
 
           {selectedTab === 0 ? (
             <BlockStack gap="400">
-              <AccordionSection
-                id="bundleInformation"
-                title="Bundle Information"
-                description="Enter the main bundle details and images."
-                open={openSections.bundleInformation}
-                onToggle={toggleSection}
-              >
-                <BundleInformationSection form={form} onChange={setField} />
-              </AccordionSection>
-
               <Grid>
-                <Grid.Cell columnSpan={{xs: 6, sm: 6, md: 6, lg: 8, xl: 8}}>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 8, xl: 8 }}>
                   <BlockStack gap="200" paddingBlockEnd="800">
-              <AccordionSection
-                id="configureBundle"
-                title="Configure Bundle"
-                description="Configure the customer selection step."
-                open={openSections.configureBundle}
-                onToggle={toggleSection}
-              >
-                <BlockStack gap="400">
-                  <TextField
-                    label="Step Title"
-                    value={form.stepTitle}
-                    onChange={(value) => setField('stepTitle', value)}
-                    autoComplete="off"
-                  />
-
-                  <TextField
-                    label="Step Description"
-                    value={form.stepDescription}
-                    onChange={(value) => setField('stepDescription', value)}
-                    multiline={3}
-                    autoComplete="off"
-                  />
-
-                  <TextField
-                    label="Product Items"
-                    type="number"
-                    min={1}
-                    value={form.productItems}
-                    onChange={(value) => setField('productItems', value)}
-                    helpText="Number of products the customer must select."
-                    autoComplete="off"
-                  />
-
-                  <TextField
-                    label="Button Label"
-                    value={form.buttonLabel}
-                    onChange={(value) => setField('buttonLabel', value)}
-                    autoComplete="off"
-                  />
-                </BlockStack>
-              </AccordionSection>
-
-              <AccordionSection
-                id="discount"
-                title="Discount"
-                description="Choose how the bundle price or discount is calculated."
-                open={openSections.discount}
-                onToggle={toggleSection}
-              >
-                <InlineGrid columns={{xs: 1, md: 2}} gap="400">
-                  <Select
-                    label="Discount Type"
-                    options={DISCOUNT_OPTIONS}
-                    value={form.discountType}
-                    onChange={(value) => setField('discountType', value)}
-                  />
-
-                  <TextField
-                    label="Value"
-                    type="number"
-                    min={0}
-                    value={form.discountValue}
-                    onChange={(value) => setField('discountValue', value)}
-                    prefix={form.discountType === 'percentage' ? undefined : '$'}
-                    suffix={form.discountType === 'percentage' ? '%' : undefined}
-                    placeholder="0"
-                    autoComplete="off"
-                  />
-                </InlineGrid>
-              </AccordionSection>
-
-              <AccordionSection
-                id="productConfiguration"
-                title="Product Configuration"
-                description="Choose which store items customers can add to this bundle."
-                open={openSections.productConfiguration}
-                onToggle={toggleSection}
-              >
-                <BlockStack gap="400">
-                  <ChoiceList
-                    title="Product source"
-                    titleHidden
-                    choices={PRODUCT_CONFIGURATION_OPTIONS}
-                    selected={[form.productConfiguration]}
-                    onChange={(value) =>
-                      setField('productConfiguration', value[0])
-                    }
-                  />
-
-                  {form.productConfiguration === 'whole_store' ? (
-                    <div
-                      style={{
-                        background: 'var(--p-color-bg-surface-secondary)',
-                        borderRadius: 'var(--p-border-radius-300)',
-                        padding: '16px',
-                        width: '100%',
-                      }}
+                    <AccordionSection
+                      id="bundleInformation"
+                      title="Bundle Information"
+                      description="Enter the main bundle details and images."
+                      open={openSections.bundleInformation}
+                      onToggle={toggleSection}
                     >
-                      <div
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          maxWidth: '100%',
-                        }}
-                      >
-                        <Icon source={ProductIcon} />
-                        <Text as="p">
-                          All active products in the store will be available.
-                        </Text>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {form.productConfiguration === 'selected_products' ? (
-                    <BlockStack gap="300">
-                      <InlineStack align="space-between" blockAlign="center">
-                        <Text as="h3" variant="headingSm">
-                          Selected products
-                        </Text>
-
-                        <Tooltip content="Open product selector">
-                          <Button
-                            icon={PlusIcon}
-                            onClick={() => setProductModalOpen(true)}
-                          >
-                            Add Products
-                          </Button>
-                        </Tooltip>
-                      </InlineStack>
-
-                      <SelectedItems
-                        type="products"
-                        items={products}
-                        selectedIds={selectedProductIds}
-                        onRemove={(id) =>
-                          setSelectedProductIds((current) =>
-                            current.filter((currentId) => currentId !== id),
-                          )
-                        }
-                        emptyText="No products selected yet."
-                      />
-                    </BlockStack>
-                  ) : null}
-
-                  {form.productConfiguration === 'selected_collections' ? (
-                    <BlockStack gap="300">
-                      <InlineStack align="space-between" blockAlign="center">
-                        <Text as="h3" variant="headingSm">
-                          Selected collections
-                        </Text>
-
-                        <Tooltip content="Open collection selector">
-                          <Button
-                            icon={PlusIcon}
-                            onClick={() => setCollectionModalOpen(true)}
-                          >
-                            Add Collections
-                          </Button>
-                        </Tooltip>
-                      </InlineStack>
-
-                      <SelectedItems
-                        type="collections"
-                        items={collections}
-                        selectedIds={selectedCollectionIds}
-                        onRemove={(id) =>
-                          setSelectedCollectionIds((current) =>
-                            current.filter((currentId) => currentId !== id),
-                          )
-                        }
-                        emptyText="No collections selected yet."
-                      />
-                    </BlockStack>
-                  ) : null}
-                </BlockStack>
-              </AccordionSection>
-
-              <AccordionSection
-                id="customerEligibility"
-                title="Customer Eligibility"
-                description="Choose who can see the product."
-                open={openSections.customerEligibility}
-                onToggle={toggleSection}
-              >
-                <CustomerEligibilitySection
-                  form={form}
-                  onChange={setField}
-                  onBrowseTags={() => setCustomerTagsModalOpen(true)}
-                  onBrowseCustomers={() => setCustomersModalOpen(true)}
-                  customerDisplayValue={customerDisplayValue}
-                />
-              </AccordionSection>
-
-              <AccordionSection
-                id="schedule"
-                title="Schedule"
-                description="Publish immediately or schedule the bundle for a date and time."
-                open={openSections.schedule}
-                onToggle={toggleSection}
-                paddingBottom ="400"
-              >
-                <BlockStack gap="400">
-                  <ChoiceList
-                    title="Publishing schedule"
-                    titleHidden
-                    choices={SCHEDULE_OPTIONS}
-                    selected={[form.scheduleType]}
-                    onChange={(value) => setField('scheduleType', value[0])}
-                  />
-
-                  {form.scheduleType === 'scheduled' ? (
-                    <BlockStack gap="400">
-                      <InlineGrid columns={{xs: 1, md: 2}} gap="400">
+                      <BundleInformationSection form={form} onChange={setField} />
+                    </AccordionSection>
+                    <AccordionSection
+                      id="configureBundle"
+                      title="Configure Bundle"
+                      description="Configure the customer selection step."
+                      open={openSections.configureBundle}
+                      onToggle={toggleSection}
+                    >
+                      <BlockStack gap="400">
                         <TextField
-                          label="Start Date"
-                          type="date"
-                          value={form.startDate}
-                          onChange={(value) => setField('startDate', value)}
-                          min={minScheduleDate}
-                          prefix={<Icon source={CalendarIcon} />}
+                          label="Step Title"
+                          value={form.stepTitle}
+                          onChange={(value) => setField('stepTitle', value)}
                           autoComplete="off"
                         />
 
                         <TextField
-                          label="Start Time"
-                          type="time"
-                          value={form.startTime}
-                          onChange={(value) => setField('startTime', value)}
+                          label="Step Description"
+                          value={form.stepDescription}
+                          onChange={(value) => setField('stepDescription', value)}
+                          multiline={3}
+                          autoComplete="off"
+                        />
+
+                        <TextField
+                          label="Product Items"
+                          type="number"
+                          min={1}
+                          value={form.productItems}
+                          onChange={(value) => setField('productItems', value)}
+                          helpText="Number of products the customer must select."
+                          autoComplete="off"
+                        />
+
+                        <TextField
+                          label="Button Label"
+                          value={form.buttonLabel}
+                          onChange={(value) => setField('buttonLabel', value)}
+                          autoComplete="off"
+                        />
+                      </BlockStack>
+                    </AccordionSection>
+
+                    <AccordionSection
+                      id="discount"
+                      title="Discount"
+                      description="Choose how the bundle price or discount is calculated."
+                      open={openSections.discount}
+                      onToggle={toggleSection}
+                    >
+                      <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+                        <Select
+                          label="Discount Type"
+                          options={DISCOUNT_OPTIONS}
+                          value={form.discountType}
+                          onChange={(value) => setField('discountType', value)}
+                        />
+
+                        <TextField
+                          label="Value"
+                          type="number"
+                          min={0}
+                          value={form.discountValue}
+                          onChange={(value) => setField('discountValue', value)}
+                          prefix={form.discountType === 'percentage' ? undefined : '$'}
+                          suffix={form.discountType === 'percentage' ? '%' : undefined}
+                          placeholder="0"
                           autoComplete="off"
                         />
                       </InlineGrid>
+                    </AccordionSection>
 
-                      <Checkbox
-                        label="Set an end date"
-                        checked={form.hasEndDate}
-                        onChange={(value) => setField('hasEndDate', value)}
-                        helpText="The bundle becomes unavailable after the end date and time."
-                      />
-
-                      {form.hasEndDate ? (
-                        <InlineGrid columns={{xs: 1, md: 2}} gap="400">
-                          <TextField
-                          label="End Date"
-                          type="date"
-                          value={form.endDate}
-                          onChange={(value) => setField('endDate', value)}
-                          min={form.startDate || minScheduleDate}
-                          prefix={<Icon source={CalendarIcon} />}
-                          autoComplete="off"
+                    <AccordionSection
+                      id="productConfiguration"
+                      title="Product Configuration"
+                      description="Choose which store items customers can add to this bundle."
+                      open={openSections.productConfiguration}
+                      onToggle={toggleSection}
+                    >
+                      <BlockStack gap="400">
+                        <ChoiceList
+                          title="Product source"
+                          titleHidden
+                          choices={PRODUCT_CONFIGURATION_OPTIONS}
+                          selected={[form.productConfiguration]}
+                          onChange={(value) =>
+                            setField('productConfiguration', value[0])
+                          }
                         />
 
-                          <TextField
-                            label="End Time"
-                            type="time"
-                            value={form.endTime}
-                            onChange={(value) => setField('endTime', value)}
-                            autoComplete="off"
-                          />
-                        </InlineGrid>
-                      ) : null}
-                    </BlockStack>
-                  ) : (
-                    <div
-                      style={{
-                        background: 'var(--p-color-bg-surface-secondary)',
-                        borderRadius: 'var(--p-border-radius-300)',
-                        padding: '16px',
-                        width: '100%',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          maxWidth: '100%',
-                        }}
-                      >
-                        <Icon source={CalendarIcon} />
-                        <Text as="p">
-                          The bundle will be available immediately after saving.
-                        </Text>
-                      </div>
-                    </div>
-                  )}
-                </BlockStack>
-              </AccordionSection>
-            </BlockStack>
-          </Grid.Cell>
+                        {form.productConfiguration === 'whole_store' ? (
+                          <div
+                            style={{
+                              background: 'var(--p-color-bg-surface-secondary)',
+                              borderRadius: 'var(--p-border-radius-300)',
+                              padding: '16px',
+                              width: '100%',
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                maxWidth: '100%',
+                              }}
+                            >
+                              <Icon source={ProductIcon} />
+                              <Text as="p">
+                                All products of the store will be available.
+                              </Text>
+                            </div>
+                          </div>
+                        ) : null}
 
-          <Grid.Cell columnSpan={{xs: 6, sm: 6, md: 6, lg: 4, xl: 4}}>
-            <SummaryPreviewPanel
-              form={form}
-              selectedCount={selectedCount}
-              discountText={discountText}
-              scheduleText={scheduleText}
-              bannerPreview={bannerPreview}
-              bundlePreview={bundlePreview}
-              onStatusChange={(value) => setField('status', value)}
-            />
-          </Grid.Cell>
+                        {form.productConfiguration === 'selected_products' ? (
+                          <BlockStack gap="300">
+                            <InlineStack align="space-between" blockAlign="center">
+                              <Text as="h3" variant="headingSm">
+                                Selected products
+                              </Text>
+
+                              <Tooltip content="Open product selector">
+                                <Button
+                                  icon={PlusIcon}
+                                  onClick={() => setProductModalOpen(true)}
+                                >
+                                  Add Products
+                                </Button>
+                              </Tooltip>
+                            </InlineStack>
+
+                            <SelectedItems
+                              type="products"
+                              items={products}
+                              selectedIds={selectedProductIds}
+                              onRemove={(id) =>
+                                setSelectedProductIds((current) =>
+                                  current.filter((currentId) => currentId !== id),
+                                )
+                              }
+                              emptyText="No products selected yet."
+                            />
+                          </BlockStack>
+                        ) : null}
+
+                        {form.productConfiguration === 'selected_collections' ? (
+                          <BlockStack gap="300">
+                            <InlineStack align="space-between" blockAlign="center">
+                              <Text as="h3" variant="headingSm">
+                                Selected collections
+                              </Text>
+
+                              <Tooltip content="Open collection selector">
+                                <Button
+                                  icon={PlusIcon}
+                                  onClick={() => setCollectionModalOpen(true)}
+                                >
+                                  Add Collections
+                                </Button>
+                              </Tooltip>
+                            </InlineStack>
+
+                            <SelectedItems
+                              type="collections"
+                              items={collections}
+                              selectedIds={selectedCollectionIds}
+                              onRemove={(id) =>
+                                setSelectedCollectionIds((current) =>
+                                  current.filter((currentId) => currentId !== id),
+                                )
+                              }
+                              emptyText="No collections selected yet."
+                            />
+                          </BlockStack>
+                        ) : null}
+                      </BlockStack>
+                    </AccordionSection>
+
+                    <AccordionSection
+                      id="customerEligibility"
+                      title="Customer Eligibility"
+                      description="Choose who can see the product."
+                      open={openSections.customerEligibility}
+                      onToggle={toggleSection}
+                    >
+                      <CustomerEligibilitySection
+                        form={form}
+                        onChange={setField}
+                        onBrowseTags={() => setCustomerTagsModalOpen(true)}
+                        onBrowseCustomers={() => setCustomersModalOpen(true)}
+                        customerDisplayValue={customerDisplayValue}
+                      />
+                    </AccordionSection>
+
+                    <AccordionSection
+                      id="schedule"
+                      title="Schedule"
+                      description="Publish immediately or schedule the bundle for a date and time."
+                      open={openSections.schedule}
+                      onToggle={toggleSection}
+                      paddingBottom="400"
+                    >
+                      <BlockStack gap="400">
+                        <ChoiceList
+                          title="Publishing schedule"
+                          titleHidden
+                          choices={SCHEDULE_OPTIONS}
+                          selected={[form.scheduleType]}
+                          onChange={(value) => setField('scheduleType', value[0])}
+                        />
+
+                        {form.scheduleType === 'scheduled' ? (
+                          <BlockStack gap="400">
+                            <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+                              <TextField
+                                label="Start Date"
+                                type="date"
+                                value={form.startDate}
+                                onChange={(value) => setField('startDate', value)}
+                                min={minScheduleDate}
+                                prefix={<Icon source={CalendarIcon} />}
+                                autoComplete="off"
+                              />
+
+                              <TextField
+                                label="Start Time"
+                                type="time"
+                                value={form.startTime}
+                                onChange={(value) => setField('startTime', value)}
+                                autoComplete="off"
+                              />
+                            </InlineGrid>
+
+                            <Checkbox
+                              label="Set an end date"
+                              checked={form.hasEndDate}
+                              onChange={(value) => setField('hasEndDate', value)}
+                              helpText="The bundle becomes unavailable after the end date and time."
+                            />
+
+                            {form.hasEndDate ? (
+                              <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+                                <TextField
+                                  label="End Date"
+                                  type="date"
+                                  value={form.endDate}
+                                  onChange={(value) => setField('endDate', value)}
+                                  min={form.startDate || minScheduleDate}
+                                  prefix={<Icon source={CalendarIcon} />}
+                                  autoComplete="off"
+                                />
+
+                                <TextField
+                                  label="End Time"
+                                  type="time"
+                                  value={form.endTime}
+                                  onChange={(value) => setField('endTime', value)}
+                                  autoComplete="off"
+                                />
+                              </InlineGrid>
+                            ) : null}
+                          </BlockStack>
+                        ) : (
+                          <div
+                            style={{
+                              background: 'var(--p-color-bg-surface-secondary)',
+                              borderRadius: 'var(--p-border-radius-300)',
+                              padding: '16px',
+                              width: '100%',
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                maxWidth: '100%',
+                              }}
+                            >
+                              <Icon source={CalendarIcon} />
+                              <Text as="p">
+                                The bundle will be available immediately after saving.
+                              </Text>
+                            </div>
+                          </div>
+                        )}
+                      </BlockStack>
+                    </AccordionSection>
+                  </BlockStack>
+                </Grid.Cell>
+
+                <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 4, xl: 4 }}>
+                  <SummaryPreviewPanel
+                    form={form}
+                    selectedCount={selectedCount}
+                    discountText={discountText}
+                    scheduleText={scheduleText}
+                    bannerPreview={bannerPreview}
+                    bundlePreview={bundlePreview}
+                    onStatusChange={(value) => setField('status', value)}
+                  />
+                </Grid.Cell>
               </Grid>
             </BlockStack>
           ) : null}
 
           {selectedTab === 1 ? (
             <Grid>
-              <Grid.Cell columnSpan={{xs: 6, sm: 6, md: 6, lg: 8, xl: 8}}>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 8, xl: 8 }}>
                 <DesignTabPanel
                   settings={designSettings}
                   onChange={setDesignField}
@@ -2012,7 +2090,7 @@ export default function MixMatchBundleFormPolaris({
                 />
               </Grid.Cell>
 
-              <Grid.Cell columnSpan={{xs: 6, sm: 6, md: 6, lg: 4, xl: 4}}>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 4, xl: 4 }}>
                 <SummaryPreviewPanel
                   form={form}
                   selectedCount={selectedCount}
@@ -2028,7 +2106,7 @@ export default function MixMatchBundleFormPolaris({
 
           {selectedTab === 2 ? (
             <Grid>
-              <Grid.Cell columnSpan={{xs: 6, sm: 6, md: 6, lg: 8, xl: 8}}>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 8, xl: 8 }}>
                 <Card>
                   <BlockStack gap="300">
                     <Text as="h2" variant="headingMd">
@@ -2041,7 +2119,7 @@ export default function MixMatchBundleFormPolaris({
                 </Card>
               </Grid.Cell>
 
-              <Grid.Cell columnSpan={{xs: 6, sm: 6, md: 6, lg: 4, xl: 4}}>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 4, xl: 4 }}>
                 <SummaryPreviewPanel
                   form={form}
                   selectedCount={selectedCount}
