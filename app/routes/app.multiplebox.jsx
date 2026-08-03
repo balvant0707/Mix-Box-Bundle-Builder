@@ -935,11 +935,7 @@ function BundleInformationSection({
         onBrowseCollections={onBrowseCollections}
         onRemoveProduct={onRemoveProduct}
         onRemoveCollection={onRemoveCollection}
-        createNewProduct={form.createQuantityPackProduct}
         packs={form.quantityPacks || []}
-        onCreateNewProductChange={(value) =>
-          onChange('createQuantityPackProduct', value)
-        }
         onAddPack={() => {
           const currentPacks = form.quantityPacks || [];
           onChange('quantityPacks', [
@@ -965,9 +961,7 @@ function QuantityPackSection({
   onBrowseCollections,
   onRemoveProduct,
   onRemoveCollection,
-  createNewProduct,
   packs,
-  onCreateNewProductChange,
   onAddPack,
 }) {
   const hasPacks = packs.length > 0;
@@ -985,11 +979,11 @@ function QuantityPackSection({
             </Text>
           </BlockStack>
 
-          <Checkbox
-            label="Create a new product"
-            checked={Boolean(createNewProduct)}
-            onChange={onCreateNewProductChange}
-          />
+          {hasPacks ? (
+            <Button variant="primary" icon={PlusIcon} onClick={onAddPack}>
+              Add Another Pack
+            </Button>
+          ) : null}
         </InlineStack>
       </Box>
 
@@ -1031,10 +1025,6 @@ function QuantityPackSection({
                 </div>
               ))}
             </InlineStack>
-
-            <Button variant="primary" icon={PlusIcon} onClick={onAddPack}>
-              Add Another Pack
-            </Button>
 
             <QuantityPackConfigurationList
               form={form}
@@ -1089,7 +1079,7 @@ function QuantityPackConfigurationList({
   onRemoveProduct,
   onRemoveCollection,
 }) {
-  const [openPanel, setOpenPanel] = useState('quantityPack');
+  const [openPanel, setOpenPanel] = useState('');
   const togglePanel = useCallback((panel) => {
     setOpenPanel((current) => (current === panel ? '' : panel));
   }, []);
@@ -1100,13 +1090,7 @@ function QuantityPackConfigurationList({
         id="quantityPack"
         title="Quantity Pack"
         active
-        open={openPanel === 'quantityPack'}
-        onToggle={togglePanel}
-      >
-        <Text as="p" tone="subdued">
-          Quantity pack settings are shown above.
-        </Text>
-      </PackSectionPreview>
+      />
 
       <PackSectionPreview
         id="configureBundles"
@@ -1316,7 +1300,16 @@ function QuantityPackConfigurationList({
   );
 }
 
-function PackSectionPreview({ id, title, active = false, open, onToggle, children }) {
+function PackSectionPreview({
+  id,
+  title,
+  active = false,
+  open = false,
+  onToggle,
+  children,
+}) {
+  const canExpand = Boolean(children && onToggle);
+
   return (
     <div
       style={{
@@ -1329,15 +1322,18 @@ function PackSectionPreview({ id, title, active = false, open, onToggle, childre
     >
       <button
         type="button"
-        onClick={() => onToggle(id)}
+        onClick={() => {
+          if (canExpand) onToggle(id);
+        }}
         aria-expanded={open}
         aria-controls={`${id}-panel`}
+        aria-disabled={!canExpand}
         style={{
           width: '100%',
           border: 0,
           background: 'transparent',
           color: 'inherit',
-          cursor: 'pointer',
+          cursor: canExpand ? 'pointer' : 'default',
           padding: '16px 20px',
           textAlign: 'left',
         }}
@@ -1352,22 +1348,28 @@ function PackSectionPreview({ id, title, active = false, open, onToggle, childre
             {title}
           </span>
           <span style={{ color: active ? '#ffffff' : 'var(--p-color-icon)' }}>
-            <Icon source={open ? ChevronUpIcon : ChevronDownIcon} />
+            {canExpand ? (
+              <Icon source={open ? ChevronUpIcon : ChevronDownIcon} />
+            ) : (
+              <Icon source={ChevronDownIcon} />
+            )}
           </span>
         </InlineStack>
       </button>
 
-      <Collapsible
-        id={`${id}-panel`}
-        open={open}
-        transition={{ duration: '200ms', timingFunction: 'ease-in-out' }}
-        expandOnPrint
-      >
-        <Divider />
-        <Box padding="400" background="bg-surface">
-          {children}
-        </Box>
-      </Collapsible>
+      {canExpand ? (
+        <Collapsible
+          id={`${id}-panel`}
+          open={open}
+          transition={{ duration: '200ms', timingFunction: 'ease-in-out' }}
+          expandOnPrint
+        >
+          <Divider />
+          <Box padding="400" background="bg-surface">
+            {children}
+          </Box>
+        </Collapsible>
+      ) : null}
     </div>
   );
 }
@@ -1913,6 +1915,10 @@ function PickerModal({
               .simple-picker-scroll::-webkit-scrollbar {
                 display: none;
               }
+
+              .simple-picker-scroll > .Polaris-BlockStack {
+                min-height: 100%;
+              }
             `}
           </style>
           <TextField
@@ -1929,9 +1935,11 @@ function PickerModal({
             className="simple-picker-scroll"
             onScroll={handleScroll}
             style={{
-              maxHeight: 'min(68vh, 640px)',
-              minHeight: 520,
+              height: 'min(78vh, 760px)',
+              maxHeight: 'calc(100vh - 220px)',
+              minHeight: 'min(620px, calc(100vh - 220px))',
               overflowY: 'auto',
+              overflowX: 'hidden',
               paddingRight: 0,
             }}
           >
