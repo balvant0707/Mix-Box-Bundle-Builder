@@ -394,16 +394,29 @@ function ColorField({ label, value, onChange }) {
     ? `linear-gradient(45deg, #d1d5db 25%, transparent 25%), linear-gradient(-45deg, #d1d5db 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #d1d5db 75%), linear-gradient(-45deg, transparent 75%, #d1d5db 75%)`
     : swatchColor;
   const activator = (
-    <Button
+    <button
+      type="button"
       onClick={() => setPopoverActive((active) => !active)}
-      accessibilityLabel={`Open ${label} color picker`}
+      aria-label={`Open ${label} color picker`}
+      style={{
+        width: 44,
+        minHeight: 36,
+        height: '100%',
+        border: '1px solid var(--p-color-border)',
+        borderRadius: 'var(--p-border-radius-200)',
+        background: 'var(--p-color-bg-surface)',
+        padding: 4,
+        display: 'flex',
+        alignItems: 'stretch',
+        cursor: 'pointer',
+      }}
     >
       <span
         aria-hidden="true"
         style={{
-          display: 'inline-block',
-          width: 18,
-          height: 18,
+          display: 'block',
+          width: '100%',
+          minHeight: 26,
           borderRadius: 4,
           border: '1px solid var(--p-color-border)',
           background: swatchBackground,
@@ -413,7 +426,7 @@ function ColorField({ label, value, onChange }) {
           verticalAlign: 'middle',
         }}
       />
-    </Button>
+    </button>
   );
 
   return (
@@ -422,7 +435,7 @@ function ColorField({ label, value, onChange }) {
       value={colorValue}
       onChange={(nextValue) => onChange(normalizeHexColor(nextValue, nextValue))}
       autoComplete="off"
-      connectedRight={
+      connectedLeft={
         <Popover
           active={popoverActive}
           activator={activator}
@@ -477,16 +490,6 @@ function DesignRangeField({ label, value, min, max, step = 1, suffix = 'px', onC
         value={Number(value)}
         onChange={onChange}
         output
-      />
-      <DesignNumberField
-        label={`${label} value`}
-        value={value}
-        min={min}
-        max={max}
-        suffix={suffix}
-        onChange={(nextValue) =>
-          onChange(clampNumber(Number(nextValue) || min, min, max))
-        }
       />
     </BlockStack>
   );
