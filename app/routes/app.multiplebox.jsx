@@ -1006,10 +1006,10 @@ function QuantityPackSection({
         <InlineStack align="space-between" blockAlign="start" gap="400">
           <BlockStack gap="100">
             <Text as="h3" variant="headingMd">
-              Quantity Pack
+              Bundle Pack
             </Text>
             <Text as="p" tone="subdued">
-              Create quantity packs and options for your storefront.
+              Create Bundle packs and options for your storefront.
             </Text>
           </BlockStack>
 
@@ -1100,10 +1100,10 @@ function QuantityPackSection({
           >
             <BlockStack gap="400" inlineAlign="center">
               <Button variant="primary" icon={PlusIcon} onClick={handleAddPack}>
-                Add Quantity Pack
+                Add Bundle Pack
               </Button>
               <Text as="p" tone="subdued">
-                Create custom quantity packs for your store.
+                Create custom bundle packs for your store.
               </Text>
             </BlockStack>
           </div>
