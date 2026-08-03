@@ -199,7 +199,7 @@ const DISCOUNT_OPTIONS = [
 ];
 
 const PRODUCT_CONFIGURATION_OPTIONS = [
-  { label: 'All products of the store', value: 'whole_store' },
+  { label: 'Wholestore', value: 'whole_store' },
   { label: 'Select products', value: 'selected_products' },
   { label: 'Select collections', value: 'selected_collections' },
 ];
