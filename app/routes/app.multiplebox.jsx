@@ -37,6 +37,8 @@ import {
 import {
   CalendarIcon,
   ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   ChevronUpIcon,
   CollectionIcon,
   DeleteIcon,
@@ -219,8 +221,17 @@ function createQuantityPack(index, overrides = {}) {
       'Select products to create your custom bundle.',
     productItems: overrides.productItems || '3',
     buttonLabel: overrides.buttonLabel || 'Add bundle to cart',
-    discountType: overrides.discountType || 'fixed_bundle_price',
+    discountMode:
+      overrides.discountMode ||
+      (overrides.discountType && overrides.discountType !== 'fixed_bundle_price'
+        ? 'flat_discount'
+        : 'fixed_amount'),
+    discountType:
+      overrides.discountType && overrides.discountType !== 'fixed_bundle_price'
+        ? overrides.discountType
+        : 'percentage',
     discountValue: overrides.discountValue || '',
+    selectedGiftProductIds: overrides.selectedGiftProductIds || [],
     productConfiguration: overrides.productConfiguration || 'whole_store',
     scheduleType: overrides.scheduleType || 'immediately',
     startDate: overrides.startDate || '',
@@ -374,9 +385,14 @@ const CUSTOMER_ELIGIBILITY_OPTIONS = [
 ];
 
 const DISCOUNT_OPTIONS = [
-  { label: 'Fixed bundle price', value: 'fixed_bundle_price' },
   { label: 'Percentage discount %', value: 'percentage' },
-  { label: 'Fixed amount discount $', value: 'fixed_amount' },
+  { label: 'Fixed Amount Discount', value: 'fixed_amount' },
+];
+
+const DISCOUNT_MODE_OPTIONS = [
+  { label: 'Fixed Amount', value: 'fixed_amount' },
+  { label: 'Flat Discount', value: 'flat_discount' },
+  { label: 'Free Gift Product', value: 'free_gift_product' },
 ];
 
 const PRODUCT_CONFIGURATION_OPTIONS = [
@@ -1011,8 +1027,10 @@ function BundleInformationSection({
   collections,
   onBrowseProducts,
   onBrowseCollections,
+  onBrowseGiftProduct,
   onRemoveProduct,
   onRemoveCollection,
+  onRemoveGiftProduct,
 }) {
   return (
     <BlockStack gap="400">
@@ -1060,8 +1078,10 @@ function BundleInformationSection({
         collections={collections}
         onBrowseProducts={onBrowseProducts}
         onBrowseCollections={onBrowseCollections}
+        onBrowseGiftProduct={onBrowseGiftProduct}
         onRemoveProduct={onRemoveProduct}
         onRemoveCollection={onRemoveCollection}
+        onRemoveGiftProduct={onRemoveGiftProduct}
         packs={form.quantityPacks || []}
         onAddPack={() => {
           const currentPacks = form.quantityPacks || [];
@@ -1088,8 +1108,10 @@ function QuantityPackSection({
   collections,
   onBrowseProducts,
   onBrowseCollections,
+  onBrowseGiftProduct,
   onRemoveProduct,
   onRemoveCollection,
+  onRemoveGiftProduct,
   packs,
   onAddPack,
 }) {
@@ -1184,8 +1206,10 @@ function QuantityPackSection({
               collections={collections}
               onBrowseProducts={onBrowseProducts}
               onBrowseCollections={onBrowseCollections}
+              onBrowseGiftProduct={onBrowseGiftProduct}
               onRemoveProduct={onRemoveProduct}
               onRemoveCollection={onRemoveCollection}
+              onRemoveGiftProduct={onRemoveGiftProduct}
             />
           </BlockStack>
         ) : (
@@ -1222,8 +1246,10 @@ function QuantityPackConfigurationList({
   collections,
   onBrowseProducts,
   onBrowseCollections,
+  onBrowseGiftProduct,
   onRemoveProduct,
   onRemoveCollection,
+  onRemoveGiftProduct,
 }) {
   const [openPanel, setOpenPanel] = useState('');
   const togglePanel = useCallback((panel) => {
@@ -1276,25 +1302,69 @@ function QuantityPackConfigurationList({
         open={openPanel === 'discounts'}
         onToggle={togglePanel}
       >
-        <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
-          <Select
-            label="Discount Type"
-            options={DISCOUNT_OPTIONS}
-            value={pack.discountType}
-            onChange={(value) => onChange('discountType', value)}
+        <BlockStack gap="400">
+          <ChoiceList
+            title="Discount mode"
+            titleHidden
+            choices={DISCOUNT_MODE_OPTIONS}
+            selected={[pack.discountMode]}
+            onChange={(value) => onChange('discountMode', value[0])}
           />
-          <TextField
-            label="Value"
-            type="number"
-            min={0}
-            value={pack.discountValue}
-            onChange={(value) => onChange('discountValue', value)}
-            prefix={pack.discountType === 'percentage' ? undefined : '$'}
-            suffix={pack.discountType === 'percentage' ? '%' : undefined}
-            placeholder="0"
-            autoComplete="off"
-          />
-        </InlineGrid>
+
+          {pack.discountMode === 'fixed_amount' ? (
+            <TextField
+              label="Fixed Amount"
+              type="number"
+              min={0}
+              value={pack.discountValue}
+              onChange={(value) => onChange('discountValue', value)}
+              prefix="$"
+              placeholder="0"
+              autoComplete="off"
+            />
+          ) : null}
+
+          {pack.discountMode === 'flat_discount' ? (
+            <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+              <Select
+                label="Discount Type"
+                options={DISCOUNT_OPTIONS}
+                value={pack.discountType}
+                onChange={(value) => onChange('discountType', value)}
+              />
+              <TextField
+                label="Value"
+                type="number"
+                min={0}
+                value={pack.discountValue}
+                onChange={(value) => onChange('discountValue', value)}
+                prefix={pack.discountType === 'percentage' ? undefined : '$'}
+                suffix={pack.discountType === 'percentage' ? '%' : undefined}
+                placeholder="0"
+                autoComplete="off"
+              />
+            </InlineGrid>
+          ) : null}
+
+          {pack.discountMode === 'free_gift_product' ? (
+            <BlockStack gap="300">
+              <InlineStack align="space-between" blockAlign="center">
+                <Text as="h3" variant="headingSm">
+                  Free gift product
+                </Text>
+                <Button icon={PlusIcon} onClick={onBrowseGiftProduct}>
+                  Add Product
+                </Button>
+              </InlineStack>
+              <SelectedItems
+                type="products"
+                items={products}
+                selectedIds={pack.selectedGiftProductIds || []}
+                onRemove={onRemoveGiftProduct}
+              />
+            </BlockStack>
+          ) : null}
+        </BlockStack>
       </PackSectionPreview>
 
       <PackSectionPreview
@@ -1533,40 +1603,85 @@ function StatusSummarySection({ status, onChange }) {
 function ProductPreviewGrid({ products, maxItems }) {
   const limit = Math.max(Number(maxItems) || 0, 0);
   const visibleProducts = products.slice(0, limit || 2);
+  const [slideIndex, setSlideIndex] = useState(0);
+  const productsPerSlide = 2;
+  const currentProducts = visibleProducts.slice(
+    slideIndex,
+    slideIndex + productsPerSlide,
+  );
+  const canSlide = visibleProducts.length > productsPerSlide;
+  const canGoBack = slideIndex > 0;
+  const canGoForward = slideIndex + productsPerSlide < visibleProducts.length;
+
+  useEffect(() => {
+    if (slideIndex >= visibleProducts.length) {
+      setSlideIndex(Math.max(visibleProducts.length - productsPerSlide, 0));
+    }
+  }, [slideIndex, visibleProducts.length]);
 
   if (!visibleProducts.length) return null;
 
   return (
-    <InlineGrid columns={{ xs: 2, sm: 2 }} gap="200">
-      {visibleProducts.map((product) => (
-        <Box
-          key={product.id}
-          padding="200"
-          background="bg-surface"
-          borderRadius="300"
-          borderWidth="025"
-          borderColor="border"
-        >
-          <BlockStack gap="150">
-            <Thumbnail
-              source={product.image || ProductIcon}
-              alt={product.title}
-              size="medium"
-            />
-            <BlockStack gap="050">
-              <Text as="p" variant="bodySm" fontWeight="semibold">
-                {product.title}
-              </Text>
-              {product.subtitle ? (
-                <Text as="p" variant="bodySm" tone="subdued">
-                  {product.subtitle}
+    <BlockStack gap="200">
+      <InlineGrid columns={{ xs: 2, sm: 2 }} gap="200">
+        {currentProducts.map((product) => (
+          <Box
+            key={product.id}
+            padding="200"
+            background="bg-surface"
+            borderRadius="300"
+            borderWidth="025"
+            borderColor="border"
+          >
+            <BlockStack gap="150">
+              <Thumbnail
+                source={product.image || ProductIcon}
+                alt={product.title}
+                size="medium"
+              />
+              <BlockStack gap="050">
+                <Text as="p" variant="bodySm" fontWeight="semibold">
+                  {product.title}
                 </Text>
-              ) : null}
+                {product.subtitle ? (
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    {product.subtitle}
+                  </Text>
+                ) : null}
+              </BlockStack>
             </BlockStack>
-          </BlockStack>
-        </Box>
-      ))}
-    </InlineGrid>
+          </Box>
+        ))}
+      </InlineGrid>
+
+      {canSlide ? (
+        <InlineStack align="center" gap="200">
+          <Button
+            icon={ChevronLeftIcon}
+            accessibilityLabel="Previous products"
+            disabled={!canGoBack}
+            onClick={() =>
+              setSlideIndex((current) =>
+                Math.max(current - productsPerSlide, 0),
+              )
+            }
+          />
+          <Button
+            icon={ChevronRightIcon}
+            accessibilityLabel="Next products"
+            disabled={!canGoForward}
+            onClick={() =>
+              setSlideIndex((current) =>
+                Math.min(
+                  current + productsPerSlide,
+                  Math.max(visibleProducts.length - productsPerSlide, 0),
+                ),
+              )
+            }
+          />
+        </InlineStack>
+      ) : null}
+    </BlockStack>
   );
 }
 
@@ -2016,8 +2131,8 @@ function useInfinitePickerPagination({
       pickerResource: resource,
     });
 
-    fetcher.load(`/app/simple?${params.toString()}`);
-  }, [fetcher, loadingMore, open, resource]);
+    fetcher.load(`${routePath}?${params.toString()}`);
+  }, [fetcher, loadingMore, open, resource, routePath]);
 
   useEffect(() => {
     if (open && !items.length) {
@@ -2071,6 +2186,7 @@ function PickerModal({
   onClose,
   onSave,
   type,
+  multiple = true,
 }) {
   const [query, setQuery] = useState('');
   const [draftSelected, setDraftSelected] = useState(selectedIds);
@@ -2093,12 +2209,14 @@ function PickerModal({
   }, [items, query]);
 
   const toggleItem = useCallback((id) => {
-    setDraftSelected((current) =>
-      current.includes(id)
+    setDraftSelected((current) => {
+      if (!multiple) return current.includes(id) ? [] : [id];
+
+      return current.includes(id)
         ? current.filter((currentId) => currentId !== id)
-        : [...current, id],
-    );
-  }, []);
+        : [...current, id];
+    });
+  }, [multiple]);
 
   const handleClose = useCallback(() => {
     setDraftSelected(selectedIds);
@@ -2125,7 +2243,7 @@ function PickerModal({
       onClose={handleClose}
       title={title}
       primaryAction={{
-        content: `Add selected ${type}`,
+        content: multiple ? `Add selected ${type}` : 'Add selected product',
         onAction: () => {
           onSave(draftSelected);
           setQuery('');
@@ -2607,8 +2725,17 @@ export default function MixMatchBundleFormPolaris({
       'Select products to create your custom bundle.',
     productItems: initialData?.productItems || '3',
     buttonLabel: initialData?.buttonLabel || 'Add bundle to cart',
-    discountType: initialData?.discountType || 'fixed_bundle_price',
+    discountMode:
+      initialData?.discountMode ||
+      (initialData?.discountType && initialData.discountType !== 'fixed_bundle_price'
+        ? 'flat_discount'
+        : 'fixed_amount'),
+    discountType:
+      initialData?.discountType && initialData.discountType !== 'fixed_bundle_price'
+        ? initialData.discountType
+        : 'percentage',
     discountValue: initialData?.discountValue || '',
+    selectedGiftProductIds: initialData?.selectedGiftProductIds || [],
     productConfiguration:
       initialData?.productConfiguration || 'whole_store',
     scheduleType: initialData?.scheduleType || 'immediately',
@@ -2652,6 +2779,7 @@ export default function MixMatchBundleFormPolaris({
     initialData?.selectedCollectionIds || [],
   );
   const [productModalOpen, setProductModalOpen] = useState(false);
+  const [giftProductModalOpen, setGiftProductModalOpen] = useState(false);
   const [collectionModalOpen, setCollectionModalOpen] = useState(false);
   const [customerTagsModalOpen, setCustomerTagsModalOpen] = useState(false);
   const [customersModalOpen, setCustomersModalOpen] = useState(false);
@@ -2665,7 +2793,7 @@ export default function MixMatchBundleFormPolaris({
     resource: 'products',
     initialItems: initialProducts,
     initialPageInfo: initialProductsPageInfo,
-    open: productModalOpen,
+    open: productModalOpen || giftProductModalOpen,
     routePath: '/app/multiplebox',
   });
   const collectionPicker = useInfinitePickerPagination({
@@ -2844,11 +2972,20 @@ export default function MixMatchBundleFormPolaris({
     const source = activePack || form;
     const value = source.discountValue || '0';
 
-    if (source.discountType === 'percentage') return `${value}% off`;
-    if (source.discountType === 'fixed_amount') return `$${value} off`;
+    if (source.discountMode === 'free_gift_product') {
+      const giftProduct = products.find((product) =>
+        (source.selectedGiftProductIds || []).includes(product.id),
+      );
+      return giftProduct ? `Free gift: ${giftProduct.title}` : 'Free gift product';
+    }
 
-    return `$${value} bundle price`;
-  }, [activePack, form]);
+    if (source.discountMode === 'flat_discount') {
+      if (source.discountType === 'percentage') return `${value}% off`;
+      if (source.discountType === 'fixed_amount') return `$${value} off`;
+    }
+
+    return `$${value} fixed amount`;
+  }, [activePack, form, products]);
 
   const scheduleText = useMemo(() => {
     const source = activePack || form;
@@ -2874,6 +3011,7 @@ export default function MixMatchBundleFormPolaris({
       stepDescription: activePack.stepDescription,
       productItems: activePack.productItems,
       buttonLabel: activePack.buttonLabel,
+      discountMode: activePack.discountMode,
       discountType: activePack.discountType,
       discountValue: activePack.discountValue,
       productConfiguration: activePack.productConfiguration,
@@ -2938,6 +3076,7 @@ export default function MixMatchBundleFormPolaris({
                         collections={collections}
                         onBrowseProducts={() => setProductModalOpen(true)}
                         onBrowseCollections={() => setCollectionModalOpen(true)}
+                        onBrowseGiftProduct={() => setGiftProductModalOpen(true)}
                         onRemoveProduct={(id) =>
                           setActivePackField(
                             'selectedProductIds',
@@ -2950,6 +3089,14 @@ export default function MixMatchBundleFormPolaris({
                           setActivePackField(
                             'selectedCollectionIds',
                             (activePack?.selectedCollectionIds || []).filter(
+                              (currentId) => currentId !== id,
+                            ),
+                          )
+                        }
+                        onRemoveGiftProduct={(id) =>
+                          setActivePackField(
+                            'selectedGiftProductIds',
+                            (activePack?.selectedGiftProductIds || []).filter(
                               (currentId) => currentId !== id,
                             ),
                           )
@@ -3057,6 +3204,23 @@ export default function MixMatchBundleFormPolaris({
           setProductModalOpen(false);
         }}
         type="products"
+      />
+
+      <PickerModal
+        open={giftProductModalOpen}
+        title="Add Free Gift Product"
+        items={products}
+        loadingMore={productPicker.loadingMore}
+        error={productPicker.error}
+        selectedIds={activePack?.selectedGiftProductIds || []}
+        onLoadMore={productPicker.loadMore}
+        onClose={() => setGiftProductModalOpen(false)}
+        onSave={(ids) => {
+          setActivePackField('selectedGiftProductIds', ids.slice(0, 1));
+          setGiftProductModalOpen(false);
+        }}
+        type="products"
+        multiple={false}
       />
 
       <PickerModal
