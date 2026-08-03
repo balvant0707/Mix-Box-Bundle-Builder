@@ -997,15 +997,15 @@ function QuantityPackSection({
                 <div
                   key={pack.id}
                   style={{
-                    width: 242,
-                    minHeight: 88,
+                    width: 100,
+                    minHeight: 40,
                     background: '#202223',
                     borderRadius: 12,
                     color: '#ffffff',
-                    padding: 24,
+                    padding: 0,
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 14,
+                    gap: 0,
                     fontWeight: 700,
                   }}
                 >
@@ -1086,12 +1086,6 @@ function QuantityPackConfigurationList({
 
   return (
     <BlockStack gap="200">
-      <PackSectionPreview
-        id="quantityPack"
-        title="Quantity Pack"
-        active
-      />
-
       <PackSectionPreview
         id="configureBundles"
         title="Configure Bundles"
