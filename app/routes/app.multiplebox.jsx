@@ -113,6 +113,25 @@ const COLLECTIONS_QUERY = `#graphql
           image {
             url
           }
+          products(first: 10) {
+            edges {
+              node {
+                id
+                title
+                handle
+                featuredImage {
+                  url
+                }
+                variants(first: 1) {
+                  edges {
+                    node {
+                      price
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
       pageInfo {
@@ -150,7 +169,39 @@ function mapCollectionEdges(edges) {
     title: node.title,
     image: node.image?.url || null,
     subtitle: node.handle || '',
+    products: mapProductEdges(node.products?.edges),
   }));
+}
+
+function uniqueItems(items) {
+  const seen = new Set();
+  return (items || []).filter((item) => {
+    if (!item?.id || seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+}
+
+function getConfiguredProducts({
+  productConfiguration,
+  products,
+  collections,
+  selectedProductIds,
+  selectedCollectionIds,
+}) {
+  if (productConfiguration === 'selected_products') {
+    return products.filter((product) => selectedProductIds.includes(product.id));
+  }
+
+  if (productConfiguration === 'selected_collections') {
+    return uniqueItems(
+      collections
+        .filter((collection) => selectedCollectionIds.includes(collection.id))
+        .flatMap((collection) => collection.products || []),
+    );
+  }
+
+  return products;
 }
 
 function getPageInfo(connection) {
@@ -1429,6 +1480,45 @@ function StatusSummarySection({ status, onChange }) {
   );
 }
 
+function ProductPreviewGrid({ products }) {
+  const visibleProducts = products.slice(0, 8);
+
+  if (!visibleProducts.length) return null;
+
+  return (
+    <InlineGrid columns={{ xs: 2, sm: 4 }} gap="200">
+      {visibleProducts.map((product) => (
+        <Box
+          key={product.id}
+          padding="200"
+          background="bg-surface"
+          borderRadius="300"
+          borderWidth="025"
+          borderColor="border"
+        >
+          <BlockStack gap="150">
+            <Thumbnail
+              source={product.image || ProductIcon}
+              alt={product.title}
+              size="medium"
+            />
+            <BlockStack gap="050">
+              <Text as="p" variant="bodySm" fontWeight="semibold">
+                {product.title}
+              </Text>
+              {product.subtitle ? (
+                <Text as="p" variant="bodySm" tone="subdued">
+                  {product.subtitle}
+                </Text>
+              ) : null}
+            </BlockStack>
+          </BlockStack>
+        </Box>
+      ))}
+    </InlineGrid>
+  );
+}
+
 function SummaryPreviewPanel({
   form,
   selectedCount,
@@ -1436,6 +1526,8 @@ function SummaryPreviewPanel({
   scheduleText,
   bannerPreview,
   bundlePreview,
+  previewProducts = [],
+  previewPacks = [],
   onStatusChange,
 }) {
   const selectedEligibility = Array.isArray(form.eligibility)
@@ -1551,43 +1643,57 @@ function SummaryPreviewPanel({
             </BlockStack>
           </InlineStack>
 
-          <Box
-            padding="400"
-            background="bg-surface-secondary"
-            borderRadius="300"
-          >
+          {previewPacks.length ? (
             <BlockStack gap="300">
-              <BlockStack gap="100">
-                <Text as="h3" variant="headingMd">
-                  {form.stepTitle || 'Choose your products'}
-                </Text>
-                <Text as="p" tone="subdued">
-                  {form.stepDescription || 'Step description'}
-                </Text>
-              </BlockStack>
+              {previewPacks.map((pack) => (
+                <Box
+                  key={pack.id}
+                  padding="400"
+                  background="bg-surface-secondary"
+                  borderRadius="300"
+                >
+                  <BlockStack gap="300">
+                    <InlineStack gap="200" blockAlign="center">
+                      <Icon source={PackageIcon} />
+                      <Text as="h3" variant="headingMd">
+                        {pack.title}
+                      </Text>
+                    </InlineStack>
 
-              <InlineGrid columns={{ xs: 2, sm: 4 }} gap="200">
-                {Array.from({
-                  length: Math.min(Number(form.productItems) || 3, 4),
-                }).map((_, index) => (
-                  <Box
-                    key={index}
-                    padding="400"
-                    background="bg-surface"
-                    borderRadius="300"
-                    borderWidth="025"
-                    borderColor="border"
-                  >
-                    <BlockStack inlineAlign="center">
-                      <Text as="span" tone="subdued">
-                        {index + 1}
+                    <BlockStack gap="100">
+                      <Text as="h4" variant="headingSm">
+                        {pack.stepTitle || 'Choose your products'}
+                      </Text>
+                      <Text as="p" tone="subdued">
+                        {pack.stepDescription || 'Step description'}
                       </Text>
                     </BlockStack>
-                  </Box>
-                ))}
-              </InlineGrid>
+
+                    <ProductPreviewGrid products={pack.products} />
+                  </BlockStack>
+                </Box>
+              ))}
             </BlockStack>
-          </Box>
+          ) : (
+            <Box
+              padding="400"
+              background="bg-surface-secondary"
+              borderRadius="300"
+            >
+              <BlockStack gap="300">
+                <BlockStack gap="100">
+                  <Text as="h3" variant="headingMd">
+                    {form.stepTitle || 'Choose your products'}
+                  </Text>
+                  <Text as="p" tone="subdued">
+                    {form.stepDescription || 'Step description'}
+                  </Text>
+                </BlockStack>
+
+                <ProductPreviewGrid products={previewProducts} />
+              </BlockStack>
+            </Box>
+          )}
 
           <Button variant="primary" fullWidth>
             {form.buttonLabel || 'Add bundle to cart'}
@@ -2583,6 +2689,41 @@ export default function MixMatchBundleFormPolaris({
     selectedProductIds.length,
   ]);
 
+  const previewProducts = useMemo(() => {
+    const source = activePack || form;
+
+    return getConfiguredProducts({
+      productConfiguration: source.productConfiguration,
+      products,
+      collections,
+      selectedProductIds: activePack?.selectedProductIds || selectedProductIds,
+      selectedCollectionIds:
+        activePack?.selectedCollectionIds || selectedCollectionIds,
+    });
+  }, [
+    activePack,
+    collections,
+    form,
+    products,
+    selectedCollectionIds,
+    selectedProductIds,
+  ]);
+
+  const previewPacks = useMemo(
+    () =>
+      (form.quantityPacks || []).map((pack) => ({
+        ...pack,
+        products: getConfiguredProducts({
+          productConfiguration: pack.productConfiguration,
+          products,
+          collections,
+          selectedProductIds: pack.selectedProductIds || [],
+          selectedCollectionIds: pack.selectedCollectionIds || [],
+        }),
+      })),
+    [collections, form.quantityPacks, products],
+  );
+
   const discountText = useMemo(() => {
     const source = activePack || form;
     const value = source.discountValue || '0';
@@ -2726,6 +2867,8 @@ export default function MixMatchBundleFormPolaris({
                     scheduleText={scheduleText}
                     bannerPreview={bannerPreview}
                     bundlePreview={bundlePreview}
+                    previewProducts={previewProducts}
+                    previewPacks={previewPacks}
                     onStatusChange={(value) => setField('status', value)}
                   />
                 </Grid.Cell>
@@ -2752,6 +2895,8 @@ export default function MixMatchBundleFormPolaris({
                   scheduleText={scheduleText}
                   bannerPreview={bannerPreview}
                   bundlePreview={bundlePreview}
+                  previewProducts={previewProducts}
+                  previewPacks={previewPacks}
                   onStatusChange={(value) => setField('status', value)}
                 />
               </Grid.Cell>
@@ -2781,6 +2926,8 @@ export default function MixMatchBundleFormPolaris({
                   scheduleText={scheduleText}
                   bannerPreview={bannerPreview}
                   bundlePreview={bundlePreview}
+                  previewProducts={previewProducts}
+                  previewPacks={previewPacks}
                   onStatusChange={(value) => setField('status', value)}
                 />
               </Grid.Cell>

@@ -112,6 +112,25 @@ const COLLECTIONS_QUERY = `#graphql
           image {
             url
           }
+          products(first: 10) {
+            edges {
+              node {
+                id
+                title
+                handle
+                featuredImage {
+                  url
+                }
+                variants(first: 1) {
+                  edges {
+                    node {
+                      price
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
       pageInfo {
@@ -149,7 +168,39 @@ function mapCollectionEdges(edges) {
     title: node.title,
     image: node.image?.url || null,
     subtitle: node.handle || '',
+    products: mapProductEdges(node.products?.edges),
   }));
+}
+
+function uniqueItems(items) {
+  const seen = new Set();
+  return (items || []).filter((item) => {
+    if (!item?.id || seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+}
+
+function getConfiguredProducts({
+  productConfiguration,
+  products,
+  collections,
+  selectedProductIds,
+  selectedCollectionIds,
+}) {
+  if (productConfiguration === 'selected_products') {
+    return products.filter((product) => selectedProductIds.includes(product.id));
+  }
+
+  if (productConfiguration === 'selected_collections') {
+    return uniqueItems(
+      collections
+        .filter((collection) => selectedCollectionIds.includes(collection.id))
+        .flatMap((collection) => collection.products || []),
+    );
+  }
+
+  return products;
 }
 
 function getPageInfo(connection) {
@@ -949,6 +1000,45 @@ function StatusSummarySection({ status, onChange }) {
   );
 }
 
+function ProductPreviewGrid({ products }) {
+  const visibleProducts = products.slice(0, 8);
+
+  if (!visibleProducts.length) return null;
+
+  return (
+    <InlineGrid columns={{ xs: 2, sm: 4 }} gap="200">
+      {visibleProducts.map((product) => (
+        <Box
+          key={product.id}
+          padding="200"
+          background="bg-surface"
+          borderRadius="300"
+          borderWidth="025"
+          borderColor="border"
+        >
+          <BlockStack gap="150">
+            <Thumbnail
+              source={product.image || ProductIcon}
+              alt={product.title}
+              size="medium"
+            />
+            <BlockStack gap="050">
+              <Text as="p" variant="bodySm" fontWeight="semibold">
+                {product.title}
+              </Text>
+              {product.subtitle ? (
+                <Text as="p" variant="bodySm" tone="subdued">
+                  {product.subtitle}
+                </Text>
+              ) : null}
+            </BlockStack>
+          </BlockStack>
+        </Box>
+      ))}
+    </InlineGrid>
+  );
+}
+
 function SummaryPreviewPanel({
   form,
   selectedCount,
@@ -956,6 +1046,7 @@ function SummaryPreviewPanel({
   scheduleText,
   bannerPreview,
   bundlePreview,
+  previewProducts = [],
   onStatusChange,
 }) {
   const selectedEligibility = Array.isArray(form.eligibility)
@@ -1086,26 +1177,7 @@ function SummaryPreviewPanel({
                 </Text>
               </BlockStack>
 
-              <InlineGrid columns={{ xs: 2, sm: 4 }} gap="200">
-                {Array.from({
-                  length: Math.min(Number(form.productItems) || 3, 4),
-                }).map((_, index) => (
-                  <Box
-                    key={index}
-                    padding="400"
-                    background="bg-surface"
-                    borderRadius="300"
-                    borderWidth="025"
-                    borderColor="border"
-                  >
-                    <BlockStack inlineAlign="center">
-                      <Text as="span" tone="subdued">
-                        {index + 1}
-                      </Text>
-                    </BlockStack>
-                  </Box>
-                ))}
-              </InlineGrid>
+              <ProductPreviewGrid products={previewProducts} />
             </BlockStack>
           </Box>
 
@@ -2032,6 +2104,24 @@ export default function MixMatchBundleFormPolaris({
     selectedProductIds.length,
   ]);
 
+  const previewProducts = useMemo(
+    () =>
+      getConfiguredProducts({
+        productConfiguration: form.productConfiguration,
+        products,
+        collections,
+        selectedProductIds,
+        selectedCollectionIds,
+      }),
+    [
+      collections,
+      form.productConfiguration,
+      products,
+      selectedCollectionIds,
+      selectedProductIds,
+    ],
+  );
+
   const discountText = useMemo(() => {
     const value = form.discountValue || '0';
 
@@ -2352,6 +2442,7 @@ export default function MixMatchBundleFormPolaris({
                     scheduleText={scheduleText}
                     bannerPreview={bannerPreview}
                     bundlePreview={bundlePreview}
+                    previewProducts={previewProducts}
                     onStatusChange={(value) => setField('status', value)}
                   />
                 </Grid.Cell>
@@ -2378,6 +2469,7 @@ export default function MixMatchBundleFormPolaris({
                   scheduleText={scheduleText}
                   bannerPreview={bannerPreview}
                   bundlePreview={bundlePreview}
+                  previewProducts={previewProducts}
                   onStatusChange={(value) => setField('status', value)}
                 />
               </Grid.Cell>
@@ -2407,6 +2499,7 @@ export default function MixMatchBundleFormPolaris({
                   scheduleText={scheduleText}
                   bannerPreview={bannerPreview}
                   bundlePreview={bundlePreview}
+                  previewProducts={previewProducts}
                   onStatusChange={(value) => setField('status', value)}
                 />
               </Grid.Cell>
