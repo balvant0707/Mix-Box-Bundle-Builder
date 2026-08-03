@@ -1211,15 +1211,6 @@ function QuantityPackConfigurationList({
             onChange={(value) => onChange('productConfiguration', value[0])}
           />
 
-          {pack.productConfiguration === 'whole_store' ? (
-            <Box padding="400" background="bg-surface-secondary" borderRadius="300">
-              <InlineStack gap="200" blockAlign="center">
-                <Icon source={ProductIcon} />
-                <Text as="p">All products of the store will be available.</Text>
-              </InlineStack>
-            </Box>
-          ) : null}
-
           {pack.productConfiguration === 'selected_products' ? (
             <BlockStack gap="300">
               <InlineStack align="space-between" blockAlign="center">
@@ -1235,7 +1226,6 @@ function QuantityPackConfigurationList({
                 items={products}
                 selectedIds={pack.selectedProductIds}
                 onRemove={onRemoveProduct}
-                emptyText="No products selected yet."
               />
             </BlockStack>
           ) : null}
@@ -1255,7 +1245,6 @@ function QuantityPackConfigurationList({
                 items={collections}
                 selectedIds={pack.selectedCollectionIds}
                 onRemove={onRemoveCollection}
-                emptyText="No collections selected yet."
               />
             </BlockStack>
           ) : null}
@@ -1323,16 +1312,7 @@ function QuantityPackConfigurationList({
                 </InlineGrid>
               ) : null}
             </BlockStack>
-          ) : (
-            <Box padding="400" background="bg-surface-secondary" borderRadius="300">
-              <InlineStack gap="200" blockAlign="center">
-                <Icon source={CalendarIcon} />
-                <Text as="p">
-                  The bundle will be available immediately after saving.
-                </Text>
-              </InlineStack>
-            </Box>
-          )}
+          ) : null}
         </BlockStack>
       </PackSectionPreview>
     </BlockStack>
@@ -2312,21 +2292,11 @@ function getCustomerSelectionLabel(selectedCustomers, customers) {
   );
 }
 
-function SelectedItems({ items, selectedIds, onRemove, emptyText, type }) {
+function SelectedItems({ items, selectedIds, onRemove, type }) {
   const selectedItems = items.filter((item) => selectedIds.includes(item.id));
 
   if (!selectedItems.length) {
-    return (
-      <Box
-        padding="400"
-        background="bg-surface-secondary"
-        borderRadius="300"
-      >
-        <Text as="p" tone="subdued">
-          {emptyText}
-        </Text>
-      </Box>
-    );
+    return null;
   }
 
   return (

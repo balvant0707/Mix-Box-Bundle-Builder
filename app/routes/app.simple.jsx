@@ -1806,21 +1806,11 @@ function getCustomerSelectionLabel(selectedCustomers, customers) {
   );
 }
 
-function SelectedItems({ items, selectedIds, onRemove, emptyText, type }) {
+function SelectedItems({ items, selectedIds, onRemove, type }) {
   const selectedItems = items.filter((item) => selectedIds.includes(item.id));
 
   if (!selectedItems.length) {
-    return (
-      <Box
-        padding="400"
-        background="bg-surface-secondary"
-        borderRadius="300"
-      >
-        <Text as="p" tone="subdued">
-          {emptyText}
-        </Text>
-      </Box>
-    );
+    return null;
   }
 
   return (
@@ -2202,31 +2192,6 @@ export default function MixMatchBundleFormPolaris({
                           }
                         />
 
-                        {form.productConfiguration === 'whole_store' ? (
-                          <div
-                            style={{
-                              background: 'var(--p-color-bg-surface-secondary)',
-                              borderRadius: 'var(--p-border-radius-300)',
-                              padding: '16px',
-                              width: '100%',
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                maxWidth: '100%',
-                              }}
-                            >
-                              <Icon source={ProductIcon} />
-                              <Text as="p">
-                                All products of the store will be available.
-                              </Text>
-                            </div>
-                          </div>
-                        ) : null}
-
                         {form.productConfiguration === 'selected_products' ? (
                           <BlockStack gap="300">
                             <InlineStack align="space-between" blockAlign="center">
@@ -2253,7 +2218,6 @@ export default function MixMatchBundleFormPolaris({
                                   current.filter((currentId) => currentId !== id),
                                 )
                               }
-                              emptyText="No products selected yet."
                             />
                           </BlockStack>
                         ) : null}
@@ -2284,7 +2248,6 @@ export default function MixMatchBundleFormPolaris({
                                   current.filter((currentId) => currentId !== id),
                                 )
                               }
-                              emptyText="No collections selected yet."
                             />
                           </BlockStack>
                         ) : null}
@@ -2375,30 +2338,7 @@ export default function MixMatchBundleFormPolaris({
                               </InlineGrid>
                             ) : null}
                           </BlockStack>
-                        ) : (
-                          <div
-                            style={{
-                              background: 'var(--p-color-bg-surface-secondary)',
-                              borderRadius: 'var(--p-border-radius-300)',
-                              padding: '16px',
-                              width: '100%',
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                maxWidth: '100%',
-                              }}
-                            >
-                              <Icon source={CalendarIcon} />
-                              <Text as="p">
-                                The bundle will be available immediately after saving.
-                              </Text>
-                            </div>
-                          </div>
-                        )}
+                        ) : null}
                       </BlockStack>
                     </AccordionSection>
                   </BlockStack>
