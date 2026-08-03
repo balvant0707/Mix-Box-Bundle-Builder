@@ -1954,18 +1954,10 @@ function SummaryPreviewPanel({
 
               {selectedPreviewPack ? (
                 <Box
-                  padding="400"
-                  background="bg-surface-secondary"
+                  padding="00"
                   borderRadius="300"
                 >
                   <BlockStack gap="300">
-                    <InlineStack gap="200" blockAlign="center">
-                      <Icon source={PackageIcon} />
-                      <Text as="h3" variant="headingMd">
-                        {selectedPreviewPack.title}
-                      </Text>
-                    </InlineStack>
-
                     <BlockStack gap="100">
                       <Text as="h4" variant="headingSm">
                         {selectedPreviewPack.stepTitle || 'Choose your products'}
