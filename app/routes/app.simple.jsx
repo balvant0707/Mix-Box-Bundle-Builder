@@ -1680,20 +1680,21 @@ export default function MixMatchBundleFormPolaris({
         <BlockStack gap="400">
           <Tabs tabs={FORM_TABS} selected={selectedTab} onSelect={setSelectedTab} />
 
-          <AccordionSection
-            id="bundleInformation"
-            title="Bundle Information"
-            description="Enter the main bundle details and images."
-            open={openSections.bundleInformation}
-            onToggle={toggleSection}
-          >
-            <BundleInformationSection form={form} onChange={setField} />
-          </AccordionSection>
-
           {selectedTab === 0 ? (
-        <Grid>
-          <Grid.Cell columnSpan={{xs: 6, sm: 6, md: 6, lg: 8, xl: 8}}>
-            <BlockStack gap="200" paddingBlockEnd="800">
+            <BlockStack gap="400">
+              <AccordionSection
+                id="bundleInformation"
+                title="Bundle Information"
+                description="Enter the main bundle details and images."
+                open={openSections.bundleInformation}
+                onToggle={toggleSection}
+              >
+                <BundleInformationSection form={form} onChange={setField} />
+              </AccordionSection>
+
+              <Grid>
+                <Grid.Cell columnSpan={{xs: 6, sm: 6, md: 6, lg: 8, xl: 8}}>
+                  <BlockStack gap="200" paddingBlockEnd="800">
               <AccordionSection
                 id="configureBundle"
                 title="Configure Bundle"
@@ -1996,7 +1997,8 @@ export default function MixMatchBundleFormPolaris({
               onStatusChange={(value) => setField('status', value)}
             />
           </Grid.Cell>
-        </Grid>
+              </Grid>
+            </BlockStack>
           ) : null}
 
           {selectedTab === 1 ? (
