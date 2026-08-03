@@ -636,6 +636,45 @@ function DesignSection({ title, children }) {
   );
 }
 
+function FormTabs({ selected, onSelect }) {
+  return (
+    <div className="simple-bundle-tabs">
+      <style>
+        {`
+          .simple-bundle-tabs {
+            background: #ffffff;
+            border-radius: 8px;
+            padding: 8px 12px;
+          }
+
+          .simple-bundle-tabs .Polaris-Tabs__Wrapper {
+            border: 0;
+          }
+
+          .simple-bundle-tabs .Polaris-Tabs__Tab {
+            border-radius: 8px;
+            color: #303030;
+            min-height: 36px;
+            padding-inline: 16px;
+          }
+
+          .simple-bundle-tabs .Polaris-Tabs__Tab[aria-selected='true'],
+          .simple-bundle-tabs .Polaris-Tabs__Tab--active {
+            background: #000000 !important;
+            color: #ffffff !important;
+          }
+
+          .simple-bundle-tabs .Polaris-Tabs__Tab[aria-selected='true'] span,
+          .simple-bundle-tabs .Polaris-Tabs__Tab--active span {
+            color: #ffffff !important;
+          }
+        `}
+      </style>
+      <Tabs tabs={FORM_TABS} selected={selected} onSelect={onSelect} />
+    </div>
+  );
+}
+
 function ProductCardDesignPanel({ settings, onChange }) {
   return (
     <BlockStack gap="400">
@@ -2044,7 +2083,7 @@ export default function MixMatchBundleFormPolaris({
     >
       <Form onSubmit={handleSubmit}>
         <BlockStack gap="400">
-          <Tabs tabs={FORM_TABS} selected={selectedTab} onSelect={setSelectedTab} />
+          <FormTabs selected={selectedTab} onSelect={setSelectedTab} />
 
           {selectedTab === 0 ? (
             <BlockStack gap="400">
