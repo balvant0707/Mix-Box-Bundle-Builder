@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
-import {useLocation, useNavigate} from 'react-router';
+import {useLoaderData, useLocation, useNavigate} from 'react-router';
 import {
   Badge,
   BlockStack,
@@ -42,7 +42,78 @@ import {
   ProductIcon,
   SearchIcon,
 } from '@shopify/polaris-icons';
+import {authenticate} from '../shopify.server';
 import {withEmbeddedAppParams} from '../utils/embedded-app';
+
+const CUSTOMERS_QUERY = `#graphql
+  query SimpleBundleCustomers($first: Int!) {
+    customers(first: $first, sortKey: UPDATED_AT, reverse: true) {
+      nodes {
+        id
+        firstName
+        lastName
+        displayName
+        tags
+        defaultEmailAddress {
+          emailAddress
+        }
+      }
+    }
+  }
+`;
+
+function colorFromString(value) {
+  const colors = ['#6ee7df', '#f0abfc', '#f5b5f1', '#bae6fd', '#34d399', '#5eead4'];
+  const text = String(value || '');
+  const total = Array.from(text).reduce((sum, char) => sum + char.charCodeAt(0), 0);
+
+  return colors[total % colors.length];
+}
+
+export const loader = async ({request}) => {
+  const {admin} = await authenticate.admin(request);
+
+  try {
+    const response = await admin.graphql(CUSTOMERS_QUERY, {
+      variables: {first: 100},
+    });
+    const json = await response.json();
+
+    if (json?.errors?.length) {
+      console.warn('[app.simple] customer GraphQL errors', json.errors);
+      return {customers: [], customerTags: []};
+    }
+
+    const customers = (json?.data?.customers?.nodes || []).map((customer) => {
+      const email = customer.defaultEmailAddress?.emailAddress || '';
+      const name =
+        customer.displayName ||
+        [customer.firstName, customer.lastName].filter(Boolean).join(' ') ||
+        email ||
+        customer.id;
+
+      return {
+        id: customer.id,
+        name,
+        email,
+        tags: customer.tags || [],
+        color: colorFromString(customer.id || email || name),
+      };
+    });
+
+    const customerTags = Array.from(
+      new Set(customers.flatMap((customer) => customer.tags || [])),
+    )
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b))
+      .map((tag) => ({label: tag, value: tag}));
+
+    return {customers, customerTags};
+  } catch (error) {
+    console.warn('[app.simple] failed to load customers', error);
+    return {customers: [], customerTags: []};
+  }
+};
 
 const DISCOUNT_OPTIONS = [
   {label: 'Fixed bundle price', value: 'fixed_bundle_price'},
@@ -354,65 +425,55 @@ function DesignTabPanel({settings, onChange, onBack, onNext}) {
   );
 }
 
-function CustomerEligibilitySection({form, onChange}) {
+function CustomerEligibilitySection({
+  form,
+  onChange,
+  onBrowseTags,
+  onBrowseCustomers,
+  customerDisplayValue,
+}) {
   const selected = Array.isArray(form.eligibility)
     ? form.eligibility
     : [form.eligibility || 'all'];
   const selectedValue = selected[0] || 'all';
 
   return (
-    <Card padding="0">
-      <BlockStack gap="0">
-        <Box padding="400">
-          <BlockStack gap="100">
-            <Text as="h2" variant="headingMd">
-              Customer Eligibility
-            </Text>
-            <Text as="p" tone="subdued">
-              Choose who can see the product
-            </Text>
-          </BlockStack>
-        </Box>
-        <Divider />
-        <Box padding="400">
-          <BlockStack gap="300">
-            <ChoiceList
-              title="Customer eligibility"
-              titleHidden
-              choices={CUSTOMER_ELIGIBILITY_OPTIONS}
-              selected={[selectedValue]}
-              onChange={(value) => onChange('eligibility', value)}
-            />
+    <BlockStack gap="300">
+      <ChoiceList
+        title="Customer eligibility"
+        titleHidden
+        choices={CUSTOMER_ELIGIBILITY_OPTIONS}
+        selected={[selectedValue]}
+        onChange={(value) => onChange('eligibility', value)}
+      />
 
-            {selectedValue === 'tags' ? (
-              <TextField
-                label="Customer tags"
-                labelHidden
-                prefix={<Icon source={SearchIcon} />}
-                placeholder="Browse customers by tag"
-                value={form.customerTags}
-                onChange={(value) => onChange('customerTags', value)}
-                autoComplete="off"
-                connectedRight={<Button>Browse</Button>}
-              />
-            ) : null}
+      {selectedValue === 'tags' ? (
+        <TextField
+          label="Customer tags"
+          labelHidden
+          prefix={<Icon source={SearchIcon} />}
+          placeholder="Browse customers by tag"
+          value={form.customerTags}
+          onChange={(value) => onChange('customerTags', value)}
+          autoComplete="off"
+          connectedRight={<Button onClick={onBrowseTags}>Browse</Button>}
+        />
+      ) : null}
 
-            {selectedValue === 'specific' ? (
-              <TextField
-                label="Specific customers"
-                labelHidden
-                prefix={<Icon source={SearchIcon} />}
-                placeholder="Browse customer by email or tag"
-                value={form.customers}
-                onChange={(value) => onChange('customers', value)}
-                autoComplete="off"
-                connectedRight={<Button>Browse</Button>}
-              />
-            ) : null}
-          </BlockStack>
-        </Box>
-      </BlockStack>
-    </Card>
+      {selectedValue === 'specific' ? (
+        <TextField
+          label="Specific customers"
+          labelHidden
+          prefix={<Icon source={SearchIcon} />}
+          placeholder="Browse customer by email or tag"
+          value={customerDisplayValue}
+          onChange={() => {}}
+          autoComplete="off"
+          readOnly
+          connectedRight={<Button onClick={onBrowseCustomers}>Browse</Button>}
+        />
+      ) : null}
+    </BlockStack>
   );
 }
 
@@ -858,6 +919,248 @@ function PickerModal({
   );
 }
 
+function csvToList(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function listToCsv(values) {
+  return values.filter(Boolean).join(', ');
+}
+
+function CustomerTagsModal({open, tags, selectedTags, onClose, onSave}) {
+  const [query, setQuery] = useState('');
+  const [draftSelected, setDraftSelected] = useState(selectedTags);
+
+  useEffect(() => {
+    if (open) {
+      setDraftSelected(selectedTags);
+      setQuery('');
+    }
+  }, [open, selectedTags]);
+
+  const filteredTags = useMemo(() => {
+    const search = query.trim().toLowerCase();
+    if (!search) return tags;
+
+    return tags.filter((tag) =>
+      tag.label.toLowerCase().includes(search),
+    );
+  }, [query, tags]);
+
+  const toggleTag = useCallback((value) => {
+    setDraftSelected((current) =>
+      current.includes(value)
+        ? current.filter((item) => item !== value)
+        : [...current, value],
+    );
+  }, []);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Select Customer Tags"
+      primaryAction={{
+        content: 'Done',
+        onAction: () => onSave(draftSelected),
+      }}
+      secondaryActions={[{content: 'Close', onAction: onClose}]}
+    >
+      <Modal.Section>
+        <BlockStack gap="400">
+          <TextField
+            label="Search customer by tag"
+            labelHidden
+            prefix={<Icon source={SearchIcon} />}
+            placeholder="Search customer by tag"
+            value={query}
+            onChange={setQuery}
+            autoComplete="off"
+          />
+
+          {filteredTags.length ? (
+            <BlockStack gap="300">
+              {filteredTags.map((tag) => (
+                <Checkbox
+                  key={tag.value}
+                  label={tag.label}
+                  checked={draftSelected.includes(tag.value)}
+                  onChange={() => toggleTag(tag.value)}
+                />
+              ))}
+            </BlockStack>
+          ) : (
+            <Text as="p" tone="subdued">
+              No customer tags found.
+            </Text>
+          )}
+        </BlockStack>
+      </Modal.Section>
+    </Modal>
+  );
+}
+
+function CustomerAvatar({name, color}) {
+  const initial = String(name || '?').trim().charAt(0).toUpperCase();
+
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        width: 50,
+        height: 50,
+        borderRadius: 8,
+        background: color,
+        border: '1px solid rgba(0, 0, 0, 0.12)',
+        display: 'grid',
+        placeItems: 'center',
+        color: '#0f766e',
+        fontSize: 22,
+        fontWeight: 700,
+      }}
+    >
+      {initial}
+    </div>
+  );
+}
+
+function CustomersModal({open, customers, selectedCustomers, onClose, onSave}) {
+  const [query, setQuery] = useState('');
+  const [draftSelected, setDraftSelected] = useState(selectedCustomers);
+
+  useEffect(() => {
+    if (open) {
+      setDraftSelected(selectedCustomers);
+      setQuery('');
+    }
+  }, [open, selectedCustomers]);
+
+  const filteredCustomers = useMemo(() => {
+    const search = query.trim().toLowerCase();
+    if (!search) return customers;
+
+    return customers.filter((customer) =>
+      `${customer.name} ${customer.email} ${(customer.tags || []).join(' ')}`
+        .toLowerCase()
+        .includes(search),
+    );
+  }, [customers, query]);
+
+  const selectedCustomerIds = useMemo(
+    () => new Set(draftSelected),
+    [draftSelected],
+  );
+  const allVisibleSelected =
+    filteredCustomers.length > 0 &&
+    filteredCustomers.every((customer) => selectedCustomerIds.has(customer.id));
+
+  const toggleCustomer = useCallback((id) => {
+    setDraftSelected((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id],
+    );
+  }, []);
+
+  const toggleVisibleCustomers = useCallback(() => {
+    const visibleIds = filteredCustomers.map((customer) => customer.id);
+    setDraftSelected((current) => {
+      if (visibleIds.every((id) => current.includes(id))) {
+        return current.filter((id) => !visibleIds.includes(id));
+      }
+
+      return [...new Set([...current, ...visibleIds])];
+    });
+  }, [filteredCustomers]);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Select Customers"
+      primaryAction={{
+        content: 'Done',
+        onAction: () => onSave(draftSelected),
+      }}
+      secondaryActions={[{content: 'Close', onAction: onClose}]}
+    >
+      <Modal.Section>
+        <BlockStack gap="400">
+          <TextField
+            label="Search customer by email or tag"
+            labelHidden
+            prefix={<Icon source={SearchIcon} />}
+            placeholder="Search customer by email or tag"
+            value={query}
+            onChange={setQuery}
+            autoComplete="off"
+          />
+
+          {filteredCustomers.length ? (
+            <BlockStack gap="0">
+              <Box paddingBlockEnd="300">
+                <Checkbox
+                  label="Check All"
+                  checked={allVisibleSelected}
+                  onChange={toggleVisibleCustomers}
+                />
+              </Box>
+              <Divider />
+
+              {filteredCustomers.map((customer) => (
+                <Box key={customer.id} paddingBlock="300">
+                  <InlineStack gap="300" blockAlign="center" wrap={false}>
+                    <Checkbox
+                      label={`Select ${customer.name}`}
+                      labelHidden
+                      checked={selectedCustomerIds.has(customer.id)}
+                      onChange={() => toggleCustomer(customer.id)}
+                    />
+                    <CustomerAvatar name={customer.name} color={customer.color} />
+                    <BlockStack gap="050">
+                      <Text as="span" fontWeight="semibold">
+                        {customer.name}
+                      </Text>
+                      <Text as="span" tone="subdued">
+                        {customer.email || 'No email'}
+                      </Text>
+                    </BlockStack>
+                  </InlineStack>
+                  <Box paddingBlockStart="300">
+                    <Divider />
+                  </Box>
+                </Box>
+              ))}
+            </BlockStack>
+          ) : (
+            <Text as="p" tone="subdued">
+              No customers found.
+            </Text>
+          )}
+        </BlockStack>
+      </Modal.Section>
+    </Modal>
+  );
+}
+
+function getCustomerSelectionLabel(selectedCustomers, customers) {
+  const labelById = new Map(
+    customers.map((customer) => [
+      customer.id,
+      customer.email || customer.name || customer.id,
+    ]),
+  );
+
+  return listToCsv(
+    selectedCustomers.map((id) => labelById.get(id) || id),
+  );
+}
+
 function SelectedItems({items, selectedIds, onRemove, emptyText, type}) {
   const selectedItems = items.filter((item) => selectedIds.includes(item.id));
 
@@ -920,7 +1223,6 @@ function SelectedItems({items, selectedIds, onRemove, emptyText, type}) {
     />
   );
 }
-
 export default function MixMatchBundleFormPolaris({
   initialData,
   products = [],
@@ -928,8 +1230,11 @@ export default function MixMatchBundleFormPolaris({
   onBack,
   onSubmit,
 }) {
+  const loaderData = useLoaderData() || {};
   const location = useLocation();
   const navigate = useNavigate();
+  const customerOptions = loaderData.customers || [];
+  const customerTagOptions = loaderData.customerTags || [];
   const currentSchedule = useMemo(() => getCurrentDateTimeInput(), []);
   const minScheduleDate = currentSchedule.date;
   const handleBack = useCallback(() => {
@@ -987,6 +1292,8 @@ export default function MixMatchBundleFormPolaris({
   );
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [collectionModalOpen, setCollectionModalOpen] = useState(false);
+  const [customerTagsModalOpen, setCustomerTagsModalOpen] = useState(false);
+  const [customersModalOpen, setCustomersModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selectedTab, setSelectedTab] = useState(0);
   const [designSettings, setDesignSettings] = useState({
@@ -996,6 +1303,11 @@ export default function MixMatchBundleFormPolaris({
 
   const bannerPreview = useFilePreview(form.bannerImage);
   const bundlePreview = useFilePreview(form.bundleImage);
+  const customerDisplayValue = useMemo(
+    () =>
+      getCustomerSelectionLabel(csvToList(form.customers), customerOptions),
+    [customerOptions, form.customers],
+  );
 
   const setField = useCallback((field, value) => {
     setForm((current) => {
@@ -1370,7 +1682,21 @@ export default function MixMatchBundleFormPolaris({
                 </BlockStack>
               </AccordionSection>
 
-              <CustomerEligibilitySection form={form} onChange={setField} />
+              <AccordionSection
+                id="customerEligibility"
+                title="Customer Eligibility"
+                description="Choose who can see the product."
+                open={openSections.customerEligibility}
+                onToggle={toggleSection}
+              >
+                <CustomerEligibilitySection
+                  form={form}
+                  onChange={setField}
+                  onBrowseTags={() => setCustomerTagsModalOpen(true)}
+                  onBrowseCustomers={() => setCustomersModalOpen(true)}
+                  customerDisplayValue={customerDisplayValue}
+                />
+              </AccordionSection>
 
               <AccordionSection
                 id="schedule"
@@ -1545,6 +1871,28 @@ export default function MixMatchBundleFormPolaris({
           setCollectionModalOpen(false);
         }}
         type="collections"
+      />
+
+      <CustomerTagsModal
+        open={customerTagsModalOpen}
+        tags={customerTagOptions}
+        selectedTags={csvToList(form.customerTags)}
+        onClose={() => setCustomerTagsModalOpen(false)}
+        onSave={(tags) => {
+          setField('customerTags', listToCsv(tags));
+          setCustomerTagsModalOpen(false);
+        }}
+      />
+
+      <CustomersModal
+        open={customersModalOpen}
+        customers={customerOptions}
+        selectedCustomers={csvToList(form.customers)}
+        onClose={() => setCustomersModalOpen(false)}
+        onSave={(customers) => {
+          setField('customers', listToCsv(customers));
+          setCustomersModalOpen(false);
+        }}
       />
     </Page>
   );
