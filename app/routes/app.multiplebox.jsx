@@ -1783,6 +1783,25 @@ function SummaryPreviewPanel({
   const eligibilityLabel =
     CUSTOMER_ELIGIBILITY_OPTIONS.find((item) => item.value === selectedEligibility)
       ?.label || 'All Customers';
+  const [selectedPreviewPackId, setSelectedPreviewPackId] = useState(
+    previewPacks[0]?.id || '',
+  );
+
+  useEffect(() => {
+    if (!previewPacks.length) {
+      setSelectedPreviewPackId('');
+      return;
+    }
+
+    if (!previewPacks.some((pack) => pack.id === selectedPreviewPackId)) {
+      setSelectedPreviewPackId(previewPacks[0].id);
+    }
+  }, [previewPacks, selectedPreviewPackId]);
+
+  const selectedPreviewPack =
+    previewPacks.find((pack) => pack.id === selectedPreviewPackId) ||
+    previewPacks[0] ||
+    null;
 
   return (
     <BlockStack gap="400">
@@ -1892,9 +1911,49 @@ function SummaryPreviewPanel({
 
           {previewPacks.length ? (
             <BlockStack gap="300">
-              {previewPacks.map((pack) => (
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 8,
+                  overflowX: 'auto',
+                  scrollbarWidth: 'none',
+                }}
+              >
+                {previewPacks.map((pack) => {
+                  const active = pack.id === selectedPreviewPack?.id;
+
+                  return (
+                    <button
+                      key={pack.id}
+                      type="button"
+                      onClick={() => setSelectedPreviewPackId(pack.id)}
+                      style={{
+                        alignItems: 'center',
+                        background: active ? '#202223' : '#f6f6f7',
+                        border: active ? '1px solid #202223' : '1px solid #dcdfe3',
+                        borderRadius: 8,
+                        color: active ? '#ffffff' : '#202223',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        flex: '0 0 auto',
+                        gap: 8,
+                        minHeight: 40,
+                        padding: '8px 12px',
+                      }}
+                    >
+                      <span style={{ color: active ? '#ffffff' : '#5c5f62', display: 'inline-flex' }}>
+                        <Icon source={PackageIcon} />
+                      </span>
+                      <span style={{ color: active ? '#ffffff' : '#202223', fontWeight: 600 }}>
+                        {pack.title}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {selectedPreviewPack ? (
                 <Box
-                  key={pack.id}
                   padding="400"
                   background="bg-surface-secondary"
                   borderRadius="300"
@@ -1903,26 +1962,26 @@ function SummaryPreviewPanel({
                     <InlineStack gap="200" blockAlign="center">
                       <Icon source={PackageIcon} />
                       <Text as="h3" variant="headingMd">
-                        {pack.title}
+                        {selectedPreviewPack.title}
                       </Text>
                     </InlineStack>
 
                     <BlockStack gap="100">
                       <Text as="h4" variant="headingSm">
-                        {pack.stepTitle || 'Choose your products'}
+                        {selectedPreviewPack.stepTitle || 'Choose your products'}
                       </Text>
                       <Text as="p" tone="subdued">
-                        {pack.stepDescription || 'Step description'}
+                        {selectedPreviewPack.stepDescription || 'Step description'}
                       </Text>
                     </BlockStack>
 
                     <ProductPreviewGrid
-                      products={pack.products}
-                      maxItems={pack.productItems}
+                      products={selectedPreviewPack.products}
+                      maxItems={selectedPreviewPack.productItems}
                     />
                   </BlockStack>
                 </Box>
-              ))}
+              ) : null}
             </BlockStack>
           ) : (
             <Box
@@ -1949,7 +2008,7 @@ function SummaryPreviewPanel({
           )}
 
           <Button variant="primary" fullWidth>
-            {form.buttonLabel || 'Add bundle to cart'}
+            {selectedPreviewPack?.buttonLabel || form.buttonLabel || 'Add bundle to cart'}
           </Button>
         </BlockStack>
       </Card>
