@@ -395,6 +395,40 @@ const DISCOUNT_MODE_OPTIONS = [
   { label: 'Free Gift Product', value: 'free_gift_product' },
 ];
 
+function getDiscountSubmissionFields(form, source = form) {
+  const selectedGiftProductIds = source?.selectedGiftProductIds || [];
+
+  if (source?.discountMode === 'free_gift_product') {
+    return {
+      bundlePriceType: 'dynamic',
+      discountMode: 'free_gift_product',
+      discountType: 'buy_x_get_y',
+      discountValue: '100',
+      buyQuantity: 1,
+      getQuantity: 1,
+      selectedGiftProductIds,
+    };
+  }
+
+  if (source?.discountMode === 'flat_discount') {
+    return {
+      bundlePriceType: 'dynamic',
+      discountMode: 'flat_discount',
+      discountType: source.discountType === 'fixed_amount' ? 'fixed' : 'percent',
+      discountValue: source.discountValue || '0',
+      selectedGiftProductIds: [],
+    };
+  }
+
+  return {
+    bundlePriceType: 'dynamic',
+    discountMode: 'fixed_amount',
+    discountType: 'fixed',
+    discountValue: source?.discountValue || '0',
+    selectedGiftProductIds: [],
+  };
+}
+
 const PRODUCT_CONFIGURATION_OPTIONS = [
   { label: 'Wholestore', value: 'whole_store' },
   { label: 'Select products', value: 'selected_products' },
@@ -3027,15 +3061,46 @@ export default function MixMatchBundleFormPolaris({
   const handleSubmit = useCallback(async () => {
     try {
       setSaving(true);
-      await onSubmit?.({
+      const submission = {
         ...form,
+        ...getDiscountSubmissionFields(form, activePack || form),
         selectedProductIds,
         selectedCollectionIds,
-      });
+      };
+
+      if (onSubmit) {
+        await onSubmit(submission);
+      } else {
+        const title = form.title?.trim() || 'Mix n Match Bundle';
+        const response = await fetch('/api/admin/boxes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...submission,
+            boxName: title,
+            displayTitle: title,
+            itemCount: activePack?.productItems || form.productItems || '1',
+            bundlePrice:
+              (activePack || form).discountMode === 'fixed_amount'
+                ? (activePack || form).discountValue || '0'
+                : '0',
+          }),
+        });
+        if (!response.ok) throw new Error('Failed to save bundle');
+        navigate(withEmbeddedAppParams('/app/boxes', location.search));
+      }
     } finally {
       setSaving(false);
     }
-  }, [form, onSubmit, selectedCollectionIds, selectedProductIds]);
+  }, [
+    activePack,
+    form,
+    location.search,
+    navigate,
+    onSubmit,
+    selectedCollectionIds,
+    selectedProductIds,
+  ]);
 
   return (
     <Page

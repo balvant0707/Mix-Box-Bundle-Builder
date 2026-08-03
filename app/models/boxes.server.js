@@ -15,16 +15,21 @@ function clampComboStepCount(value) {
 
 function normalizeDiscountConfigForPriceType({
   bundlePriceType,
+  discountMode,
   discountType,
   discountValue,
   buyQuantity,
   getQuantity,
+  selectedGiftProductIds,
   fallbackDiscountType = "none",
   fallbackDiscountValue = "0",
   fallbackBuyQuantity = 1,
   fallbackGetQuantity = 1,
+  fallbackSelectedGiftProductIds = [],
 }) {
-  const safePriceType = bundlePriceType === "dynamic" ? "dynamic" : "manual";
+  const uiDiscountMode = String(discountMode || "");
+  const hasUiDiscountMode = ["fixed_amount", "flat_discount", "free_gift_product"].includes(uiDiscountMode);
+  const safePriceType = bundlePriceType === "dynamic" || hasUiDiscountMode ? "dynamic" : "manual";
   if (safePriceType !== "dynamic") {
     return {
       bundlePriceType: "manual",
@@ -32,10 +37,21 @@ function normalizeDiscountConfigForPriceType({
       discountValue: "0",
       buyQuantity: 1,
       getQuantity: 1,
+      selectedGiftProductIds: [],
     };
   }
 
-  const requestedType = String(discountType ?? fallbackDiscountType ?? "none");
+  const requestedGiftProductIds =
+    selectedGiftProductIds !== undefined ? selectedGiftProductIds : fallbackSelectedGiftProductIds;
+  const giftProductIds = Array.isArray(requestedGiftProductIds)
+    ? requestedGiftProductIds.filter(Boolean)
+    : [];
+  let requestedType = String(discountType ?? fallbackDiscountType ?? "none");
+  if (uiDiscountMode === "fixed_amount") requestedType = "fixed";
+  if (uiDiscountMode === "free_gift_product") requestedType = "buy_x_get_y";
+  if (requestedType === "percentage") requestedType = "percent";
+  if (requestedType === "fixed_amount") requestedType = "fixed";
+
   const normalizedType = ["none", "percent", "fixed", "buy_x_get_y"].includes(requestedType)
     ? requestedType
     : "none";
@@ -59,6 +75,7 @@ function normalizeDiscountConfigForPriceType({
     discountValue: normalizedDiscountValue,
     buyQuantity: safeBuyQuantity,
     getQuantity: safeGetQuantity,
+    selectedGiftProductIds: giftProductIds,
   };
 }
 
@@ -339,6 +356,7 @@ function buildBuyXGetYDiscountInput({
   discountType,
   discountValue,
   shopifyProductId,
+  giftProductId,
   buyQuantity = 1,
   getQuantity = 1,
 }) {
@@ -351,7 +369,8 @@ function buildBuyXGetYDiscountInput({
     : discountType === "fixed"
       ? { discountAmount: { amount: String(parsedValue), appliesOnEachItem: true } }
       : { percentage: Math.min(1, Math.max(0, parsedValue / 100)) };
-  const scopedItems = buildProductScopedItems(shopifyProductId);
+  const buyItems = buildProductScopedItems(shopifyProductId);
+  const getItems = buildProductScopedItems(giftProductId || shopifyProductId);
   const combinesWith = {
     productDiscounts: true,
     orderDiscounts: true,
@@ -363,11 +382,11 @@ function buildBuyXGetYDiscountInput({
     startsAt: new Date().toISOString(),
     customerBuys: {
       value: { quantity: String(safeBuyQty) },
-      items: scopedItems,
+      items: buyItems,
     },
     customerGets: {
       value: customerGetsValue,
-      items: scopedItems,
+      items: getItems,
       quantity: { quantity: String(safeGetQty) },
     },
     combinesWith,
@@ -495,6 +514,7 @@ export async function syncShopifyBuyXGetYDiscount(
     discountType,
     discountValue,
     shopifyProductId,
+    giftProductId,
     buyQuantity = 1,
     getQuantity = 1,
   },
@@ -534,6 +554,7 @@ export async function syncShopifyBuyXGetYDiscount(
     discountType,
     discountValue,
     shopifyProductId,
+    giftProductId,
     buyQuantity,
     getQuantity,
   });
@@ -1145,10 +1166,12 @@ export async function createBox(shop, data, admin) {
   const bundlePrice = parseFloat(data.bundlePrice) || 0;
   const discountConfig = normalizeDiscountConfigForPriceType({
     bundlePriceType: data.bundlePriceType === "dynamic" ? "dynamic" : "manual",
+    discountMode: data.discountMode,
     discountType: data.discountType,
     discountValue: data.discountValue,
     buyQuantity: data.buyQuantity,
     getQuantity: data.getQuantity,
+    selectedGiftProductIds: data.selectedGiftProductIds,
   });
   const bundleProductTitle = data.boxName || data.displayTitle;
   const comboProductButtonTitle =
@@ -1227,6 +1250,12 @@ export async function createBox(shop, data, admin) {
         discountValue: discountConfig.discountValue,
         buyQuantity: discountConfig.buyQuantity,
         getQuantity: discountConfig.getQuantity,
+        selectedGiftProductIds: discountConfig.selectedGiftProductIds,
+        discountMode: data.discountMode || null,
+        ...(Array.isArray(data.quantityPacks) ? { quantityPacks: data.quantityPacks } : {}),
+        ...(Array.isArray(data.selectedProductIds) ? { selectedProductIds: data.selectedProductIds } : {}),
+        ...(Array.isArray(data.selectedCollectionIds) ? { selectedCollectionIds: data.selectedCollectionIds } : {}),
+        ...(data.productConfiguration ? { productConfiguration: data.productConfiguration } : {}),
         bundlePrice: bundlePrice,
         boxSubtitle: typeof data.boxSubtitle === "string" ? data.boxSubtitle.trim() : "",
         ...(comboProductButtonTitle ? { ctaButtonLabel: comboProductButtonTitle } : {}),
@@ -1245,6 +1274,7 @@ export async function createBox(shop, data, admin) {
         discountType: "buy_x_get_y",
         discountValue: "100",
         shopifyProductId,
+        giftProductId: discountConfig.selectedGiftProductIds[0] || null,
         buyQuantity: discountConfig.buyQuantity,
         getQuantity: discountConfig.getQuantity,
       });
@@ -1303,10 +1333,12 @@ export async function upsertComboConfig(boxId, config, admin = null) {
   const parsed = typeof config === "string" ? JSON.parse(config) : config;
   const discountConfig = normalizeDiscountConfigForPriceType({
     bundlePriceType: parsed?.bundlePriceType === "dynamic" ? "dynamic" : "manual",
+    discountMode: parsed?.discountMode,
     discountType: parsed?.discountType,
     discountValue: parsed?.discountValue,
     buyQuantity: parsed?.buyQuantity,
     getQuantity: parsed?.getQuantity,
+    selectedGiftProductIds: parsed?.selectedGiftProductIds,
   });
   if (parsed && typeof parsed === "object") {
     parsed.bundlePriceType = discountConfig.bundlePriceType;
@@ -1314,6 +1346,7 @@ export async function upsertComboConfig(boxId, config, admin = null) {
     parsed.discountValue = discountConfig.discountValue;
     parsed.buyQuantity = discountConfig.buyQuantity;
     parsed.getQuantity = discountConfig.getQuantity;
+    parsed.selectedGiftProductIds = discountConfig.selectedGiftProductIds;
     parsed.highlightText = typeof parsed.highlightText === "string" ? parsed.highlightText.trim() : "";
     parsed.supportText = typeof parsed.supportText === "string" ? parsed.supportText.trim() : "";
   }
@@ -1458,8 +1491,8 @@ export async function upsertComboConfig(boxId, config, admin = null) {
     const box = await db.comboBox.findUnique({ where: { id: parseInt(boxId) }, select: { shopifyProductId: true, shopifyDiscountId: true, boxName: true, displayTitle: true } });
     if (box?.shopifyProductId) {
       const dynamicDiscountEnabled = payload.bundlePriceType === "dynamic";
-      const discountType = dynamicDiscountEnabled ? (parsed.discountType || "none") : "none";
-      const discountValue = dynamicDiscountEnabled ? (parsed.discountValue || "0") : "0";
+      const discountType = dynamicDiscountEnabled ? (discountConfig.discountType || "none") : "none";
+      const discountValue = dynamicDiscountEnabled ? (discountConfig.discountValue || "0") : "0";
       const discountTitle = `${box.boxName || box.displayTitle} Bundle Discount`;
 
       if (discountType === "buy_x_get_y") {
@@ -1470,6 +1503,7 @@ export async function upsertComboConfig(boxId, config, admin = null) {
           discountType: "buy_x_get_y",
           discountValue: "100",
           shopifyProductId: box.shopifyProductId,
+          giftProductId: discountConfig.selectedGiftProductIds[0] || null,
           buyQuantity: dynamicDiscountEnabled ? (parsed.buyQuantity || 1) : 1,
           getQuantity: dynamicDiscountEnabled ? (parsed.getQuantity || 1) : 1,
         });
@@ -1543,14 +1577,17 @@ export async function updateBox(id, shop, data, admin) {
     : (existing.bundlePriceType === "dynamic" ? "dynamic" : "manual");
   const discountConfig = normalizeDiscountConfigForPriceType({
     bundlePriceType: effectiveBundlePriceType,
+    discountMode: data.discountMode,
     discountType: data.discountType,
     discountValue: data.discountValue,
     buyQuantity: data.buyQuantity,
     getQuantity: data.getQuantity,
+    selectedGiftProductIds: data.selectedGiftProductIds,
     fallbackDiscountType: existingConfig.discountType,
     fallbackDiscountValue: existingConfig.discountValue,
     fallbackBuyQuantity: existingConfig.buyQuantity,
     fallbackGetQuantity: existingConfig.getQuantity,
+    fallbackSelectedGiftProductIds: existingConfig.selectedGiftProductIds,
   });
 
   const requestedBoxCode = data.boxCode !== undefined
@@ -1734,6 +1771,12 @@ export async function updateBox(id, shop, data, admin) {
     data.bundlePriceType !== undefined ||
     data.discountType !== undefined ||
     data.discountValue !== undefined ||
+    data.discountMode !== undefined ||
+    data.selectedGiftProductIds !== undefined ||
+    data.quantityPacks !== undefined ||
+    data.selectedProductIds !== undefined ||
+    data.selectedCollectionIds !== undefined ||
+    data.productConfiguration !== undefined ||
     data.buyQuantity !== undefined ||
     data.getQuantity !== undefined ||
     data.boxSubtitle !== undefined ||
@@ -1749,6 +1792,22 @@ export async function updateBox(id, shop, data, admin) {
     rawConfig.discountValue = discountConfig.discountValue;
     rawConfig.buyQuantity = discountConfig.buyQuantity;
     rawConfig.getQuantity = discountConfig.getQuantity;
+    rawConfig.selectedGiftProductIds = discountConfig.selectedGiftProductIds;
+    if (data.discountMode !== undefined) {
+      rawConfig.discountMode = data.discountMode;
+    }
+    if (Array.isArray(data.quantityPacks)) {
+      rawConfig.quantityPacks = data.quantityPacks;
+    }
+    if (Array.isArray(data.selectedProductIds)) {
+      rawConfig.selectedProductIds = data.selectedProductIds;
+    }
+    if (Array.isArray(data.selectedCollectionIds)) {
+      rawConfig.selectedCollectionIds = data.selectedCollectionIds;
+    }
+    if (data.productConfiguration !== undefined) {
+      rawConfig.productConfiguration = data.productConfiguration;
+    }
     rawConfig.bundlePrice = bundlePrice;
     if (data.boxSubtitle !== undefined) {
       rawConfig.boxSubtitle = typeof data.boxSubtitle === "string" ? data.boxSubtitle.trim() : "";
@@ -1783,6 +1842,7 @@ export async function updateBox(id, shop, data, admin) {
         discountType: "buy_x_get_y",
         discountValue: "100",
         shopifyProductId: existing.shopifyProductId,
+        giftProductId: discountConfig.selectedGiftProductIds[0] || null,
         buyQuantity: discountConfig.buyQuantity,
         getQuantity: discountConfig.getQuantity,
       });
