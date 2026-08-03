@@ -71,10 +71,11 @@ const EMPTY_PAGE_INFO = {
   hasNextPage: false,
   endCursor: null,
 };
+const EMPTY_ITEMS = [];
 
 const PRODUCTS_QUERY = `#graphql
   query SimpleBundleProducts($first: Int!, $after: String) {
-    products(first: $first, after: $after, query: "NOT vendor:ComboBuilder") {
+    products(first: $first, after: $after) {
       edges {
         node {
           id
@@ -1240,6 +1241,7 @@ function useInfinitePickerPagination({
 }) {
   const fetcher = useFetcher();
   const pendingCursorRef = useRef(null);
+  const initialRequestRef = useRef(false);
   const [items, setItems] = useState(initialItems || []);
   const [pageInfo, setPageInfo] = useState(initialPageInfo || EMPTY_PAGE_INFO);
   const [error, setError] = useState('');
@@ -1249,12 +1251,14 @@ function useInfinitePickerPagination({
     setPageInfo(initialPageInfo || EMPTY_PAGE_INFO);
     setError('');
     pendingCursorRef.current = null;
+    initialRequestRef.current = false;
   }, [initialItems, initialPageInfo]);
 
   useEffect(() => {
     if (!fetcher.data || fetcher.data.resource !== resource) return;
 
     pendingCursorRef.current = null;
+    initialRequestRef.current = true;
 
     if (fetcher.data.error) {
       setError(fetcher.data.error);
@@ -1268,6 +1272,28 @@ function useInfinitePickerPagination({
 
   const loadingMore = fetcher.state !== 'idle';
   const hasNextPage = Boolean(pageInfo?.hasNextPage);
+
+  const loadFirstPage = useCallback(() => {
+    if (!open || loadingMore || initialRequestRef.current) {
+      return;
+    }
+
+    initialRequestRef.current = true;
+    pendingCursorRef.current = null;
+    setError('');
+
+    const params = new URLSearchParams({
+      pickerResource: resource,
+    });
+
+    fetcher.load(`/app/simple?${params.toString()}`);
+  }, [fetcher, loadingMore, open, resource]);
+
+  useEffect(() => {
+    if (open && !items.length) {
+      loadFirstPage();
+    }
+  }, [items.length, loadFirstPage, open]);
 
   const loadMore = useCallback(() => {
     const after = pageInfo?.endCursor;
@@ -1299,6 +1325,7 @@ function useInfinitePickerPagination({
     error,
     loadingMore,
     hasNextPage,
+    loadFirstPage,
     loadMore,
   };
 }
@@ -1317,6 +1344,7 @@ function PickerModal({
 }) {
   const [query, setQuery] = useState('');
   const [draftSelected, setDraftSelected] = useState(selectedIds);
+  const initialLoading = loadingMore && !items.length;
 
   useEffect(() => {
     if (open) {
@@ -1396,7 +1424,13 @@ function PickerModal({
             }}
           >
             <BlockStack gap="300">
-              {filteredItems.length ? (
+              {initialLoading ? (
+                <Box padding="800">
+                  <InlineStack align="center">
+                    <Spinner accessibilityLabel={`Loading ${type}`} size="small" />
+                  </InlineStack>
+                </Box>
+              ) : filteredItems.length ? (
                 <ResourceList
                   resourceName={{
                     singular: type === 'products' ? 'product' : 'collection',
@@ -1462,7 +1496,7 @@ function PickerModal({
                 </Text>
               ) : null}
 
-              {loadingMore ? (
+              {loadingMore && items.length ? (
                 <Box padding="400">
                   <InlineStack align="center">
                     <Spinner accessibilityLabel={`Loading more ${type}`} size="small" />
@@ -1783,8 +1817,8 @@ function SelectedItems({ items, selectedIds, onRemove, emptyText, type }) {
 }
 export default function MixMatchBundleFormPolaris({
   initialData,
-  products: propProducts = [],
-  collections: propCollections = [],
+  products: propProducts = EMPTY_ITEMS,
+  collections: propCollections = EMPTY_ITEMS,
   onBack,
   onSubmit,
 }) {
@@ -1793,10 +1827,17 @@ export default function MixMatchBundleFormPolaris({
   const navigate = useNavigate();
   const customerOptions = loaderData.customers || [];
   const customerTagOptions = loaderData.customerTags || [];
-  const initialProducts = propProducts.length ? propProducts : loaderData.products || [];
-  const initialCollections = propCollections.length
-    ? propCollections
-    : loaderData.collections || [];
+  const initialProducts = useMemo(
+    () => (propProducts.length ? propProducts : loaderData.products || []),
+    [loaderData.products, propProducts],
+  );
+  const initialCollections = useMemo(
+    () =>
+      propCollections.length
+        ? propCollections
+        : loaderData.collections || [],
+    [loaderData.collections, propCollections],
+  );
   const initialProductsPageInfo = propProducts.length
     ? EMPTY_PAGE_INFO
     : loaderData.productsPageInfo || EMPTY_PAGE_INFO;
