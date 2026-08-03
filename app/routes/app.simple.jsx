@@ -1678,6 +1678,8 @@ export default function MixMatchBundleFormPolaris({
     >
       <Form onSubmit={handleSubmit}>
         <BlockStack gap="400">
+          <Tabs tabs={FORM_TABS} selected={selectedTab} onSelect={setSelectedTab} />
+
           <AccordionSection
             id="bundleInformation"
             title="Bundle Information"
@@ -1687,8 +1689,6 @@ export default function MixMatchBundleFormPolaris({
           >
             <BundleInformationSection form={form} onChange={setField} />
           </AccordionSection>
-
-          <Tabs tabs={FORM_TABS} selected={selectedTab} onSelect={setSelectedTab} />
 
           {selectedTab === 0 ? (
         <Grid>
