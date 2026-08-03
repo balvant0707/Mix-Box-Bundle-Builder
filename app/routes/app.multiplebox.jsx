@@ -35,6 +35,7 @@ import {
   Tooltip,
 } from '@shopify/polaris';
 import {
+  CalendarIcon,
   ChevronDownIcon,
   ChevronUpIcon,
   CollectionIcon,
@@ -293,6 +294,23 @@ const CUSTOMER_ELIGIBILITY_OPTIONS = [
   { label: 'All Customers', value: 'all' },
   { label: 'Customer Tags', value: 'tags' },
   { label: 'Specific Customer', value: 'specific' },
+];
+
+const DISCOUNT_OPTIONS = [
+  { label: 'Fixed bundle price', value: 'fixed_bundle_price' },
+  { label: 'Percentage discount %', value: 'percentage' },
+  { label: 'Fixed amount discount $', value: 'fixed_amount' },
+];
+
+const PRODUCT_CONFIGURATION_OPTIONS = [
+  { label: 'Wholestore', value: 'whole_store' },
+  { label: 'Select products', value: 'selected_products' },
+  { label: 'Select collections', value: 'selected_collections' },
+];
+
+const SCHEDULE_OPTIONS = [
+  { label: 'Publish immediately', value: 'immediately' },
+  { label: 'Schedule bundle', value: 'scheduled' },
 ];
 
 const FORM_TABS = [
@@ -856,7 +874,19 @@ function CustomerEligibilitySection({
   );
 }
 
-function BundleInformationSection({ form, onChange }) {
+function BundleInformationSection({
+  form,
+  onChange,
+  minScheduleDate,
+  products,
+  collections,
+  selectedProductIds,
+  selectedCollectionIds,
+  onBrowseProducts,
+  onBrowseCollections,
+  onRemoveProduct,
+  onRemoveCollection,
+}) {
   return (
     <BlockStack gap="400">
       <TextField
@@ -894,6 +924,17 @@ function BundleInformationSection({ form, onChange }) {
       </InlineGrid>
 
       <QuantityPackSection
+        form={form}
+        onChange={onChange}
+        minScheduleDate={minScheduleDate}
+        products={products}
+        collections={collections}
+        selectedProductIds={selectedProductIds}
+        selectedCollectionIds={selectedCollectionIds}
+        onBrowseProducts={onBrowseProducts}
+        onBrowseCollections={onBrowseCollections}
+        onRemoveProduct={onRemoveProduct}
+        onRemoveCollection={onRemoveCollection}
         createNewProduct={form.createQuantityPackProduct}
         packs={form.quantityPacks || []}
         onCreateNewProductChange={(value) =>
@@ -913,6 +954,17 @@ function BundleInformationSection({ form, onChange }) {
 }
 
 function QuantityPackSection({
+  form,
+  onChange,
+  minScheduleDate,
+  products,
+  collections,
+  selectedProductIds,
+  selectedCollectionIds,
+  onBrowseProducts,
+  onBrowseCollections,
+  onRemoveProduct,
+  onRemoveCollection,
   createNewProduct,
   packs,
   onCreateNewProductChange,
@@ -984,7 +1036,19 @@ function QuantityPackSection({
               Add Another Pack
             </Button>
 
-            <QuantityPackConfigurationList />
+            <QuantityPackConfigurationList
+              form={form}
+              onChange={onChange}
+              minScheduleDate={minScheduleDate}
+              products={products}
+              collections={collections}
+              selectedProductIds={selectedProductIds}
+              selectedCollectionIds={selectedCollectionIds}
+              onBrowseProducts={onBrowseProducts}
+              onBrowseCollections={onBrowseCollections}
+              onRemoveProduct={onRemoveProduct}
+              onRemoveCollection={onRemoveCollection}
+            />
           </BlockStack>
         ) : (
           <div
@@ -1012,19 +1076,247 @@ function QuantityPackSection({
   );
 }
 
-function QuantityPackConfigurationList() {
+function QuantityPackConfigurationList({
+  form,
+  onChange,
+  minScheduleDate,
+  products,
+  collections,
+  selectedProductIds,
+  selectedCollectionIds,
+  onBrowseProducts,
+  onBrowseCollections,
+  onRemoveProduct,
+  onRemoveCollection,
+}) {
+  const [openPanel, setOpenPanel] = useState('quantityPack');
+  const togglePanel = useCallback((panel) => {
+    setOpenPanel((current) => (current === panel ? '' : panel));
+  }, []);
+
   return (
     <BlockStack gap="200">
-      <PackSectionPreview title="Quantity Pack" active />
-      <PackSectionPreview title="Configure Bundles" />
-      <PackSectionPreview title="Discounts" />
-      <PackSectionPreview title="Product Configuration" />
-      <PackSectionPreview title="Schedule" />
+      <PackSectionPreview
+        id="quantityPack"
+        title="Quantity Pack"
+        active
+        open={openPanel === 'quantityPack'}
+        onToggle={togglePanel}
+      >
+        <Text as="p" tone="subdued">
+          Quantity pack settings are shown above.
+        </Text>
+      </PackSectionPreview>
+
+      <PackSectionPreview
+        id="configureBundles"
+        title="Configure Bundles"
+        open={openPanel === 'configureBundles'}
+        onToggle={togglePanel}
+      >
+        <BlockStack gap="400">
+          <TextField
+            label="Step Title"
+            value={form.stepTitle}
+            onChange={(value) => onChange('stepTitle', value)}
+            autoComplete="off"
+          />
+          <TextField
+            label="Step Description"
+            value={form.stepDescription}
+            onChange={(value) => onChange('stepDescription', value)}
+            multiline={3}
+            autoComplete="off"
+          />
+          <TextField
+            label="Product Items"
+            type="number"
+            min={1}
+            value={form.productItems}
+            onChange={(value) => onChange('productItems', value)}
+            helpText="Number of products the customer must select."
+            autoComplete="off"
+          />
+          <TextField
+            label="Button Label"
+            value={form.buttonLabel}
+            onChange={(value) => onChange('buttonLabel', value)}
+            autoComplete="off"
+          />
+        </BlockStack>
+      </PackSectionPreview>
+
+      <PackSectionPreview
+        id="discounts"
+        title="Discounts"
+        open={openPanel === 'discounts'}
+        onToggle={togglePanel}
+      >
+        <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+          <Select
+            label="Discount Type"
+            options={DISCOUNT_OPTIONS}
+            value={form.discountType}
+            onChange={(value) => onChange('discountType', value)}
+          />
+          <TextField
+            label="Value"
+            type="number"
+            min={0}
+            value={form.discountValue}
+            onChange={(value) => onChange('discountValue', value)}
+            prefix={form.discountType === 'percentage' ? undefined : '$'}
+            suffix={form.discountType === 'percentage' ? '%' : undefined}
+            placeholder="0"
+            autoComplete="off"
+          />
+        </InlineGrid>
+      </PackSectionPreview>
+
+      <PackSectionPreview
+        id="productConfiguration"
+        title="Product Configuration"
+        open={openPanel === 'productConfiguration'}
+        onToggle={togglePanel}
+      >
+        <BlockStack gap="400">
+          <ChoiceList
+            title="Product source"
+            titleHidden
+            choices={PRODUCT_CONFIGURATION_OPTIONS}
+            selected={[form.productConfiguration]}
+            onChange={(value) => onChange('productConfiguration', value[0])}
+          />
+
+          {form.productConfiguration === 'whole_store' ? (
+            <Box padding="400" background="bg-surface-secondary" borderRadius="300">
+              <InlineStack gap="200" blockAlign="center">
+                <Icon source={ProductIcon} />
+                <Text as="p">All products of the store will be available.</Text>
+              </InlineStack>
+            </Box>
+          ) : null}
+
+          {form.productConfiguration === 'selected_products' ? (
+            <BlockStack gap="300">
+              <InlineStack align="space-between" blockAlign="center">
+                <Text as="h3" variant="headingSm">
+                  Selected products
+                </Text>
+                <Button icon={PlusIcon} onClick={onBrowseProducts}>
+                  Add Products
+                </Button>
+              </InlineStack>
+              <SelectedItems
+                type="products"
+                items={products}
+                selectedIds={selectedProductIds}
+                onRemove={onRemoveProduct}
+                emptyText="No products selected yet."
+              />
+            </BlockStack>
+          ) : null}
+
+          {form.productConfiguration === 'selected_collections' ? (
+            <BlockStack gap="300">
+              <InlineStack align="space-between" blockAlign="center">
+                <Text as="h3" variant="headingSm">
+                  Selected collections
+                </Text>
+                <Button icon={PlusIcon} onClick={onBrowseCollections}>
+                  Add Collections
+                </Button>
+              </InlineStack>
+              <SelectedItems
+                type="collections"
+                items={collections}
+                selectedIds={selectedCollectionIds}
+                onRemove={onRemoveCollection}
+                emptyText="No collections selected yet."
+              />
+            </BlockStack>
+          ) : null}
+        </BlockStack>
+      </PackSectionPreview>
+
+      <PackSectionPreview
+        id="schedule"
+        title="Schedule"
+        open={openPanel === 'schedule'}
+        onToggle={togglePanel}
+      >
+        <BlockStack gap="400">
+          <ChoiceList
+            title="Publishing schedule"
+            titleHidden
+            choices={SCHEDULE_OPTIONS}
+            selected={[form.scheduleType]}
+            onChange={(value) => onChange('scheduleType', value[0])}
+          />
+          {form.scheduleType === 'scheduled' ? (
+            <BlockStack gap="400">
+              <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+                <TextField
+                  label="Start Date"
+                  type="date"
+                  value={form.startDate}
+                  onChange={(value) => onChange('startDate', value)}
+                  min={minScheduleDate}
+                  prefix={<Icon source={CalendarIcon} />}
+                  autoComplete="off"
+                />
+                <TextField
+                  label="Start Time"
+                  type="time"
+                  value={form.startTime}
+                  onChange={(value) => onChange('startTime', value)}
+                  autoComplete="off"
+                />
+              </InlineGrid>
+              <Checkbox
+                label="Set an end date"
+                checked={form.hasEndDate}
+                onChange={(value) => onChange('hasEndDate', value)}
+                helpText="The bundle becomes unavailable after the end date and time."
+              />
+              {form.hasEndDate ? (
+                <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+                  <TextField
+                    label="End Date"
+                    type="date"
+                    value={form.endDate}
+                    onChange={(value) => onChange('endDate', value)}
+                    min={form.startDate || minScheduleDate}
+                    prefix={<Icon source={CalendarIcon} />}
+                    autoComplete="off"
+                  />
+                  <TextField
+                    label="End Time"
+                    type="time"
+                    value={form.endTime}
+                    onChange={(value) => onChange('endTime', value)}
+                    autoComplete="off"
+                  />
+                </InlineGrid>
+              ) : null}
+            </BlockStack>
+          ) : (
+            <Box padding="400" background="bg-surface-secondary" borderRadius="300">
+              <InlineStack gap="200" blockAlign="center">
+                <Icon source={CalendarIcon} />
+                <Text as="p">
+                  The bundle will be available immediately after saving.
+                </Text>
+              </InlineStack>
+            </Box>
+          )}
+        </BlockStack>
+      </PackSectionPreview>
     </BlockStack>
   );
 }
 
-function PackSectionPreview({ title, active = false }) {
+function PackSectionPreview({ id, title, active = false, open, onToggle, children }) {
   return (
     <div
       style={{
@@ -1032,22 +1324,50 @@ function PackSectionPreview({ title, active = false }) {
         border: active ? '1px solid #202223' : '1px solid var(--p-color-border)',
         borderRadius: 8,
         color: active ? '#ffffff' : 'var(--p-color-text)',
-        padding: '12px 16px',
+        overflow: 'hidden',
       }}
     >
-      <InlineStack align="space-between" blockAlign="center">
-        <span
-          style={{
-            color: active ? '#ffffff' : 'var(--p-color-text)',
-            fontWeight: 600,
-          }}
-        >
-          {title}
-        </span>
-        <span style={{ color: active ? '#ffffff' : 'var(--p-color-icon)' }}>
-          <Icon source={ChevronDownIcon} />
-        </span>
-      </InlineStack>
+      <button
+        type="button"
+        onClick={() => onToggle(id)}
+        aria-expanded={open}
+        aria-controls={`${id}-panel`}
+        style={{
+          width: '100%',
+          border: 0,
+          background: 'transparent',
+          color: 'inherit',
+          cursor: 'pointer',
+          padding: '16px 20px',
+          textAlign: 'left',
+        }}
+      >
+        <InlineStack align="space-between" blockAlign="center">
+          <span
+            style={{
+              color: active ? '#ffffff' : 'var(--p-color-text)',
+              fontWeight: 600,
+            }}
+          >
+            {title}
+          </span>
+          <span style={{ color: active ? '#ffffff' : 'var(--p-color-icon)' }}>
+            <Icon source={open ? ChevronUpIcon : ChevronDownIcon} />
+          </span>
+        </InlineStack>
+      </button>
+
+      <Collapsible
+        id={`${id}-panel`}
+        open={open}
+        transition={{ duration: '200ms', timingFunction: 'ease-in-out' }}
+        expandOnPrint
+      >
+        <Divider />
+        <Box padding="400" background="bg-surface">
+          {children}
+        </Box>
+      </Collapsible>
     </div>
   );
 }
@@ -2079,7 +2399,7 @@ export default function MixMatchBundleFormPolaris({
   });
 
   const [openSections, setOpenSections] = useState({
-    bundleInformation: false,
+    bundleInformation: true,
     customerEligibility: false,
   });
 
@@ -2248,7 +2568,27 @@ export default function MixMatchBundleFormPolaris({
                       open={openSections.bundleInformation}
                       onToggle={toggleSection}
                     >
-                      <BundleInformationSection form={form} onChange={setField} />
+                      <BundleInformationSection
+                        form={form}
+                        onChange={setField}
+                        minScheduleDate={minScheduleDate}
+                        products={products}
+                        collections={collections}
+                        selectedProductIds={selectedProductIds}
+                        selectedCollectionIds={selectedCollectionIds}
+                        onBrowseProducts={() => setProductModalOpen(true)}
+                        onBrowseCollections={() => setCollectionModalOpen(true)}
+                        onRemoveProduct={(id) =>
+                          setSelectedProductIds((current) =>
+                            current.filter((currentId) => currentId !== id),
+                          )
+                        }
+                        onRemoveCollection={(id) =>
+                          setSelectedCollectionIds((current) =>
+                            current.filter((currentId) => currentId !== id),
+                          )
+                        }
+                      />
                     </AccordionSection>
 
                     <AccordionSection
