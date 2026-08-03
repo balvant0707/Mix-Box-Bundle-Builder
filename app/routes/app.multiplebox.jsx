@@ -157,6 +157,30 @@ function getPageInfo(connection) {
   return connection?.pageInfo || EMPTY_PAGE_INFO;
 }
 
+function createQuantityPack(index, overrides = {}) {
+  return {
+    id: overrides.id || `pack-${Date.now()}-${index + 1}`,
+    title: overrides.title || `Pack ${index + 1}`,
+    stepTitle: overrides.stepTitle || 'Choose your products',
+    stepDescription:
+      overrides.stepDescription ||
+      'Select products to create your custom bundle.',
+    productItems: overrides.productItems || '3',
+    buttonLabel: overrides.buttonLabel || 'Add bundle to cart',
+    discountType: overrides.discountType || 'fixed_bundle_price',
+    discountValue: overrides.discountValue || '',
+    productConfiguration: overrides.productConfiguration || 'whole_store',
+    scheduleType: overrides.scheduleType || 'immediately',
+    startDate: overrides.startDate || '',
+    startTime: overrides.startTime || '',
+    hasEndDate: overrides.hasEndDate || false,
+    endDate: overrides.endDate || '',
+    endTime: overrides.endTime || '',
+    selectedProductIds: overrides.selectedProductIds || [],
+    selectedCollectionIds: overrides.selectedCollectionIds || [],
+  };
+}
+
 async function loadPickerPage(admin, resource, after = null) {
   const query = resource === 'collections' ? COLLECTIONS_QUERY : PRODUCTS_QUERY;
   const response = await admin.graphql(query, {
@@ -877,11 +901,13 @@ function CustomerEligibilitySection({
 function BundleInformationSection({
   form,
   onChange,
+  activePack,
+  activePackId,
+  onActivePackChange,
+  onActivePackSelect,
   minScheduleDate,
   products,
   collections,
-  selectedProductIds,
-  selectedCollectionIds,
   onBrowseProducts,
   onBrowseCollections,
   onRemoveProduct,
@@ -924,13 +950,13 @@ function BundleInformationSection({
       </InlineGrid>
 
       <QuantityPackSection
-        form={form}
-        onChange={onChange}
+        activePack={activePack}
+        activePackId={activePackId}
+        onActivePackChange={onActivePackChange}
+        onActivePackSelect={onActivePackSelect}
         minScheduleDate={minScheduleDate}
         products={products}
         collections={collections}
-        selectedProductIds={selectedProductIds}
-        selectedCollectionIds={selectedCollectionIds}
         onBrowseProducts={onBrowseProducts}
         onBrowseCollections={onBrowseCollections}
         onRemoveProduct={onRemoveProduct}
@@ -938,13 +964,13 @@ function BundleInformationSection({
         packs={form.quantityPacks || []}
         onAddPack={() => {
           const currentPacks = form.quantityPacks || [];
-          const packId = `pack-${Date.now()}`;
+          const newPack = createQuantityPack(currentPacks.length);
           onChange('quantityPacks', [
             ...currentPacks,
-            { id: packId, title: `Pack ${currentPacks.length + 1}` },
+            newPack,
           ]);
           onChange('createQuantityPackProduct', true);
-          return packId;
+          return newPack.id;
         }}
       />
     </BlockStack>
@@ -952,13 +978,13 @@ function BundleInformationSection({
 }
 
 function QuantityPackSection({
-  form,
-  onChange,
+  activePack,
+  activePackId,
+  onActivePackChange,
+  onActivePackSelect,
   minScheduleDate,
   products,
   collections,
-  selectedProductIds,
-  selectedCollectionIds,
   onBrowseProducts,
   onBrowseCollections,
   onRemoveProduct,
@@ -967,23 +993,12 @@ function QuantityPackSection({
   onAddPack,
 }) {
   const hasPacks = packs.length > 0;
-  const [activePackId, setActivePackId] = useState(packs[0]?.id || '');
-
-  useEffect(() => {
-    if (!packs.length) {
-      setActivePackId('');
-      return;
-    }
-
-    if (!packs.some((pack) => pack.id === activePackId)) {
-      setActivePackId(packs[0].id);
-    }
-  }, [activePackId, packs]);
+  const currentPack = activePack || packs[0];
 
   const handleAddPack = useCallback(() => {
     const packId = onAddPack();
-    if (packId) setActivePackId(packId);
-  }, [onAddPack]);
+    if (packId) onActivePackSelect(packId);
+  }, [onActivePackSelect, onAddPack]);
 
   return (
     <Card padding="0">
@@ -1016,10 +1031,10 @@ function QuantityPackSection({
                 <button
                   type="button"
                   key={pack.id}
-                  onClick={() => setActivePackId(pack.id)}
+                  onClick={() => onActivePackSelect(pack.id)}
                   style={{
-                    minWidth: 125,
-                    minHeight: 52,
+                    minWidth: 100,
+                    minHeight: 40,
                     border: pack.id === activePackId
                       ? '1px solid #202223'
                       : '1px solid var(--p-color-border)',
@@ -1033,7 +1048,6 @@ function QuantityPackSection({
                     padding: 0,
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
                     gap: 0,
                     fontWeight: 700,
                     cursor: 'pointer',
@@ -1042,8 +1056,8 @@ function QuantityPackSection({
                   <span
                     style={{
                       display: 'inline-flex',
-                      width: 42,
-                      height: 42,
+                      width: 30,
+                      height: 30,
                       color: pack.id === activePackId
                         ? '#ffffff'
                         : 'var(--p-color-icon)',
@@ -1062,13 +1076,11 @@ function QuantityPackSection({
 
             <QuantityPackConfigurationList
               key={activePackId}
-              form={form}
-              onChange={onChange}
+              pack={currentPack}
+              onChange={onActivePackChange}
               minScheduleDate={minScheduleDate}
               products={products}
               collections={collections}
-              selectedProductIds={selectedProductIds}
-              selectedCollectionIds={selectedCollectionIds}
               onBrowseProducts={onBrowseProducts}
               onBrowseCollections={onBrowseCollections}
               onRemoveProduct={onRemoveProduct}
@@ -1102,13 +1114,11 @@ function QuantityPackSection({
 }
 
 function QuantityPackConfigurationList({
-  form,
+  pack,
   onChange,
   minScheduleDate,
   products,
   collections,
-  selectedProductIds,
-  selectedCollectionIds,
   onBrowseProducts,
   onBrowseCollections,
   onRemoveProduct,
@@ -1130,13 +1140,13 @@ function QuantityPackConfigurationList({
         <BlockStack gap="400">
           <TextField
             label="Step Title"
-            value={form.stepTitle}
+            value={pack.stepTitle}
             onChange={(value) => onChange('stepTitle', value)}
             autoComplete="off"
           />
           <TextField
             label="Step Description"
-            value={form.stepDescription}
+            value={pack.stepDescription}
             onChange={(value) => onChange('stepDescription', value)}
             multiline={3}
             autoComplete="off"
@@ -1145,14 +1155,14 @@ function QuantityPackConfigurationList({
             label="Product Items"
             type="number"
             min={1}
-            value={form.productItems}
+            value={pack.productItems}
             onChange={(value) => onChange('productItems', value)}
             helpText="Number of products the customer must select."
             autoComplete="off"
           />
           <TextField
             label="Button Label"
-            value={form.buttonLabel}
+            value={pack.buttonLabel}
             onChange={(value) => onChange('buttonLabel', value)}
             autoComplete="off"
           />
@@ -1169,17 +1179,17 @@ function QuantityPackConfigurationList({
           <Select
             label="Discount Type"
             options={DISCOUNT_OPTIONS}
-            value={form.discountType}
+            value={pack.discountType}
             onChange={(value) => onChange('discountType', value)}
           />
           <TextField
             label="Value"
             type="number"
             min={0}
-            value={form.discountValue}
+            value={pack.discountValue}
             onChange={(value) => onChange('discountValue', value)}
-            prefix={form.discountType === 'percentage' ? undefined : '$'}
-            suffix={form.discountType === 'percentage' ? '%' : undefined}
+            prefix={pack.discountType === 'percentage' ? undefined : '$'}
+            suffix={pack.discountType === 'percentage' ? '%' : undefined}
             placeholder="0"
             autoComplete="off"
           />
@@ -1197,11 +1207,11 @@ function QuantityPackConfigurationList({
             title="Product source"
             titleHidden
             choices={PRODUCT_CONFIGURATION_OPTIONS}
-            selected={[form.productConfiguration]}
+            selected={[pack.productConfiguration]}
             onChange={(value) => onChange('productConfiguration', value[0])}
           />
 
-          {form.productConfiguration === 'whole_store' ? (
+          {pack.productConfiguration === 'whole_store' ? (
             <Box padding="400" background="bg-surface-secondary" borderRadius="300">
               <InlineStack gap="200" blockAlign="center">
                 <Icon source={ProductIcon} />
@@ -1210,7 +1220,7 @@ function QuantityPackConfigurationList({
             </Box>
           ) : null}
 
-          {form.productConfiguration === 'selected_products' ? (
+          {pack.productConfiguration === 'selected_products' ? (
             <BlockStack gap="300">
               <InlineStack align="space-between" blockAlign="center">
                 <Text as="h3" variant="headingSm">
@@ -1223,14 +1233,14 @@ function QuantityPackConfigurationList({
               <SelectedItems
                 type="products"
                 items={products}
-                selectedIds={selectedProductIds}
+                selectedIds={pack.selectedProductIds}
                 onRemove={onRemoveProduct}
                 emptyText="No products selected yet."
               />
             </BlockStack>
           ) : null}
 
-          {form.productConfiguration === 'selected_collections' ? (
+          {pack.productConfiguration === 'selected_collections' ? (
             <BlockStack gap="300">
               <InlineStack align="space-between" blockAlign="center">
                 <Text as="h3" variant="headingSm">
@@ -1243,7 +1253,7 @@ function QuantityPackConfigurationList({
               <SelectedItems
                 type="collections"
                 items={collections}
-                selectedIds={selectedCollectionIds}
+                selectedIds={pack.selectedCollectionIds}
                 onRemove={onRemoveCollection}
                 emptyText="No collections selected yet."
               />
@@ -1263,16 +1273,16 @@ function QuantityPackConfigurationList({
             title="Publishing schedule"
             titleHidden
             choices={SCHEDULE_OPTIONS}
-            selected={[form.scheduleType]}
+            selected={[pack.scheduleType]}
             onChange={(value) => onChange('scheduleType', value[0])}
           />
-          {form.scheduleType === 'scheduled' ? (
+          {pack.scheduleType === 'scheduled' ? (
             <BlockStack gap="400">
               <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
                 <TextField
                   label="Start Date"
                   type="date"
-                  value={form.startDate}
+                  value={pack.startDate}
                   onChange={(value) => onChange('startDate', value)}
                   min={minScheduleDate}
                   prefix={<Icon source={CalendarIcon} />}
@@ -1281,32 +1291,32 @@ function QuantityPackConfigurationList({
                 <TextField
                   label="Start Time"
                   type="time"
-                  value={form.startTime}
+                  value={pack.startTime}
                   onChange={(value) => onChange('startTime', value)}
                   autoComplete="off"
                 />
               </InlineGrid>
               <Checkbox
                 label="Set an end date"
-                checked={form.hasEndDate}
+                checked={pack.hasEndDate}
                 onChange={(value) => onChange('hasEndDate', value)}
                 helpText="The bundle becomes unavailable after the end date and time."
               />
-              {form.hasEndDate ? (
+              {pack.hasEndDate ? (
                 <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
                   <TextField
                     label="End Date"
                     type="date"
-                    value={form.endDate}
+                    value={pack.endDate}
                     onChange={(value) => onChange('endDate', value)}
-                    min={form.startDate || minScheduleDate}
+                    min={pack.startDate || minScheduleDate}
                     prefix={<Icon source={CalendarIcon} />}
                     autoComplete="off"
                   />
                   <TextField
                     label="End Time"
                     type="time"
-                    value={form.endTime}
+                    value={pack.endTime}
                     onChange={(value) => onChange('endTime', value)}
                     autoComplete="off"
                   />
@@ -2432,9 +2442,14 @@ export default function MixMatchBundleFormPolaris({
     customerTags: initialData?.customerTags || '',
     customers: initialData?.customers || '',
     createQuantityPackProduct: initialData?.createQuantityPackProduct || false,
-    quantityPacks: initialData?.quantityPacks || [],
+    quantityPacks: (initialData?.quantityPacks || []).map((pack, index) =>
+      createQuantityPack(index, pack),
+    ),
   });
 
+  const [activePackId, setActivePackId] = useState(
+    initialData?.quantityPacks?.[0]?.id || '',
+  );
   const [openSections, setOpenSections] = useState({
     bundleInformation: true,
     customerEligibility: false,
@@ -2470,6 +2485,13 @@ export default function MixMatchBundleFormPolaris({
   });
   const products = productPicker.items;
   const collections = collectionPicker.items;
+  const activePack = useMemo(
+    () =>
+      form.quantityPacks.find((pack) => pack.id === activePackId) ||
+      form.quantityPacks[0] ||
+      null,
+    [activePackId, form.quantityPacks],
+  );
 
   const bannerPreview = useFilePreview(form.bannerImage);
   const bundlePreview = useFilePreview(form.bundleImage);
@@ -2508,6 +2530,55 @@ export default function MixMatchBundleFormPolaris({
     });
   }, [currentSchedule.time, minScheduleDate]);
 
+  useEffect(() => {
+    if (!form.quantityPacks.length) {
+      setActivePackId('');
+      return;
+    }
+
+    if (!form.quantityPacks.some((pack) => pack.id === activePackId)) {
+      setActivePackId(form.quantityPacks[0].id);
+    }
+  }, [activePackId, form.quantityPacks]);
+
+  const setActivePackField = useCallback((field, value) => {
+    setForm((current) => ({
+      ...current,
+      quantityPacks: current.quantityPacks.map((pack) => {
+        if (pack.id !== activePackId) return pack;
+
+        if (field === 'scheduleType' && value === 'scheduled') {
+          return {
+            ...pack,
+            scheduleType: value,
+            startDate:
+              clampDateInput(pack.startDate, minScheduleDate) || minScheduleDate,
+            startTime: pack.startTime || currentSchedule.time,
+          };
+        }
+
+        if (field === 'startDate') {
+          const startDate =
+            clampDateInput(value, minScheduleDate) || minScheduleDate;
+          return {
+            ...pack,
+            startDate,
+            endDate: pack.endDate
+              ? clampDateInput(pack.endDate, startDate)
+              : pack.endDate,
+          };
+        }
+
+        if (field === 'endDate') {
+          const minEndDate = pack.startDate || minScheduleDate;
+          return { ...pack, endDate: clampDateInput(value, minEndDate) };
+        }
+
+        return { ...pack, [field]: value };
+      }),
+    }));
+  }, [activePackId, currentSchedule.time, minScheduleDate]);
+
   const setDesignField = useCallback((field, value) => {
     setDesignSettings((current) => ({ ...current, [field]: value }));
   }, []);
@@ -2520,50 +2591,73 @@ export default function MixMatchBundleFormPolaris({
   }, []);
 
   const selectedCount = useMemo(() => {
-    if (form.productConfiguration === 'selected_products') {
-      return selectedProductIds.length;
+    const source = activePack || form;
+
+    if (source.productConfiguration === 'selected_products') {
+      return activePack?.selectedProductIds?.length ?? selectedProductIds.length;
     }
 
-    if (form.productConfiguration === 'selected_collections') {
-      return selectedCollectionIds.length;
+    if (source.productConfiguration === 'selected_collections') {
+      return (
+        activePack?.selectedCollectionIds?.length ??
+        selectedCollectionIds.length
+      );
     }
 
     return products.length;
   }, [
-    form.productConfiguration,
+    activePack,
+    form,
     products.length,
     selectedCollectionIds.length,
     selectedProductIds.length,
   ]);
 
   const discountText = useMemo(() => {
-    const value = form.discountValue || '0';
+    const source = activePack || form;
+    const value = source.discountValue || '0';
 
-    if (form.discountType === 'percentage') return `${value}% off`;
-    if (form.discountType === 'fixed_amount') return `$${value} off`;
+    if (source.discountType === 'percentage') return `${value}% off`;
+    if (source.discountType === 'fixed_amount') return `$${value} off`;
 
     return `$${value} bundle price`;
-  }, [form.discountType, form.discountValue]);
+  }, [activePack, form]);
 
   const scheduleText = useMemo(() => {
-    if (form.scheduleType === 'immediately') return 'Publish immediately';
+    const source = activePack || form;
 
-    if (!form.startDate) return 'Schedule not completed';
+    if (source.scheduleType === 'immediately') return 'Publish immediately';
 
-    const start = [form.startDate, form.startTime].filter(Boolean).join(' ');
-    const end = form.hasEndDate
-      ? [form.endDate, form.endTime].filter(Boolean).join(' ')
+    if (!source.startDate) return 'Schedule not completed';
+
+    const start = [source.startDate, source.startTime].filter(Boolean).join(' ');
+    const end = source.hasEndDate
+      ? [source.endDate, source.endTime].filter(Boolean).join(' ')
       : '';
 
     return end ? `${start} to ${end}` : `Starts ${start}`;
-  }, [
-    form.endDate,
-    form.endTime,
-    form.hasEndDate,
-    form.scheduleType,
-    form.startDate,
-    form.startTime,
-  ]);
+  }, [activePack, form]);
+
+  const summaryForm = useMemo(() => {
+    if (!activePack) return form;
+
+    return {
+      ...form,
+      stepTitle: activePack.stepTitle,
+      stepDescription: activePack.stepDescription,
+      productItems: activePack.productItems,
+      buttonLabel: activePack.buttonLabel,
+      discountType: activePack.discountType,
+      discountValue: activePack.discountValue,
+      productConfiguration: activePack.productConfiguration,
+      scheduleType: activePack.scheduleType,
+      startDate: activePack.startDate,
+      startTime: activePack.startTime,
+      hasEndDate: activePack.hasEndDate,
+      endDate: activePack.endDate,
+      endTime: activePack.endTime,
+    };
+  }, [activePack, form]);
 
   const handleSubmit = useCallback(async () => {
     try {
@@ -2608,21 +2702,29 @@ export default function MixMatchBundleFormPolaris({
                       <BundleInformationSection
                         form={form}
                         onChange={setField}
+                        activePack={activePack}
+                        activePackId={activePackId}
+                        onActivePackChange={setActivePackField}
+                        onActivePackSelect={setActivePackId}
                         minScheduleDate={minScheduleDate}
                         products={products}
                         collections={collections}
-                        selectedProductIds={selectedProductIds}
-                        selectedCollectionIds={selectedCollectionIds}
                         onBrowseProducts={() => setProductModalOpen(true)}
                         onBrowseCollections={() => setCollectionModalOpen(true)}
                         onRemoveProduct={(id) =>
-                          setSelectedProductIds((current) =>
-                            current.filter((currentId) => currentId !== id),
+                          setActivePackField(
+                            'selectedProductIds',
+                            (activePack?.selectedProductIds || []).filter(
+                              (currentId) => currentId !== id,
+                            ),
                           )
                         }
                         onRemoveCollection={(id) =>
-                          setSelectedCollectionIds((current) =>
-                            current.filter((currentId) => currentId !== id),
+                          setActivePackField(
+                            'selectedCollectionIds',
+                            (activePack?.selectedCollectionIds || []).filter(
+                              (currentId) => currentId !== id,
+                            ),
                           )
                         }
                       />
@@ -2648,7 +2750,7 @@ export default function MixMatchBundleFormPolaris({
 
                 <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 4, xl: 4 }}>
                   <SummaryPreviewPanel
-                    form={form}
+                    form={summaryForm}
                     selectedCount={selectedCount}
                     discountText={discountText}
                     scheduleText={scheduleText}
@@ -2674,7 +2776,7 @@ export default function MixMatchBundleFormPolaris({
 
               <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 4, xl: 4 }}>
                 <SummaryPreviewPanel
-                  form={form}
+                  form={summaryForm}
                   selectedCount={selectedCount}
                   discountText={discountText}
                   scheduleText={scheduleText}
@@ -2703,7 +2805,7 @@ export default function MixMatchBundleFormPolaris({
 
               <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 4, xl: 4 }}>
                 <SummaryPreviewPanel
-                  form={form}
+                  form={summaryForm}
                   selectedCount={selectedCount}
                   discountText={discountText}
                   scheduleText={scheduleText}
@@ -2723,11 +2825,11 @@ export default function MixMatchBundleFormPolaris({
         items={products}
         loadingMore={productPicker.loadingMore}
         error={productPicker.error}
-        selectedIds={selectedProductIds}
+        selectedIds={activePack?.selectedProductIds || []}
         onLoadMore={productPicker.loadMore}
         onClose={() => setProductModalOpen(false)}
         onSave={(ids) => {
-          setSelectedProductIds(ids);
+          setActivePackField('selectedProductIds', ids);
           setProductModalOpen(false);
         }}
         type="products"
@@ -2739,11 +2841,11 @@ export default function MixMatchBundleFormPolaris({
         items={collections}
         loadingMore={collectionPicker.loadingMore}
         error={collectionPicker.error}
-        selectedIds={selectedCollectionIds}
+        selectedIds={activePack?.selectedCollectionIds || []}
         onLoadMore={collectionPicker.loadMore}
         onClose={() => setCollectionModalOpen(false)}
         onSave={(ids) => {
-          setSelectedCollectionIds(ids);
+          setActivePackField('selectedCollectionIds', ids);
           setCollectionModalOpen(false);
         }}
         type="collections"
