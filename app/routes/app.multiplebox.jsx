@@ -46,6 +46,7 @@ import {
   ProductIcon,
   SearchIcon,
 } from '@shopify/polaris-icons';
+import { ToggleSwitch } from '../components/toggle-switch';
 import { authenticate } from '../shopify.server';
 import { withEmbeddedAppParams } from '../utils/embedded-app';
 
@@ -265,6 +266,16 @@ async function loadPickerPage(admin, resource, after = null) {
   };
 }
 
+async function loadJsonOrNull(promise, label) {
+  try {
+    const response = await promise;
+    return await response.json();
+  } catch (error) {
+    console.warn(`[app.multiplebox] failed to load ${label}`, error);
+    return null;
+  }
+}
+
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
   const url = new URL(request.url);
@@ -278,7 +289,7 @@ export const loader = async ({ request }) => {
         url.searchParams.get('after'),
       );
     } catch (error) {
-      console.warn(`[app.simple] failed to load ${pickerResource}`, error);
+      console.warn(`[app.multiplebox] failed to load ${pickerResource}`, error);
       return {
         resource: pickerResource,
         items: [],
@@ -288,81 +299,72 @@ export const loader = async ({ request }) => {
     }
   }
 
-  try {
-    const [customersResponse, productsResponse, collectionsResponse] =
-      await Promise.all([
-        admin.graphql(CUSTOMERS_QUERY, { variables: { first: 100 } }),
-        admin.graphql(PRODUCTS_QUERY, {
-          variables: { first: PICKER_PAGE_SIZE, after: null },
-        }),
-        admin.graphql(COLLECTIONS_QUERY, {
-          variables: { first: PICKER_PAGE_SIZE, after: null },
-        }),
-      ]);
-    const [customersJson, productsJson, collectionsJson] = await Promise.all([
-      customersResponse.json(),
-      productsResponse.json(),
-      collectionsResponse.json(),
-    ]);
+  const [customersJson, productsJson, collectionsJson] = await Promise.all([
+    loadJsonOrNull(
+      admin.graphql(CUSTOMERS_QUERY, { variables: { first: 100 } }),
+      'customers',
+    ),
+    loadJsonOrNull(
+      admin.graphql(PRODUCTS_QUERY, {
+        variables: { first: PICKER_PAGE_SIZE, after: null },
+      }),
+      'products',
+    ),
+    loadJsonOrNull(
+      admin.graphql(COLLECTIONS_QUERY, {
+        variables: { first: PICKER_PAGE_SIZE, after: null },
+      }),
+      'collections',
+    ),
+  ]);
 
-    if (
-      customersJson?.errors?.length ||
-      productsJson?.errors?.length ||
-      collectionsJson?.errors?.length
-    ) {
-      console.warn('[app.simple] GraphQL errors', {
-        customers: customersJson?.errors,
-        products: productsJson?.errors,
-        collections: collectionsJson?.errors,
-      });
-    }
-
-    const customers = (customersJson?.data?.customers?.nodes || []).map((customer) => {
-      const email = customer.defaultEmailAddress?.emailAddress || '';
-      const name =
-        customer.displayName ||
-        [customer.firstName, customer.lastName].filter(Boolean).join(' ') ||
-        email ||
-        customer.id;
-
-      return {
-        id: customer.id,
-        name,
-        email,
-        tags: customer.tags || [],
-        color: colorFromString(customer.id || email || name),
-      };
+  if (
+    customersJson?.errors?.length ||
+    productsJson?.errors?.length ||
+    collectionsJson?.errors?.length
+  ) {
+    console.warn('[app.multiplebox] GraphQL errors', {
+      customers: customersJson?.errors,
+      products: productsJson?.errors,
+      collections: collectionsJson?.errors,
     });
-
-    const products = mapProductEdges(productsJson?.data?.products?.edges);
-    const collections = mapCollectionEdges(collectionsJson?.data?.collections?.edges);
-
-    const customerTags = Array.from(
-      new Set(customers.flatMap((customer) => customer.tags || [])),
-    )
-      .filter(Boolean)
-      .sort((a, b) => a.localeCompare(b))
-      .map((tag) => ({ label: tag, value: tag }));
-
-    return {
-      customers,
-      customerTags,
-      products,
-      collections,
-      productsPageInfo: getPageInfo(productsJson?.data?.products),
-      collectionsPageInfo: getPageInfo(collectionsJson?.data?.collections),
-    };
-  } catch (error) {
-    console.warn('[app.simple] failed to load resources', error);
-    return {
-      customers: [],
-      customerTags: [],
-      products: [],
-      collections: [],
-      productsPageInfo: EMPTY_PAGE_INFO,
-      collectionsPageInfo: EMPTY_PAGE_INFO,
-    };
   }
+
+  const customers = (customersJson?.data?.customers?.nodes || []).map((customer) => {
+    const email = customer.defaultEmailAddress?.emailAddress || '';
+    const name =
+      customer.displayName ||
+      [customer.firstName, customer.lastName].filter(Boolean).join(' ') ||
+      email ||
+      customer.id;
+
+    return {
+      id: customer.id,
+      name,
+      email,
+      tags: customer.tags || [],
+      color: colorFromString(customer.id || email || name),
+    };
+  });
+
+  const products = mapProductEdges(productsJson?.data?.products?.edges);
+  const collections = mapCollectionEdges(collectionsJson?.data?.collections?.edges);
+
+  const customerTags = Array.from(
+    new Set(customers.flatMap((customer) => customer.tags || [])),
+  )
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b))
+    .map((tag) => ({ label: tag, value: tag }));
+
+  return {
+    customers,
+    customerTags,
+    products,
+    collections,
+    productsPageInfo: getPageInfo(productsJson?.data?.products),
+    collectionsPageInfo: getPageInfo(collectionsJson?.data?.collections),
+  };
 };
 
 const CUSTOMER_ELIGIBILITY_OPTIONS = [
@@ -386,6 +388,54 @@ const PRODUCT_CONFIGURATION_OPTIONS = [
 const SCHEDULE_OPTIONS = [
   { label: 'Publish immediately', value: 'immediately' },
   { label: 'Schedule bundle', value: 'scheduled' },
+];
+
+const ADVANCED_SETTINGS = [
+  {
+    field: 'hideOutOfStockProducts',
+    label: 'Hide Out of Stock Products',
+    helpText: 'Hide unavailable products from the storefront product selector.',
+  },
+  {
+    field: 'showProductSearch',
+    label: 'Show product search',
+    helpText: 'Let customers search products inside the bundle selector.',
+  },
+  {
+    field: 'hideBundleHeader',
+    label: 'Hide bundle header',
+    helpText: 'Hide the storefront bundle title and description header.',
+  },
+  {
+    field: 'hideBannerImage',
+    label: 'Hide Banner Image',
+    helpText: 'Do not display the bundle banner image on the storefront.',
+  },
+  {
+    field: 'hideProductInfoModal',
+    label: 'Hide product info modal',
+    helpText: 'Disable the product details modal from the storefront selector.',
+  },
+  {
+    field: 'productImageAutoHeight',
+    label: 'Product Image Auto Height',
+    helpText: 'Let product images use their natural height instead of a fixed height.',
+  },
+  {
+    field: 'displayCompareAtPrice',
+    label: "Display 'Compare at' price",
+    helpText: "Show compare-at prices when Shopify product variants include them.",
+  },
+  {
+    field: 'redirectToCheckout',
+    label: 'Redirect to Checkout',
+    helpText: 'Send customers directly to checkout after adding the bundle.',
+  },
+  {
+    field: 'redirectToCart',
+    label: 'Redirect to Cart',
+    helpText: 'Send customers to the cart after adding the bundle.',
+  },
 ];
 
 const FORM_TABS = [
@@ -1520,6 +1570,53 @@ function ProductPreviewGrid({ products, maxItems }) {
   );
 }
 
+function AdvancedTabPanel({ form, onChange }) {
+  return (
+    <Card>
+      <BlockStack gap="500">
+        <BlockStack gap="100">
+          <Text as="h2" variant="headingMd">
+            Advanced
+          </Text>
+          <Text as="p" tone="subdued">
+            Configure storefront behavior for this bundle.
+          </Text>
+        </BlockStack>
+
+        <Divider />
+
+        <BlockStack gap="300">
+          {ADVANCED_SETTINGS.map((setting) => (
+            <Box
+              key={setting.field}
+              padding="300"
+              borderRadius="300"
+              borderWidth="025"
+              borderColor="border"
+            >
+              <InlineStack align="space-between" blockAlign="start" gap="400" wrap={false}>
+                <BlockStack gap="100">
+                  <Text as="p" fontWeight="semibold">
+                    {setting.label}
+                  </Text>
+                  <Text as="p" tone="subdued" variant="bodySm">
+                    {setting.helpText}
+                  </Text>
+                </BlockStack>
+
+                <ToggleSwitch
+                  checked={Boolean(form[setting.field])}
+                  onChange={() => onChange(setting.field, !form[setting.field])}
+                />
+              </InlineStack>
+            </Box>
+          ))}
+        </BlockStack>
+      </BlockStack>
+    </Card>
+  );
+}
+
 function SummaryPreviewPanel({
   form,
   selectedCount,
@@ -1870,6 +1967,7 @@ function useInfinitePickerPagination({
   initialItems,
   initialPageInfo,
   open,
+  routePath = '/app/simple',
 }) {
   const fetcher = useFetcher();
   const pendingCursorRef = useRef(null);
@@ -1948,8 +2046,8 @@ function useInfinitePickerPagination({
       after,
     });
 
-    fetcher.load(`/app/simple?${params.toString()}`);
-  }, [fetcher, hasNextPage, loadingMore, open, pageInfo?.endCursor, resource]);
+    fetcher.load(`${routePath}?${params.toString()}`);
+  }, [fetcher, hasNextPage, loadingMore, open, pageInfo?.endCursor, resource, routePath]);
 
   return {
     items,
@@ -2525,6 +2623,15 @@ export default function MixMatchBundleFormPolaris({
     customerTags: initialData?.customerTags || '',
     customers: initialData?.customers || '',
     createQuantityPackProduct: initialData?.createQuantityPackProduct || false,
+    hideOutOfStockProducts: Boolean(initialData?.hideOutOfStockProducts),
+    showProductSearch: Boolean(initialData?.showProductSearch),
+    hideBundleHeader: Boolean(initialData?.hideBundleHeader),
+    hideBannerImage: Boolean(initialData?.hideBannerImage),
+    hideProductInfoModal: Boolean(initialData?.hideProductInfoModal),
+    productImageAutoHeight: Boolean(initialData?.productImageAutoHeight),
+    displayCompareAtPrice: Boolean(initialData?.displayCompareAtPrice),
+    redirectToCheckout: Boolean(initialData?.redirectToCheckout),
+    redirectToCart: Boolean(initialData?.redirectToCart),
     quantityPacks: (initialData?.quantityPacks || []).map((pack, index) =>
       createQuantityPack(index, pack),
     ),
@@ -2559,12 +2666,14 @@ export default function MixMatchBundleFormPolaris({
     initialItems: initialProducts,
     initialPageInfo: initialProductsPageInfo,
     open: productModalOpen,
+    routePath: '/app/multiplebox',
   });
   const collectionPicker = useInfinitePickerPagination({
     resource: 'collections',
     initialItems: initialCollections,
     initialPageInfo: initialCollectionsPageInfo,
     open: collectionModalOpen,
+    routePath: '/app/multiplebox',
   });
   const products = productPicker.items;
   const collections = collectionPicker.items;
@@ -2913,16 +3022,7 @@ export default function MixMatchBundleFormPolaris({
           {selectedTab === 2 ? (
             <Grid>
               <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 8, xl: 8 }}>
-                <Card>
-                  <BlockStack gap="300">
-                    <Text as="h2" variant="headingMd">
-                      Advanced
-                    </Text>
-                    <Text as="p" tone="subdued">
-                      Advanced settings will appear here.
-                    </Text>
-                  </BlockStack>
-                </Card>
+                <AdvancedTabPanel form={form} onChange={setField} />
               </Grid.Cell>
 
               <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 4, xl: 4 }}>
