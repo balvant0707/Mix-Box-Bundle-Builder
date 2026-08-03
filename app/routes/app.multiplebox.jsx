@@ -938,11 +938,13 @@ function BundleInformationSection({
         packs={form.quantityPacks || []}
         onAddPack={() => {
           const currentPacks = form.quantityPacks || [];
+          const packId = `pack-${Date.now()}`;
           onChange('quantityPacks', [
             ...currentPacks,
-            { id: `pack-${Date.now()}`, title: `Pack ${currentPacks.length + 1}` },
+            { id: packId, title: `Pack ${currentPacks.length + 1}` },
           ]);
           onChange('createQuantityPackProduct', true);
+          return packId;
         }}
       />
     </BlockStack>
@@ -965,6 +967,23 @@ function QuantityPackSection({
   onAddPack,
 }) {
   const hasPacks = packs.length > 0;
+  const [activePackId, setActivePackId] = useState(packs[0]?.id || '');
+
+  useEffect(() => {
+    if (!packs.length) {
+      setActivePackId('');
+      return;
+    }
+
+    if (!packs.some((pack) => pack.id === activePackId)) {
+      setActivePackId(packs[0].id);
+    }
+  }, [activePackId, packs]);
+
+  const handleAddPack = useCallback(() => {
+    const packId = onAddPack();
+    if (packId) setActivePackId(packId);
+  }, [onAddPack]);
 
   return (
     <Card padding="0">
@@ -980,7 +999,7 @@ function QuantityPackSection({
           </BlockStack>
 
           {hasPacks ? (
-            <Button variant="primary" icon={PlusIcon} onClick={onAddPack}>
+            <Button variant="primary" icon={PlusIcon} onClick={handleAddPack}>
               Add Another Pack
             </Button>
           ) : null}
@@ -994,19 +1013,30 @@ function QuantityPackSection({
           <BlockStack gap="500">
             <InlineStack gap="400" wrap>
               {packs.map((pack) => (
-                <div
+                <button
+                  type="button"
                   key={pack.id}
+                  onClick={() => setActivePackId(pack.id)}
                   style={{
-                    width: 100,
-                    minHeight: 40,
-                    background: '#202223',
+                    minWidth: 125,
+                    minHeight: 52,
+                    border: pack.id === activePackId
+                      ? '1px solid #202223'
+                      : '1px solid var(--p-color-border)',
+                    background: pack.id === activePackId
+                      ? '#202223'
+                      : 'var(--p-color-bg-surface)',
                     borderRadius: 12,
-                    color: '#ffffff',
+                    color: pack.id === activePackId
+                      ? '#ffffff'
+                      : 'var(--p-color-text)',
                     padding: 0,
                     display: 'flex',
                     alignItems: 'center',
+                    justifyContent: 'center',
                     gap: 0,
                     fontWeight: 700,
+                    cursor: 'pointer',
                   }}
                 >
                   <span
@@ -1014,7 +1044,11 @@ function QuantityPackSection({
                       display: 'inline-flex',
                       width: 42,
                       height: 42,
-                      color: '#ffffff',
+                      color: pack.id === activePackId
+                        ? '#ffffff'
+                        : 'var(--p-color-icon)',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                     }}
                   >
                     <Icon source={PackageIcon} />
@@ -1022,11 +1056,12 @@ function QuantityPackSection({
                   <Text as="span" fontWeight="bold">
                     {pack.title}
                   </Text>
-                </div>
+                </button>
               ))}
             </InlineStack>
 
             <QuantityPackConfigurationList
+              key={activePackId}
               form={form}
               onChange={onChange}
               minScheduleDate={minScheduleDate}
@@ -1052,7 +1087,7 @@ function QuantityPackSection({
             }}
           >
             <BlockStack gap="400" inlineAlign="center">
-              <Button variant="primary" icon={PlusIcon} onClick={onAddPack}>
+              <Button variant="primary" icon={PlusIcon} onClick={handleAddPack}>
                 Add Quantity Pack
               </Button>
               <Text as="p" tone="subdued">
