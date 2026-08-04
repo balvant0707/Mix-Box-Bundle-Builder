@@ -9,7 +9,7 @@ export function withEmbeddedAppParams(target, currentSearch = "") {
   const currentParams = new URLSearchParams(currentSearch);
 
   for (const [key, value] of currentParams.entries()) {
-    if (!EMBEDDED_APP_PARAM_KEYS.includes(key) && !nextUrl.searchParams.has(key)) {
+    if (!nextUrl.searchParams.has(key)) {
       nextUrl.searchParams.set(key, value);
     }
   }

@@ -335,12 +335,12 @@ export default function App() {
         }
       `}</style>
       <s-app-nav>
-        <s-link href={withEmbeddedAppParams("/app/simple")}>Simple Boxes</s-link>
-         <s-link href={withEmbeddedAppParams("/app/multiplebox")}>Multiple Boxes</s-link>
-        <s-link href={withEmbeddedAppParams("/app/boxes")}>Manage Boxes</s-link>
-        <s-link href={withEmbeddedAppParams("/app/analytics")}>Analytics</s-link>
-        <s-link href={withEmbeddedAppParams("/app/widget-settings")}>Widget Settings</s-link>
-        <s-link href={withEmbeddedAppParams("/app/pricing")}>Price Plan</s-link>
+        <s-link href={withEmbeddedAppParams("/app/simple", location.search)}>Simple Boxes</s-link>
+        <s-link href={withEmbeddedAppParams("/app/multiplebox", location.search)}>Multiple Boxes</s-link>
+        <s-link href={withEmbeddedAppParams("/app/boxes", location.search)}>Manage Boxes</s-link>
+        <s-link href={withEmbeddedAppParams("/app/analytics", location.search)}>Analytics</s-link>
+        <s-link href={withEmbeddedAppParams("/app/widget-settings", location.search)}>Widget Settings</s-link>
+        <s-link href={withEmbeddedAppParams("/app/pricing", location.search)}>Price Plan</s-link>
       </s-app-nav>
       {!embedBlockEnabled && (
         <Page>
