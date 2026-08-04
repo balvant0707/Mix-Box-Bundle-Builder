@@ -37,8 +37,6 @@ import {
 import {
   CalendarIcon,
   ChevronDownIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   ChevronUpIcon,
   CollectionIcon,
   DeleteIcon,
@@ -1091,86 +1089,73 @@ function StatusSummarySection({ status, onChange }) {
 
 function ProductPreviewGrid({ products, maxItems }) {
   const limit = Math.max(Number(maxItems) || 0, 0);
-  const visibleProducts = products.slice(0, limit || 2);
-  const [slideIndex, setSlideIndex] = useState(0);
-  const productsPerSlide = 2;
-  const currentProducts = visibleProducts.slice(
-    slideIndex,
-    slideIndex + productsPerSlide,
-  );
-  const canSlide = visibleProducts.length > productsPerSlide;
-  const canGoBack = slideIndex > 0;
-  const canGoForward = slideIndex + productsPerSlide < visibleProducts.length;
-
-  useEffect(() => {
-    if (slideIndex >= visibleProducts.length) {
-      setSlideIndex(Math.max(visibleProducts.length - productsPerSlide, 0));
-    }
-  }, [slideIndex, visibleProducts.length]);
+  const visibleProducts = products.slice(0, limit || 6);
 
   if (!visibleProducts.length) return null;
 
   return (
-    <BlockStack gap="200">
-      <InlineGrid columns={{ xs: 2, sm: 2 }} gap="200">
-        {currentProducts.map((product) => (
-          <Box
-            key={product.id}
-            padding="200"
-            background="bg-surface"
-            borderRadius="300"
-            borderWidth="025"
-            borderColor="border"
+    <div
+      style={{
+        display: 'grid',
+        gap: 8,
+        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+      }}
+    >
+      {visibleProducts.map((product) => (
+        <div
+          key={product.id}
+          style={{
+            minWidth: 0,
+            textAlign: 'center',
+          }}
+        >
+          <div
+            style={{
+              alignItems: 'center',
+              aspectRatio: '1 / 1',
+              background: '#ffffff',
+              border: '1px solid #d8d8d8',
+              borderRadius: 5,
+              display: 'flex',
+              justifyContent: 'center',
+              overflow: 'hidden',
+              width: '100%',
+            }}
           >
-            <BlockStack gap="150">
-              <Thumbnail
-                source={product.image || ProductIcon}
+            {product.image ? (
+              <img
+                src={product.image}
                 alt={product.title}
-                size="medium"
+                style={{
+                  display: 'block',
+                  height: '100%',
+                  objectFit: 'contain',
+                  width: '100%',
+                }}
               />
-              <BlockStack gap="050">
-                <Text as="p" variant="bodySm" fontWeight="semibold">
-                  {product.title}
-                </Text>
-                {product.subtitle ? (
-                  <Text as="p" variant="bodySm" tone="subdued">
-                    {product.subtitle}
-                  </Text>
-                ) : null}
-              </BlockStack>
-            </BlockStack>
-          </Box>
-        ))}
-      </InlineGrid>
+            ) : (
+              <Icon source={ProductIcon} tone="subdued" />
+            )}
+          </div>
 
-      {canSlide ? (
-        <InlineStack align="center" gap="200">
-          <Button
-            icon={ChevronLeftIcon}
-            accessibilityLabel="Previous products"
-            disabled={!canGoBack}
-            onClick={() =>
-              setSlideIndex((current) =>
-                Math.max(current - productsPerSlide, 0),
-              )
-            }
-          />
-          <Button
-            icon={ChevronRightIcon}
-            accessibilityLabel="Next products"
-            disabled={!canGoForward}
-            onClick={() =>
-              setSlideIndex((current) =>
-                Math.min(
-                  current + productsPerSlide,
-                  Math.max(visibleProducts.length - productsPerSlide, 0),
-                ),
-              )
-            }
-          />
-        </InlineStack>
-      ) : null}
-    </BlockStack>
+          <div
+            title={product.title}
+            style={{
+              color: '#4b4b4b',
+              fontSize: 13,
+              fontWeight: 600,
+              lineHeight: '18px',
+              marginTop: 3,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {product.title}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
