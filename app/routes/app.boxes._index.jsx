@@ -891,55 +891,6 @@ export default function ManageBoxesPage() {
         </div>
       )}
 
-      {/* Create Box modal */}
-      <Modal
-        open={showCreateBoxModal}
-        onClose={closeCreateBoxModal}
-        title="Choose Type"
-        size="medium"
-      >
-        <Modal.Section>
-          <BlockStack gap="300">
-            <Card>
-              <BlockStack gap="200">
-                <InlineStack gap="200" blockAlign="center">
-                  <AdminIcon type="package" size="base" />
-                  <Text as="h3" variant="headingSm">Create Simple Box</Text>
-                </InlineStack>
-                <Text as="p" tone="subdued" variant="bodySm">
-                  Preconfigured Shopify product bundle to increase average order value faster.
-                </Text>
-                <Button
-                  variant="primary"
-                  disabled={pendingCreateRoute !== null}
-                  onClick={() => goToCreateRoute("/app/boxes/new")}
-                >
-                  Create Box
-                </Button>
-              </BlockStack>
-            </Card>
-
-            <Card>
-              <BlockStack gap="200">
-                <InlineStack gap="200" blockAlign="center">
-                  <AdminIcon type="target" size="base" />
-                  <Text as="h3" variant="headingSm">Create Specific Box</Text>
-                </InlineStack>
-                <Text as="p" tone="subdued" variant="bodySm">
-                  Step-by-step bundle builder that lets shoppers create a personalized product box.
-                </Text>
-                <Button
-                  variant="primary"
-                  disabled={pendingCreateRoute !== null}
-                  onClick={() => goToCreateRoute("/app/boxes/specific-combo")}
-                >
-                  Create Box
-                </Button>
-              </BlockStack>
-            </Card>
-          </BlockStack>
-        </Modal.Section>
-      </Modal>
 
       {/* Delete confirmation modal */}
       <Modal
