@@ -232,38 +232,6 @@ const ENSURE_BUNDLE_ORDER_COLUMNS_SQL = [
   "ALTER TABLE `bundle_order` ADD COLUMN IF NOT EXISTS `orderNumber` INTEGER NULL;",
 ];
 
-const ENSURE_APP_SETTINGS_TABLE_SQL = `
-CREATE TABLE IF NOT EXISTS \`app_settings\` (
-  \`id\` INTEGER NOT NULL AUTO_INCREMENT,
-  \`shop\` VARCHAR(191) NOT NULL,
-  \`widgetHeadingText\` VARCHAR(255) NULL,
-  \`ctaButtonLabel\` VARCHAR(100) NULL,
-  \`addToCartLabel\` VARCHAR(100) NULL,
-  \`buttonColor\` VARCHAR(20) NULL DEFAULT '#2A7A4F',
-  \`activeSlotColor\` VARCHAR(20) NULL DEFAULT '#2A7A4F',
-  \`showSavingsBadge\` BOOLEAN NOT NULL DEFAULT false,
-  \`allowDuplicates\` BOOLEAN NOT NULL DEFAULT false,
-  \`showProductPrices\` BOOLEAN NOT NULL DEFAULT false,
-  \`forceShowOos\` BOOLEAN NOT NULL DEFAULT false,
-  \`giftMessageField\` BOOLEAN NOT NULL DEFAULT false,
-  \`analyticsTracking\` BOOLEAN NOT NULL DEFAULT true,
-  \`emailNotifications\` BOOLEAN NOT NULL DEFAULT false,
-  \`presetTheme\` VARCHAR(50) NULL DEFAULT 'custom',
-  \`widgetMaxWidth\` INTEGER NULL DEFAULT 1140,
-  \`productCardsPerRow\` INTEGER NULL DEFAULT 4,
-  \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  \`updatedAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
-  UNIQUE INDEX \`app_settings_shop_key\` (\`shop\`),
-  PRIMARY KEY (\`id\`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-`;
-
-const ENSURE_APP_SETTINGS_COLUMNS_SQL = [
-  "ALTER TABLE `app_settings` ADD COLUMN IF NOT EXISTS `presetTheme` VARCHAR(50) NULL DEFAULT 'custom';",
-  "ALTER TABLE `app_settings` ADD COLUMN IF NOT EXISTS `widgetMaxWidth` INTEGER NULL DEFAULT 1140;",
-  "ALTER TABLE `app_settings` ADD COLUMN IF NOT EXISTS `productCardsPerRow` INTEGER NULL DEFAULT 4;",
-];
-
 const ENSURE_SHOP_COLUMNS_SQL = [
   "ALTER TABLE `shop` ADD COLUMN IF NOT EXISTS `reviewPromptDelayDays` INTEGER NOT NULL DEFAULT 7;",
   "ALTER TABLE `shop` ADD COLUMN IF NOT EXISTS `reviewPopupDismissedAt` DATETIME(3) NULL;",
@@ -354,11 +322,7 @@ export function ensureAppTables() {
       await prisma.$executeRawUnsafe(ENSURE_COMBO_BOX_TABLE_SQL);
       await prisma.$executeRawUnsafe(ENSURE_COMBO_BOX_PRODUCT_TABLE_SQL);
       await prisma.$executeRawUnsafe(ENSURE_BUNDLE_ORDER_TABLE_SQL);
-      await prisma.$executeRawUnsafe(ENSURE_APP_SETTINGS_TABLE_SQL);
       for (const sql of ENSURE_SHOP_COLUMNS_SQL) {
-        await prisma.$executeRawUnsafe(sql);
-      }
-      for (const sql of ENSURE_APP_SETTINGS_COLUMNS_SQL) {
         await prisma.$executeRawUnsafe(sql);
       }
       for (const sql of ENSURE_COMBO_BOX_COLUMNS_SQL) {

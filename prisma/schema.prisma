@@ -391,30 +391,6 @@ model BundleOrder {
   @@map("bundle_order")
 }
 
-model AppSettings {
-  id                 Int      @id @default(autoincrement())
-  shop               String   @unique
-  widgetHeadingText  String?  @db.VarChar(255)
-  ctaButtonLabel     String?  @db.VarChar(100)
-  addToCartLabel     String?  @db.VarChar(100)
-  buttonColor        String?  @default("#2A7A4F") @db.VarChar(20)
-  activeSlotColor    String?  @default("#2A7A4F") @db.VarChar(20)
-  showSavingsBadge   Boolean  @default(false)
-  allowDuplicates    Boolean  @default(false)
-  showProductPrices  Boolean  @default(false)
-  forceShowOos       Boolean  @default(false)
-  giftMessageField   Boolean  @default(false)
-  analyticsTracking  Boolean  @default(true)
-  emailNotifications Boolean  @default(false)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  presetTheme        String?  @default("custom") @db.VarChar(50)
-  widgetMaxWidth     Int?     @default(1140)
-  productCardsPerRow Int?     @default(4)
-
-  @@map("app_settings")
-}
-
 model Subscription {
   id               String    @id @default(uuid()) @db.VarChar(36)
   shop             String    @unique @db.VarChar(255)

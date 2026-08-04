@@ -1,6 +1,5 @@
 import { Buffer } from "node:buffer";
 import { listBoxes, getComboStepImages } from "../models/boxes.server";
-import { getSettings } from "../models/settings.server";
 import { unauthenticated } from "../shopify.server";
 import { getOrderCreditStatus } from "../models/order-credit.server";
 
@@ -50,10 +49,7 @@ export const loader = async ({ request }) => {
     return Response.json({ error: "shop parameter required" }, { status: 400, headers: CORS_HEADERS });
   }
 
-  const [boxes, settings] = await Promise.all([
-    listBoxes(shop, true, false),
-    getSettings(shop),
-  ]);
+  const boxes = await listBoxes(shop, true, false);
 
   // Check order limits by billing cycle:
   // monthly plans => count current month, yearly plans => count current year.
@@ -211,17 +207,17 @@ export const loader = async ({ request }) => {
   });
 
   const publicSettings = {
-    widgetHeadingText: settings.widgetHeadingText || null,
-    ctaButtonLabel: settings.ctaButtonLabel || null,
-    addToCartLabel: settings.addToCartLabel || null,
-    buttonColor: settings.buttonColor || "#2A7A4F",
-    activeSlotColor: settings.activeSlotColor || "#2A7A4F",
-    showSavingsBadge: settings.showSavingsBadge,
-    showProductPrices: settings.showProductPrices,
-    forceShowOos: settings.forceShowOos,
-    presetTheme: settings.presetTheme || "custom",
-    widgetMaxWidth: settings.widgetMaxWidth ?? 1140,
-    productCardsPerRow: settings.productCardsPerRow ?? 4,
+    widgetHeadingText: "Pick your favorite products and build your own box!",
+    ctaButtonLabel: null,
+    addToCartLabel: null,
+    buttonColor: "#2A7A4F",
+    activeSlotColor: "#2A7A4F",
+    showSavingsBadge: false,
+    showProductPrices: false,
+    forceShowOos: false,
+    presetTheme: "custom",
+    widgetMaxWidth: 1140,
+    productCardsPerRow: 4,
     orderLimitReached,
   };
 

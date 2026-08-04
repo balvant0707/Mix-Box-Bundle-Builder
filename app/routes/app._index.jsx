@@ -312,7 +312,6 @@ const createBoxActions = [
 const quickActions = [
   { key: "manage-boxes", label: "Manage Boxes", sub: "Edit existing combos", href: "/app/boxes" },
   { key: "analytics", label: "View Analytics", sub: "Sales and revenue", href: "/app/analytics" },
-  { key: "settings", label: "Widget Settings", sub: "Theme and appearance", href: "/app/settings" },
 ];
 
 const promotedApps = [

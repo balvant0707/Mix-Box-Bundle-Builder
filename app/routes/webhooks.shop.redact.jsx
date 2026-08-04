@@ -25,9 +25,6 @@ export const action = async ({ request }) => {
       where: { shop },
     });
     const comboBoxesDeleted = await tx.comboBox.deleteMany({ where: { shop } });
-    const appSettingsDeleted = await tx.appSettings.deleteMany({
-      where: { shop },
-    });
     const sessionsDeleted = await tx.session.deleteMany({ where: { shop } });
     const shopsDeleted = await tx.shop.deleteMany({ where: { shop } });
 
@@ -35,7 +32,6 @@ export const action = async ({ request }) => {
       comboProductsDeleted,
       bundleOrdersDeleted: bundleOrdersDeleted.count,
       comboBoxesDeleted: comboBoxesDeleted.count,
-      appSettingsDeleted: appSettingsDeleted.count,
       sessionsDeleted: sessionsDeleted.count,
       shopsDeleted: shopsDeleted.count,
     };
