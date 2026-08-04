@@ -1,13 +1,30 @@
-import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { useState } from "react";
 import { Form, useActionData, useLoaderData } from "react-router";
+import { AppProvider as PolarisAppProvider } from "@shopify/polaris";
+import {
+  Banner,
+  BlockStack,
+  Box,
+  Button,
+  Card,
+  InlineStack,
+  Page,
+  Text,
+  TextField,
+} from "@shopify/polaris";
+import enTranslations from "@shopify/polaris/locales/en.json";
+import "@shopify/polaris/build/esm/styles.css";
 import { login } from "../../shopify.server";
 import { loginErrorMessage } from "./error.server";
 
 export const loader = async ({ request }) => {
+  const url = new URL(request.url);
   const errors = loginErrorMessage(await login(request));
 
-  return { errors };
+  return {
+    errors,
+    shop: url.searchParams.get("shop") || "",
+  };
 };
 
 export const action = async ({ request }) => {
@@ -21,28 +38,56 @@ export const action = async ({ request }) => {
 export default function Auth() {
   const loaderData = useLoaderData();
   const actionData = useActionData();
-  const [shop, setShop] = useState("");
+  const [shop, setShop] = useState(loaderData.shop || "");
   const { errors } = actionData || loaderData;
 
   return (
-    <AppProvider embedded={false}>
-      <s-page inlineSize="medium">
-        <Form method="post">
-          <s-section heading="Log in">
-            <s-text-field
-              name="shop"
-              label="Shop domain"
-              details="example.myshopify.com"
-              value={shop}
-              onChange={(e) => setShop(e.currentTarget.value)}
-              autocomplete="on"
-              error={errors.shop}
-            ></s-text-field>
-            <s-button type="submit">Log in</s-button>
-          </s-section>
-        </Form>
-      </s-page>
-    </AppProvider>
+    <PolarisAppProvider i18n={enTranslations}>
+      <Page narrowWidth title="MixBox - Box & Bundle Builder">
+        <Card>
+          <Form method="post">
+            <BlockStack gap="400">
+              <BlockStack gap="100">
+                <Text as="h1" variant="headingLg">
+                  Open your MixBox dashboard
+                </Text>
+                <Text as="p" tone="subdued">
+                  Enter your Shopify store domain to continue.
+                </Text>
+              </BlockStack>
+
+              {errors.shop ? (
+                <Banner tone="critical">
+                  <p>{errors.shop}</p>
+                </Banner>
+              ) : null}
+
+              <TextField
+                name="shop"
+                label="Shop domain"
+                placeholder="example.myshopify.com"
+                value={shop}
+                onChange={setShop}
+                autoComplete="on"
+                error={errors.shop}
+              />
+
+              <InlineStack align="end">
+                <Button submit variant="primary">
+                  Log in
+                </Button>
+              </InlineStack>
+
+              <Box borderBlockStartWidth="025" borderColor="border">
+                <Text as="p" variant="bodySm" tone="subdued">
+                  If you opened the app from Shopify admin, refresh the admin page and launch MixBox again.
+                </Text>
+              </Box>
+            </BlockStack>
+          </Form>
+        </Card>
+      </Page>
+    </PolarisAppProvider>
   );
 }
 

@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "68871acfcee5a597108cc2d754c7ec3e"
-application_url = "https://mix-box-bundle-builder.vercel.app/"
+application_url = "https://mix-box-bundle-builder.vercel.app/app"
 embedded = true
 name = "Mix Box & Bundle Builder"
 handle = "mix-box-bundle-builder"
