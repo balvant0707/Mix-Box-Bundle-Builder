@@ -1188,8 +1188,8 @@ function QuantityPackSection({
                   key={pack.id}
                   onClick={() => onActivePackSelect(pack.id)}
                   style={{
-                    minWidth: 100,
-                    minHeight: 40,
+                    minWidth: 85,
+                    minHeight: 35,
                     border: pack.id === activePackId
                       ? '1px solid #202223'
                       : '1px solid var(--p-color-border)',
