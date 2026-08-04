@@ -1,5 +1,5 @@
 import { authenticate } from "../shopify.server";
-import { getBox, updateBox, deleteBox } from "../models/boxes.server";
+import { BoxCodeValidationError, getBox, updateBox, deleteBox } from "../models/boxes.server";
 
 export const loader = async ({ request, params }) => {
   const { session } = await authenticate.admin(request);
@@ -19,8 +19,16 @@ export const action = async ({ request, params }) => {
 
   if (request.method === "PUT" || request.method === "PATCH") {
     const body = await request.json();
-    const updated = await updateBox(id, session.shop, body, admin);
-    return Response.json(updated);
+    try {
+      const updated = await updateBox(id, session.shop, body, admin);
+      return Response.json(updated);
+    } catch (error) {
+      if (error instanceof BoxCodeValidationError || error?.name === "BoxCodeValidationError") {
+        return Response.json({ error: error.message }, { status: 400 });
+      }
+
+      throw error;
+    }
   }
 
   return Response.json({ error: "Method not allowed" }, { status: 405 });

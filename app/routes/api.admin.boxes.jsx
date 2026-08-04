@@ -1,5 +1,5 @@
 import { authenticate } from "../shopify.server";
-import { listBoxes, createBox } from "../models/boxes.server";
+import { BoxCodeValidationError, listBoxes, createBox } from "../models/boxes.server";
 
 export const loader = async ({ request }) => {
   const { session, admin } = await authenticate.admin(request);
@@ -13,6 +13,14 @@ export const action = async ({ request }) => {
   }
   const { session, admin } = await authenticate.admin(request);
   const body = await request.json();
-  const box = await createBox(session.shop, body, admin);
-  return Response.json(box, { status: 201 });
+  try {
+    const box = await createBox(session.shop, body, admin);
+    return Response.json(box, { status: 201 });
+  } catch (error) {
+    if (error instanceof BoxCodeValidationError || error?.name === "BoxCodeValidationError") {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+
+    throw error;
+  }
 };

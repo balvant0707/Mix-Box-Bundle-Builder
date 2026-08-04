@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFetcher, useLoaderData, useLocation, useNavigate } from 'react-router';
 import {
   Badge,
+  Banner,
   BlockStack,
   Box,
   Button,
@@ -51,12 +52,31 @@ import { authenticate } from '../shopify.server';
 import { withEmbeddedAppParams } from '../utils/embedded-app';
 
 const PICKER_PAGE_SIZE = 10;
+const BOX_CODE_MIN_LENGTH = 3;
+const BOX_CODE_MAX_LENGTH = 10;
+const BOX_CODE_PATTERN = /^\d+$/;
 
 const EMPTY_PAGE_INFO = {
   hasNextPage: false,
   endCursor: null,
 };
 const EMPTY_ITEMS = [];
+
+function normalizeBoxCode(value) {
+  return String(value || '').trim();
+}
+
+function getBoxCodeValidationError(value) {
+  const code = normalizeBoxCode(value);
+  if (!code) return '';
+  if (code.length < BOX_CODE_MIN_LENGTH || code.length > BOX_CODE_MAX_LENGTH) {
+    return `Code must be ${BOX_CODE_MIN_LENGTH}-${BOX_CODE_MAX_LENGTH} digits.`;
+  }
+  if (!BOX_CODE_PATTERN.test(code)) {
+    return 'Code can only contain numbers.';
+  }
+  return '';
+}
 
 const PRODUCTS_QUERY = `#graphql
   query SimpleBundleProducts($first: Int!, $after: String) {
@@ -1008,6 +1028,7 @@ function BundleInformationSection({
   onRemoveProduct,
   onRemoveCollection,
   onRemoveGiftProduct,
+  boxCodeError,
 }) {
   return (
     <BlockStack gap="400">
@@ -1017,6 +1038,16 @@ function BundleInformationSection({
         value={form.title}
         onChange={(value) => onChange('title', value)}
         placeholder="Build your perfect bundle"
+        autoComplete="off"
+      />
+
+      <TextField
+        label="Code"
+        value={form.boxCode}
+        onChange={(value) => onChange('boxCode', value)}
+        placeholder="Auto-generated if blank"
+        helpText="Use 3-10 digits. This code is saved with the box and must be unique."
+        error={boxCodeError || undefined}
         autoComplete="off"
       />
 
@@ -2730,6 +2761,7 @@ export default function MixMatchBundleFormPolaris({
 
   const [form, setForm] = useState({
     status: initialData?.status || 'active',
+    boxCode: initialData?.boxCode || '',
     title: initialData?.title || '',
     description: initialData?.description || '',
     bundleImage: initialData?.bundleImage || null,
@@ -2799,6 +2831,7 @@ export default function MixMatchBundleFormPolaris({
   const [customerTagsModalOpen, setCustomerTagsModalOpen] = useState(false);
   const [customersModalOpen, setCustomersModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const [selectedTab, setSelectedTab] = useState(0);
   const [designSettings, setDesignSettings] = useState({
     ...DEFAULT_DESIGN_SETTINGS,
@@ -2835,6 +2868,7 @@ export default function MixMatchBundleFormPolaris({
       getCustomerSelectionLabel(csvToList(form.customers), customerOptions),
     [customerOptions, form.customers],
   );
+  const boxCodeError = getBoxCodeValidationError(form.boxCode);
 
   const setField = useCallback((field, value) => {
     setForm((current) => {
@@ -3040,10 +3074,19 @@ export default function MixMatchBundleFormPolaris({
   }, [activePack, form]);
 
   const handleSubmit = useCallback(async () => {
+    const codeError = getBoxCodeValidationError(form.boxCode);
+    if (codeError) {
+      setSubmitError(codeError);
+      setOpenSections((current) => ({ ...current, bundleInformation: true }));
+      return;
+    }
+
     try {
       setSaving(true);
+      setSubmitError('');
       const submission = {
         ...form,
+        boxCode: normalizeBoxCode(form.boxCode),
         ...getDiscountSubmissionFields(form, activePack || form),
         selectedProductIds,
         selectedCollectionIds,
@@ -3067,9 +3110,14 @@ export default function MixMatchBundleFormPolaris({
                 : '0',
           }),
         });
-        if (!response.ok) throw new Error('Failed to save bundle');
+        if (!response.ok) {
+          const json = await response.json().catch(() => null);
+          throw new Error(json?.error || 'Failed to save bundle');
+        }
         navigate(withEmbeddedAppParams('/app/boxes', location.search));
       }
+    } catch (error) {
+      setSubmitError(error?.message || 'Failed to save bundle');
     } finally {
       setSaving(false);
     }
@@ -3096,6 +3144,12 @@ export default function MixMatchBundleFormPolaris({
     >
       <Form onSubmit={handleSubmit}>
         <BlockStack gap="400">
+          {submitError ? (
+            <Banner tone="critical">
+              <p>{submitError}</p>
+            </Banner>
+          ) : null}
+
           <FormTabs selected={selectedTab} onSelect={setSelectedTab} />
 
           {selectedTab === 0 ? (
@@ -3147,6 +3201,7 @@ export default function MixMatchBundleFormPolaris({
                             ),
                           )
                         }
+                        boxCodeError={boxCodeError}
                       />
                     </AccordionSection>
 
