@@ -2404,7 +2404,7 @@ export default function MixMatchBundleFormPolaris({
 
   return (
     <Page
-      title="Create Mix n Match Bundle"
+      title="Create Single Mix & Match Bundle"
       paddingBlockEnd="800"
       backAction={{ content: 'Boxes', onAction: handleBack }}
       primaryAction={{
