@@ -196,11 +196,16 @@ CREATE TABLE IF NOT EXISTS \`combo_box_product\` (
   \`isCollection\` BOOLEAN NOT NULL DEFAULT false,
   \`variantIds\` JSON NULL,
   \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  \`productPrice\` DECIMAL(10,2) NULL,
   PRIMARY KEY (\`id\`),
   INDEX \`combo_box_product_boxId_idx\` (\`boxId\`),
   FOREIGN KEY (\`boxId\`) REFERENCES \`combo_box\`(\`id\`) ON DELETE CASCADE
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 `;
+
+const ENSURE_COMBO_BOX_PRODUCT_COLUMNS_SQL = [
+  "ALTER TABLE `combo_box_product` ADD COLUMN IF NOT EXISTS `productPrice` DECIMAL(10,2) NULL;",
+];
 
 const ENSURE_BUNDLE_ORDER_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS \`bundle_order\` (
@@ -357,6 +362,9 @@ export function ensureAppTables() {
         await prisma.$executeRawUnsafe(sql);
       }
       for (const sql of ENSURE_COMBO_BOX_COLUMNS_SQL) {
+        await prisma.$executeRawUnsafe(sql);
+      }
+      for (const sql of ENSURE_COMBO_BOX_PRODUCT_COLUMNS_SQL) {
         await prisma.$executeRawUnsafe(sql);
       }
       for (const sql of ENSURE_BUNDLE_ORDER_COLUMNS_SQL) {
