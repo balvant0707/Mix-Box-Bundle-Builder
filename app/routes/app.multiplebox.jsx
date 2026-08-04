@@ -50,23 +50,6 @@ import { ToggleSwitch } from '../components/toggle-switch';
 import { authenticate } from '../shopify.server';
 import { withEmbeddedAppParams } from '../utils/embedded-app';
 
-const CUSTOMERS_QUERY = `#graphql
-  query SimpleBundleCustomers($first: Int!) {
-    customers(first: $first, sortKey: UPDATED_AT, reverse: true) {
-      nodes {
-        id
-        firstName
-        lastName
-        displayName
-        tags
-        defaultEmailAddress {
-          emailAddress
-        }
-      }
-    }
-  }
-`;
-
 const PICKER_PAGE_SIZE = 10;
 
 const EMPTY_PAGE_INFO = {
@@ -142,14 +125,6 @@ const COLLECTIONS_QUERY = `#graphql
     }
   }
 `;
-
-function colorFromString(value) {
-  const colors = ['#6ee7df', '#f0abfc', '#f5b5f1', '#bae6fd', '#34d399', '#5eead4'];
-  const text = String(value || '');
-  const total = Array.from(text).reduce((sum, char) => sum + char.charCodeAt(0), 0);
-
-  return colors[total % colors.length];
-}
 
 function mapProductEdges(edges) {
   return (edges || []).map(({ node }) => {
@@ -308,11 +283,7 @@ export const loader = async ({ request }) => {
     }
   }
 
-  const [customersJson, productsJson, collectionsJson] = await Promise.all([
-    loadJsonOrNull(
-      admin.graphql(CUSTOMERS_QUERY, { variables: { first: 100 } }),
-      'customers',
-    ),
+  const [productsJson, collectionsJson] = await Promise.all([
     loadJsonOrNull(
       admin.graphql(PRODUCTS_QUERY, {
         variables: { first: PICKER_PAGE_SIZE, after: null },
@@ -328,47 +299,21 @@ export const loader = async ({ request }) => {
   ]);
 
   if (
-    customersJson?.errors?.length ||
     productsJson?.errors?.length ||
     collectionsJson?.errors?.length
   ) {
     console.warn('[app.multiplebox] GraphQL errors', {
-      customers: customersJson?.errors,
       products: productsJson?.errors,
       collections: collectionsJson?.errors,
     });
   }
 
-  const customers = (customersJson?.data?.customers?.nodes || []).map((customer) => {
-    const email = customer.defaultEmailAddress?.emailAddress || '';
-    const name =
-      customer.displayName ||
-      [customer.firstName, customer.lastName].filter(Boolean).join(' ') ||
-      email ||
-      customer.id;
-
-    return {
-      id: customer.id,
-      name,
-      email,
-      tags: customer.tags || [],
-      color: colorFromString(customer.id || email || name),
-    };
-  });
-
   const products = mapProductEdges(productsJson?.data?.products?.edges);
   const collections = mapCollectionEdges(collectionsJson?.data?.collections?.edges);
 
-  const customerTags = Array.from(
-    new Set(customers.flatMap((customer) => customer.tags || [])),
-  )
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b))
-    .map((tag) => ({ label: tag, value: tag }));
-
   return {
-    customers,
-    customerTags,
+    customers: [],
+    customerTags: [],
     products,
     collections,
     productsPageInfo: getPageInfo(productsJson?.data?.products),
