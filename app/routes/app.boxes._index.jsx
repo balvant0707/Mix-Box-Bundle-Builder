@@ -21,6 +21,7 @@ import {
   Card,
   EmptyState,
   IndexTable,
+  useIndexResourceState,
   InlineGrid,
   InlineStack,
   Modal,
@@ -227,6 +228,14 @@ export const action = async ({ request }) => {
     await toggleComboConfigStatus(id, isActive).catch(() => {});
     return { ok: true };
   }
+  if (intent === "bulk_delete") {
+    const ids = JSON.parse(formData.get("ids") || "[]");
+    if (Array.isArray(ids) && ids.length > 0) {
+      // In a real app, you'd likely want to delete these in a transaction
+      await Promise.all(ids.map(id => deleteBox(id, shop, admin)));
+    }
+    return { ok: true };
+  }
   return { ok: false };
 };
 
@@ -367,13 +376,18 @@ export default function ManageBoxesPage() {
   const toggleFetcher = useFetcher();
 
   const PAGE_SIZE = 10;
-  const [deleteConfirm, setDeleteConfirm] = useState(null);  const [search, setSearch] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+  const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [manualPageLoading, setManualPageLoading] = useState(false);
   const isDeleteSubmitting =
     fetcher.state !== "idle" &&
     fetcher.formData?.get("_action") === "delete";
+  const isBulkDeleteSubmitting =
+    fetcher.state !== "idle" &&
+    fetcher.formData?.get("_action") === "bulk_delete";
   const isReorderSubmitting =
     fetcher.state !== "idle" &&
     fetcher.formData?.get("_action") === "reorder";
@@ -386,6 +400,7 @@ export default function ManageBoxesPage() {
     manualPageLoading ||
     navigation.state !== "idle" ||
     isDeleteSubmitting ||
+    isBulkDeleteSubmitting ||
     isReorderSubmitting ||
     isToggleSubmitting;
 
@@ -398,6 +413,7 @@ export default function ManageBoxesPage() {
       manualPageLoading &&
       navigation.state === "idle" &&
       !isDeleteSubmitting &&
+      !isBulkDeleteSubmitting &&
       !isReorderSubmitting &&
       !isToggleSubmitting
     ) {
@@ -430,10 +446,22 @@ export default function ManageBoxesPage() {
   const openCreateBoxModal = useCallback(() => setShowCreateBoxModal(true), []);
   const closeCreateBoxModal = useCallback(() => setShowCreateBoxModal(false), []);
 
-  const baseBoxes =
-    fetcher.formData?.get("_action") === "delete"
-      ? boxes.filter((b) => b.id !== parseInt(fetcher.formData.get("id")))
-      : boxes;
+  const baseBoxes = useMemo(() => {
+    const action = fetcher.formData?.get("_action");
+    if (action === "delete") {
+      const deletedId = parseInt(fetcher.formData.get("id"));
+      return boxes.filter((b) => b.id !== deletedId);
+    }
+    if (action === "bulk_delete") {
+      try {
+        const deletedIds = new Set(JSON.parse(fetcher.formData.get("ids")));
+        return boxes.filter((b) => !deletedIds.has(b.id));
+      } catch {
+        return boxes;
+      }
+    }
+    return boxes;
+  }, [boxes, fetcher.formData]);
 
   const boxesWithPendingToggle = useMemo(
     () => (
@@ -456,6 +484,25 @@ export default function ManageBoxesPage() {
     }
     return result.sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
   }, [boxesWithPendingToggle, statusFilter, search]);
+
+  const resourceIDResolver = (item) => item.id;
+
+  const { selectedResources, allResourcesSelected, handleSelectionChange } =
+    useIndexResourceState(filteredBoxes, { resourceIDResolver });
+
+  const bulkActions = [
+    {
+      content: `Delete ${selectedResources.length} selected boxes`,
+      destructive: true,
+      onAction: () => setShowBulkDeleteModal(true),
+    },
+  ];
+
+  const confirmBulkDelete = () => {
+    startPageLoading();
+    fetcher.submit({ _action: "bulk_delete", ids: JSON.stringify(selectedResources) }, { method: "POST" });
+    setShowBulkDeleteModal(false);
+  };
 
   const totalPages = Math.max(1, Math.ceil(filteredBoxes.length / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages);
@@ -592,34 +639,34 @@ export default function ManageBoxesPage() {
                 .Polaris-IndexTable__TableCell,
                 .Polaris-IndexTable__TableHeading *,
                 .Polaris-IndexTable__TableCell * {
-                  font-size: 12px !important;
+                  font-size: 12px;
                 }
                 .cb-action-buttons .Polaris-Button,
                 .cb-action-buttons .Polaris-Button__Content,
                 .cb-action-buttons .Polaris-Button__Icon {
-                  display: inline-flex !important;
-                  align-items: center !important;
-                  justify-content: center !important;
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
                 }
                 .cb-action-buttons .Polaris-Button__Icon {
-                  margin: 0 !important;
-                  line-height: 0 !important;
-                  height: 100% !important;
+                  margin: 0;
+                  line-height: 0;
+                  height: 100%;
                 }
                 .cb-action-buttons .Polaris-Button__Icon svg {
-                  display: block !important;
+                  display: block;
                 }
                   .Polaris-Button--textAlignCenter {
                      justify-content: center;
                       text-align: center;
                       display: flex;
                       align-items: end;
-                      font-size: 14px !important;
+                      font-size: 14px;
                 }
               `}</style>
               <IndexTable
                 resourceName={{ singular: "box", plural: "boxes" }}
-                itemCount={displayBoxes.length}
+                itemCount={filteredBoxes.length}
                 headings={[
                   { title: "Name" },
                   { title: "Code" },
@@ -629,13 +676,23 @@ export default function ManageBoxesPage() {
                   { title: "Status" },
                   { title: "Actions" },
                 ]}
-                selectable={false}
+                selectable
+                selectedItemsCount={
+                  allResourcesSelected ? "All" : selectedResources.length
+                }
+                onSelectionChange={handleSelectionChange}
+                bulkActions={bulkActions}
               >
                 {displayBoxes.map((box, index) => {
                   const avatar = getAvatarColor(box.id);
                   const isRowTogglePending = isToggleSubmitting && pendingToggleId === box.id;
                   return (
-                    <IndexTable.Row key={box.id} id={String(box.id)} position={index}>
+                    <IndexTable.Row
+                      key={box.id}
+                      id={String(box.id)}
+                      selected={selectedResources.includes(box.id)}
+                      position={index}
+                    >
                       {/* Bundle Name */}
                       <IndexTable.Cell>
                         <InlineStack gap="300" blockAlign="center">
@@ -897,6 +954,22 @@ export default function ManageBoxesPage() {
         <Modal.Section>
           <Text as="p">
             Are you sure you want to delete &ldquo;<strong>{deleteConfirm?.name}</strong>&rdquo;? Its Shopify product will be permanently removed.
+          </Text>
+        </Modal.Section>
+      </Modal>
+
+      {/* Bulk Delete confirmation modal */}
+      <Modal
+        open={showBulkDeleteModal}
+        onClose={() => setShowBulkDeleteModal(false)}
+        title={`Delete ${selectedResources.length} boxes?`}
+        primaryAction={{ content: "Delete", destructive: true, onAction: confirmBulkDelete, loading: isBulkDeleteSubmitting }}
+        secondaryActions={[{ content: "Cancel", onAction: () => setShowBulkDeleteModal(false) }]}
+      >
+        <Modal.Section>
+          <Text as="p">
+            Are you sure you want to delete the selected boxes? Their Shopify
+            products will be permanently removed. This action cannot be undone.
           </Text>
         </Modal.Section>
       </Modal>
