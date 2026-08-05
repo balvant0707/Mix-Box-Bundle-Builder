@@ -8,7 +8,6 @@ import {
   toggleBoxStatus,
   toggleComboConfigStatus,
   reorderBoxes,
-  getBoxListImageSrc,
 } from "../models/boxes.server";
 import { getShopCurrencyCode } from "../models/shop.server";
 import { AdminIcon } from "../components/admin-icons";
@@ -32,8 +31,12 @@ import {
   Text,
   TextField,
   ChoiceList,
+  Popover,
   Tooltip,
 } from "@shopify/polaris";
+import {
+  CalendarIcon
+} from "@shopify/polaris-icons";
 
 const BUNDLE_PREVIEW_PRODUCTS_QUERY = `#graphql
   query BundlePreviewProducts($ids: [ID!]!) {
@@ -149,6 +152,27 @@ function getComboConfigSummary(box) {
     if (steps.length === 0) return null;
     return { comboType, title: parsed?.title || null, isActive: parsed?.isActive !== false, stepsJson: JSON.stringify(steps) };
   } catch { return null; }
+}
+
+function getBannerImageDataUri(box) {
+  if (!box?.bannerImageData || !box?.bannerImageMimeType) return null;
+  const base64 = Buffer.from(box.bannerImageData).toString("base64");
+  return `data:${box.bannerImageMimeType};base64,${base64}`;
+}
+
+function getBannerImageSrc(box) {
+  return box?.bannerImageUrl || getBannerImageDataUri(box);
+}
+
+function getPrimaryStepImageDataUri(box) {
+  const primaryStepImage = Array.isArray(box?.stepImages) ? box.stepImages[0] : null;
+  if (!primaryStepImage?.imageData || !primaryStepImage?.mimeType) return null;
+  const base64 = Buffer.from(primaryStepImage.imageData).toString("base64");
+  return `data:${primaryStepImage.mimeType};base64,${base64}`;
+}
+
+function getBoxListImageSrc(box) {
+  return getBannerImageSrc(box) || getPrimaryStepImageDataUri(box);
 }
 
 export const loader = async ({ request }) => {
@@ -683,7 +707,7 @@ export default function ManageBoxesPage() {
             /* Empty state â€” no boxes at all */
             <EmptyState
               heading="No Boxes yet"
-              action={{ content: "Create Box", onAction: openCreateBoxModal }}
+              action={{ content: "Create Box", onAction: () => navigateTo("/app/create-bundle") }}
               secondaryAction={{ content: "Create Specific", onAction: () => navigateTo("/app/boxes/specific-combo") }}
               image=""
             >
