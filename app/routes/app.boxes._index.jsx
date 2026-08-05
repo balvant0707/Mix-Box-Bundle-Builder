@@ -1,4 +1,4 @@
-﻿import { useState, useMemo, useEffect, useCallback } from "react";
+﻿import { useState, useMemo, useEffect } from "react";
 import { useFetcher, useLoaderData, useLocation, useNavigate, useNavigation } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
@@ -14,29 +14,51 @@ import { AdminIcon } from "../components/admin-icons";
 import { withEmbeddedAppParams } from "../utils/embedded-app";
 import { formatCurrencyAmount, getCurrencySymbol } from "../utils/currency";
 import {
+  Badge,
   BlockStack,
   Box,
   Button,
   Card,
+  DatePicker,
   EmptyState,
   IndexTable,
-  useIndexResourceState,
-  DatePicker,
   InlineGrid,
   InlineStack,
   Modal,
   Page,
   Pagination,
+  Popover,
+  Select,
   Spinner,
   Text,
   TextField,
-  ChoiceList,
-  Popover,
   Tooltip,
+  useIndexResourceState,
 } from "@shopify/polaris";
-import {
-  CalendarIcon
-} from "@shopify/polaris-icons";
+import { CalendarIcon } from "@shopify/polaris-icons";
+function formatDate(value) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
+function getBoxTypeLabel(box) {
+  if (box?.boxType === "single") return "Single Product";
+  if (box?.boxType === "multiple") return "Multi Product";
+  if (box?.boxType === "specific" || box?.comboConfig) return "Specific Combo";
+  return "Simple Box";
+}
+
+function getBoxTypeBadgeTone(box) {
+  if (box?.boxType === "specific" || box?.comboConfig) return "info";
+  if (box?.boxType === "multiple") return "attention";
+  return "success";
+}
 
 const BUNDLE_PREVIEW_PRODUCTS_QUERY = `#graphql
   query BundlePreviewProducts($ids: [ID!]!) {
@@ -118,7 +140,7 @@ function buildBundlePreviewUrl(shopDomain, previewToken, fallbackBaseUrl) {
 }
 
 function getDiscountSummary(box) {
-  // Always read from comboStepsConfig JSON â€” works for both regular and specific combo boxes
+  // Always read from comboStepsConfig JSON — works for both regular and specific combo boxes
   const src = box.comboStepsConfig;
   if (!src) return null;
   try {
@@ -134,15 +156,6 @@ function getDiscountSummary(box) {
 }
 
 function getComboConfigSummary(box) {
-  if (box.config) {
-    const comboType = box.config.comboType;
-    if (!comboType || comboType < 2) return null;
-    // Require at least one step to be saved â€” prevents misidentifying regular boxes
-    let hasSteps = false;
-    try { hasSteps = JSON.parse(box.config.stepsJson || "[]").length > 0; } catch {}
-    if (!hasSteps) return null;
-    return { comboType, title: box.config.title, isActive: box.config.isActive, stepsJson: box.config.stepsJson };
-  }
   if (!box.comboStepsConfig) return null;
   try {
     const parsed = JSON.parse(box.comboStepsConfig); // This is still used by getComboConfigSummary
@@ -164,15 +177,8 @@ function getBannerImageSrc(box) {
   return box?.bannerImageUrl || getBannerImageDataUri(box);
 }
 
-function getPrimaryStepImageDataUri(box) {
-  const primaryStepImage = Array.isArray(box?.stepImages) ? box.stepImages[0] : null;
-  if (!primaryStepImage?.imageData || !primaryStepImage?.mimeType) return null;
-  const base64 = Buffer.from(primaryStepImage.imageData).toString("base64");
-  return `data:${primaryStepImage.mimeType};base64,${base64}`;
-}
-
 function getBoxListImageSrc(box) {
-  return getBannerImageSrc(box) || getPrimaryStepImageDataUri(box);
+  return getBannerImageSrc(box);
 }
 
 export const loader = async ({ request }) => {
@@ -200,6 +206,7 @@ export const loader = async ({ request }) => {
       isGiftBox: b.isGiftBox,
       isActive: b.isActive,
       sortOrder: b.sortOrder,
+      createdAt: b.createdAt ? new Date(b.createdAt).toISOString() : null,
       orderCount: b._count?.orders ?? 0,
       comboConfig: getComboConfigSummary(b),
       discount: getDiscountSummary(b),
@@ -430,11 +437,29 @@ export default function ManageBoxesPage() {
     ) {
       setManualPageLoading(false);
     }
-  }, [manualPageLoading, navigation.state, isDeleteSubmitting, isReorderSubmitting, isToggleSubmitting]);
+  }, [
+    manualPageLoading,
+    navigation.state,
+    isDeleteSubmitting,
+    isBulkDeleteSubmitting,
+    isReorderSubmitting,
+    isToggleSubmitting,
+  ]);
 
   function navigateTo(path) {
     startPageLoading();
     navigate(withEmbeddedAppParams(path, location.search));
+  }
+
+  function handleDateSelection(range) {
+    setSelectedDates(range);
+    if (range?.start && range?.end) {
+      setDatePickerActive(false);
+    }
+  }
+
+  function handleMonthChange(nextMonth, nextYear) {
+    setDate({ month: nextMonth, year: nextYear });
   }
 
   function handleDelete(id, name) { setDeleteConfirm({ id, name }); }
@@ -499,17 +524,28 @@ export default function ManageBoxesPage() {
       const endDate = new Date(selectedDates.end);
       endDate.setHours(23, 59, 59, 999);
       result = result.filter((b) => {
+        if (!b.createdAt) return false;
         const createdAt = new Date(b.createdAt);
+        if (Number.isNaN(createdAt.getTime())) return false;
         return createdAt >= startDate && createdAt <= endDate;
       });
     }
-    return result.sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
+    return [...result].sort(
+      (a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0),
+    );
   }, [boxesWithPendingToggle, statusFilter, search, boxTypeFilter, selectedDates]);
 
-  const resourceIDResolver = (item) => item.id;
+  const totalPages = Math.max(1, Math.ceil(filteredBoxes.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const displayBoxes = filteredBoxes.slice(
+    (safePage - 1) * PAGE_SIZE,
+    safePage * PAGE_SIZE,
+  );
+  const hasMultiplePages = totalPages > 1;
 
+  const resourceIDResolver = (item) => String(item.id);
   const { selectedResources, allResourcesSelected, handleSelectionChange } =
-    useIndexResourceState(filteredBoxes, { resourceIDResolver });
+    useIndexResourceState(displayBoxes, { resourceIDResolver });
 
   const bulkActions = [
     {
@@ -521,14 +557,12 @@ export default function ManageBoxesPage() {
 
   const confirmBulkDelete = () => {
     startPageLoading();
-    fetcher.submit({ _action: "bulk_delete", ids: JSON.stringify(selectedResources) }, { method: "POST" });
+    fetcher.submit(
+      { _action: "bulk_delete", ids: JSON.stringify(selectedResources) },
+      { method: "POST" },
+    );
     setShowBulkDeleteModal(false);
   };
-
-  const totalPages = Math.max(1, Math.ceil(filteredBoxes.length / PAGE_SIZE));
-  const safePage = Math.min(currentPage, totalPages);
-  const displayBoxes = filteredBoxes.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  const hasMultiplePages = totalPages > 1;
 
   // Reset to page 1 when filter/search changes
   useEffect(() => { setCurrentPage(1); }, [statusFilter, search, boxTypeFilter, selectedDates]);
@@ -536,6 +570,25 @@ export default function ManageBoxesPage() {
   const totalOrders = baseBoxes.reduce((s, b) => s + b.orderCount, 0);
   const activeCount = boxesWithPendingToggle.filter((b) => b.isActive).length;
   const inactiveCount = boxesWithPendingToggle.length - activeCount;
+
+  const performanceRows = useMemo(() => {
+    const filteredOrderTotal = filteredBoxes.reduce(
+      (sum, box) => sum + Number(box.orderCount || 0),
+      0,
+    );
+
+    return [...filteredBoxes]
+      .filter((box) => Number(box.orderCount || 0) > 0)
+      .sort((a, b) => Number(b.orderCount || 0) - Number(a.orderCount || 0))
+      .slice(0, 10)
+      .map((box, index) => ({
+        ...box,
+        rank: index + 1,
+        orderShare: filteredOrderTotal > 0
+          ? (Number(box.orderCount || 0) / filteredOrderTotal) * 100
+          : 0,
+      }));
+  }, [filteredBoxes]);
 
   const statCards = [
     { label: "Total Boxes",  value: baseBoxes.length,  icon: "package",    iconBg: "#eff6ff", iconColor: "#2563eb" },
@@ -549,7 +602,7 @@ export default function ManageBoxesPage() {
       title="Manage Boxes"
       primaryAction={{ content: "+ Create Box", onAction: () => navigateTo("/app/create-bundle") }}
     >
-      {/* <ui-title-bar title="MixBox â€“ Box & Bundle Builder">
+      {/* <ui-title-bar title="MixBox – Box & Bundle Builder">
         <button variant="primary" onClick={openCreateBoxModal}>
           + Create Box
         </button>
@@ -606,18 +659,18 @@ export default function ManageBoxesPage() {
                   autoComplete="off"
                 />
               </Box>
-              <Box>
-                <ChoiceList
-                  title="Box Type"
-                  titleHidden
-                  choices={[
+              <Box minWidth="180px">
+                <Select
+                  label="Box type"
+                  labelHidden
+                  options={[
                     { label: "All Types", value: "all" },
                     { label: "Single Product", value: "single" },
                     { label: "Multi Product", value: "multiple" },
                     { label: "Specific Combo", value: "specific" },
                   ]}
-                  selected={[boxTypeFilter]}
-                  onChange={(value) => setBoxTypeFilter(value[0])}
+                  value={boxTypeFilter}
+                  onChange={setBoxTypeFilter}
                 />
               </Box>
               <Box>
@@ -688,23 +741,93 @@ export default function ManageBoxesPage() {
             </InlineStack>
           </Box>
 
-          {/* Analysis Chart Placeholder */}
+          {/* Bundle performance — Polaris IndexTable, no chart dependency */}
           {baseBoxes.length > 0 && (
-            <Box padding="400" borderBlockEndWidth="025" borderColor="border-secondary">
-              <Card padding="400">
-                <BlockStack gap="200">
-                  <Text as="h2" variant="headingMd">
-                    Bundle Performance Analysis
-                  </Text>
-                  <Text as="p" tone="subdued">
-                    (Placeholder for a future chart or detailed analytics)
-                  </Text>
-                </BlockStack>
-              </Card>
+            <Box
+              padding="400"
+              borderBlockEndWidth="025"
+              borderColor="border-secondary"
+            >
+              <BlockStack gap="300">
+                <InlineStack align="space-between" blockAlign="center" wrap>
+                  <BlockStack gap="050">
+                    <Text as="h2" variant="headingMd">
+                      Bundle Performance Analysis
+                    </Text>
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      Top bundles by order count for the current filters.
+                    </Text>
+                  </BlockStack>
+                  <Badge tone="info">Top 10</Badge>
+                </InlineStack>
+
+                {performanceRows.length > 0 ? (
+                  <Card padding="0">
+                    <IndexTable
+                      resourceName={{ singular: "bundle", plural: "bundles" }}
+                      itemCount={performanceRows.length}
+                      selectable={false}
+                      headings={[
+                        { title: "Rank" },
+                        { title: "Bundle" },
+                        { title: "Type" },
+                        { title: "Orders", alignment: "end" },
+                        { title: "Order Share", alignment: "end" },
+                        { title: "Status" },
+                      ]}
+                    >
+                      {performanceRows.map((box, index) => (
+                        <IndexTable.Row
+                          key={`performance-${box.id}`}
+                          id={`performance-${box.id}`}
+                          position={index}
+                        >
+                          <IndexTable.Cell>
+                            <Text as="span" variant="bodySm" fontWeight="semibold">
+                              #{box.rank}
+                            </Text>
+                          </IndexTable.Cell>
+                          <IndexTable.Cell>
+                            <Text as="span" variant="bodySm" fontWeight="semibold">
+                              {box.boxName}
+                            </Text>
+                          </IndexTable.Cell>
+                          <IndexTable.Cell>
+                            <Badge tone={getBoxTypeBadgeTone(box)}>
+                              {getBoxTypeLabel(box)}
+                            </Badge>
+                          </IndexTable.Cell>
+                          <IndexTable.Cell>
+                            <Text as="span" alignment="end" fontWeight="bold">
+                              {box.orderCount}
+                            </Text>
+                          </IndexTable.Cell>
+                          <IndexTable.Cell>
+                            <Text as="span" alignment="end">
+                              {box.orderShare.toFixed(1)}%
+                            </Text>
+                          </IndexTable.Cell>
+                          <IndexTable.Cell>
+                            <Badge tone={box.isActive ? "success" : undefined}>
+                              {box.isActive ? "Active" : "Inactive"}
+                            </Badge>
+                          </IndexTable.Cell>
+                        </IndexTable.Row>
+                      ))}
+                    </IndexTable>
+                  </Card>
+                ) : (
+                  <Card>
+                    <Text as="p" tone="subdued">
+                      No order data is available for the selected filters.
+                    </Text>
+                  </Card>
+                )}
+              </BlockStack>
             </Box>
           )}
           {baseBoxes.length === 0 ? (
-            /* Empty state â€” no boxes at all */
+            /* Empty state — no boxes at all */
             <EmptyState
               heading="No Boxes yet"
               action={{ content: "Create Box", onAction: () => navigateTo("/app/create-bundle") }}
@@ -751,7 +874,7 @@ export default function ManageBoxesPage() {
                      justify-content: center;
                       text-align: center;
                       display: flex;
-                      align-items: end;
+                      align-items: center;
                       font-size: 14px;
                 }
               `}</style>
@@ -776,12 +899,11 @@ export default function ManageBoxesPage() {
               >
                 {displayBoxes.map((box, index) => {
                   const avatar = getAvatarColor(box.id);
-                  const isRowTogglePending = isToggleSubmitting && pendingToggleId === box.id;
                   return (
                     <IndexTable.Row
                       key={box.id}
                       id={String(box.id)}
-                      selected={selectedResources.includes(box.id)}
+                      selected={selectedResources.includes(String(box.id))}
                       position={index}
                     >
                       {/* Bundle Name */}
@@ -847,7 +969,7 @@ export default function ManageBoxesPage() {
                         {box.boxCode ? (
                           <CopyCodeBtn code={box.boxCode} />
                         ) : (
-                          <Text as="span" tone="disabled">â€”</Text>
+                          <Text as="span" tone="disabled">—</Text>
                         )}
                       </IndexTable.Cell>
 
@@ -877,27 +999,9 @@ export default function ManageBoxesPage() {
 
                       {/* Type */}
                       <IndexTable.Cell>
-                        {(() => {
-                          const isSpecific = box.comboConfig && box.comboConfig.comboType > 0;
-                          return (
-                            <span
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                padding: "6px 12px",
-                                borderRadius: "8px",
-                                border: `1px solid ${isSpecific ? "#c7d2fe" : "#bbf7d0"}`,
-                                background: isSpecific ? "#eef2ff" : "#ecfdf3",
-                                color: isSpecific ? "#4f46e5" : "#166534",
-                                fontSize: "12px",
-                                fontWeight: 600,
-                                lineHeight: 1.1,
-                              }}
-                            >
-                              {isSpecific ? "Specific" : "Simple"}
-                            </span>
-                          );
-                        })()}
+                        <Badge tone={getBoxTypeBadgeTone(box)}>
+                          {getBoxTypeLabel(box)}
+                        </Badge>
                       </IndexTable.Cell>
 
                       {/* Orders */}
@@ -1002,8 +1106,8 @@ export default function ManageBoxesPage() {
                     Showing {filteredBoxes.length === 0 ? 0 : ((safePage - 1) * PAGE_SIZE + 1)}–{Math.min(safePage * PAGE_SIZE, filteredBoxes.length)} of {filteredBoxes.length} boxes (Page {safePage} of {totalPages})
                   </Text>
                   <Pagination
-                    hasPrevious={hasMultiplePages ? safePage > 1 : true}
-                    hasNext={hasMultiplePages ? safePage < totalPages : true}
+                    hasPrevious={hasMultiplePages && safePage > 1}
+                    hasNext={hasMultiplePages && safePage < totalPages}
                     onPrevious={() => { if (!hasMultiplePages) return; setCurrentPage((p) => Math.max(1, p - 1)); }}
                     onNext={() => { if (!hasMultiplePages) return; setCurrentPage((p) => Math.min(totalPages, p + 1)); }}
                   />

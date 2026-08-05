@@ -109,9 +109,6 @@ model ComboBox {
   pageHandle              String?           @db.VarChar(255)
   boxCode                 String?           @unique @db.VarChar(10)
   orders                  BundleOrder[]
-  products                ComboBoxProduct[]
-  config                  ComboBoxConfig?
-  stepImages              ComboStepImage[]
   simpleBoxPage           SimpleBoxPage?
   multipleBoxPage         MultipleBoxPage?
 
@@ -122,6 +119,7 @@ model ComboBox {
 model SimpleBoxPage {
   id                         Int      @id @default(autoincrement())
   boxId                      Int      @unique
+  box                        ComboBox @relation(fields: [boxId], references: [id], onDelete: Cascade)
   status                     String   @default("active") @db.VarChar(20)
   title                      String   @db.VarChar(255)
   description                String?  @db.Text
@@ -194,7 +192,6 @@ model SimpleBoxPage {
   imagePopupTextColor        String   @default("#303030") @db.VarChar(20)
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
-  box                        ComboBox @relation(fields: [boxId], references: [id], onDelete: Cascade)
 
   @@map("simple_box_page")
 }
@@ -202,6 +199,7 @@ model SimpleBoxPage {
 model MultipleBoxPage {
   id                         Int                       @id @default(autoincrement())
   boxId                      Int                       @unique
+  box                        ComboBox                  @relation(fields: [boxId], references: [id], onDelete: Cascade)
   status                     String                    @default("active") @db.VarChar(20)
   title                      String                    @db.VarChar(255)
   description                String?                   @db.Text
@@ -275,7 +273,6 @@ model MultipleBoxPage {
   imagePopupTextColor        String                    @default("#303030") @db.VarChar(20)
   createdAt                  DateTime                  @default(now())
   updatedAt                  DateTime                  @updatedAt
-  box                        ComboBox                  @relation(fields: [boxId], references: [id], onDelete: Cascade)
   quantityPacks              MultipleBoxQuantityPack[]
 
   @@map("multiple_box_page")
@@ -310,81 +307,25 @@ model MultipleBoxQuantityPack {
   createdAt                  DateTime        @default(now())
   updatedAt                  DateTime        @updatedAt
   multipleBoxPage            MultipleBoxPage @relation(fields: [multipleBoxPageId], references: [id], onDelete: Cascade)
-
   @@unique([multipleBoxPageId, packKey])
   @@index([multipleBoxPageId])
   @@map("multiple_box_quantity_pack")
 }
 
-model ComboBoxConfig {
-  id                 Int      @id @default(autoincrement())
-  boxId              Int      @unique
-  comboType          Int      @default(2)
-  title              String?  @db.VarChar(255)
-  subtitle           String?  @db.VarChar(255)
-  bundlePrice        Decimal? @db.Decimal(10, 2)
-  bundlePriceType    String?  @default("manual") @db.VarChar(10)
-  isActive           Boolean  @default(true)
-  isGiftBox          Boolean  @default(false)
-  allowDuplicates    Boolean  @default(false)
-  giftMessageEnabled Boolean  @default(false)
-  showProductImages  Boolean  @default(true)
-  showProgressBar    Boolean  @default(true)
-  allowReselection   Boolean  @default(true)
-  stepsJson          String?  @db.LongText
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  box                ComboBox @relation(fields: [boxId], references: [id], onDelete: Cascade)
-
-  @@map("combo_box_config")
-}
-
-model ComboStepImage {
-  id        Int      @id @default(autoincrement())
-  boxId     Int
-  stepIndex Int
-  imageData Bytes?   @db.MediumBlob
-  mimeType  String?  @db.VarChar(100)
-  fileName  String?  @db.VarChar(255)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  box       ComboBox @relation(fields: [boxId], references: [id], onDelete: Cascade)
-
-  @@unique([boxId, stepIndex])
-  @@map("combo_step_image")
-}
-
-model ComboBoxProduct {
-  id              Int      @id @default(autoincrement())
-  boxId           Int
-  productId       String   @db.VarChar(255)
-  productTitle    String?  @db.VarChar(255)
-  productImageUrl String?  @db.VarChar(500)
-  productHandle   String?  @db.VarChar(255)
-  isCollection    Boolean  @default(false)
-  variantIds      String?  @db.LongText
-  createdAt       DateTime @default(now())
-  productPrice    Decimal? @db.Decimal(10, 2)
-  box             ComboBox @relation(fields: [boxId], references: [id], onDelete: Cascade)
-
-  @@index([boxId])
-  @@map("combo_box_product")
-}
-
 model BundleOrder {
   id               Int      @id @default(autoincrement())
+  boxId            Int
+  box              ComboBox @relation(fields: [boxId], references: [id])
   shop             String
   orderId          String   @db.VarChar(255)
   orderName        String?  @db.VarChar(64)
   orderNumber      Int?
-  boxId            Int
   selectedProducts String   @db.LongText
   bundlePrice      Decimal  @db.Decimal(10, 2)
   giftMessage      String?  @db.Text
   orderDate        DateTime
   customerId       String?  @db.VarChar(255)
   createdAt        DateTime @default(now())
-  box              ComboBox @relation(fields: [boxId], references: [id])
 
   @@index([shop])
   @@index([boxId])

@@ -752,327 +752,447 @@ function KpiCard({ label, value, subLabel, change, accentColor, iconType, subtit
   );
 }
 
-// ─── White Interactive Line Chart ─────────────────────────────────────────────
+// ─── Polaris-style Interactive Line Chart ─────────────────────────────────────
 function LineChart({
   title,
   totalValue,
   change,
-  data,
-  prevData,
+  data = [],
+  prevData = [],
   periodLabel,
   prevPeriodLabel,
   formatY,
-  color = "#60a5fa",
-  color2 = "#818cf8",
+  color = "#20a8e8",
+  color2 = "#7dd3fc",
 }) {
   const [hoverIdx, setHoverIdx] = useState(null);
   const svgRef = useRef(null);
 
-  const showYAxisLabels = false;
-  const W = 760, H = 200, ML = showYAxisLabels ? 52 : 16, MR = 20, MB = 36, MT = 18;
+  const W = 1200;
+  const H = 300;
+  const ML = 56;
+  const MR = 20;
+  const MB = 42;
+  const MT = 18;
   const chartW = W - ML - MR;
   const chartH = H - MB - MT;
-  const n = data.length;
+  const pointCount = Math.max(data.length, prevData.length, 1);
 
-  const allVals = [...data.map((d) => d.value), ...prevData.map((d) => d.value), 0];
-  const rawMax = Math.max(...allVals);
-  const yMax = rawMax > 0 ? rawMax * 1.1 : 10;
+  function niceMax(value) {
+    const safeValue = Number(value) || 0;
+    if (safeValue <= 0) return 10;
 
-  function xPos(i, total) {
-    return ML + (total > 1 ? (i / (total - 1)) * chartW : chartW / 2);
+    const rough = safeValue * 1.08;
+    const magnitude = 10 ** Math.floor(Math.log10(rough));
+    const normalized = rough / magnitude;
+    const niceNormalized =
+      normalized <= 1 ? 1 :
+        normalized <= 2 ? 2 :
+          normalized <= 2.5 ? 2.5 :
+            normalized <= 5 ? 5 : 10;
+
+    return niceNormalized * magnitude;
   }
-  function yPos(val) {
-    return MT + chartH - (yMax > 0 ? (val / yMax) * chartH : 0);
+
+  const allValues = [
+    ...data.map((item) => Number(item?.value) || 0),
+    ...prevData.map((item) => Number(item?.value) || 0),
+    0,
+  ];
+  const yMax = niceMax(Math.max(...allValues));
+
+  function xPos(index) {
+    return ML + (pointCount > 1 ? (index / (pointCount - 1)) * chartW : chartW / 2);
   }
 
-  function buildPath(arr) {
-    if (!arr || arr.length === 0) return "";
-    let d = `M ${xPos(0, arr.length).toFixed(2)},${yPos(arr[0].value).toFixed(2)}`;
-    for (let i = 1; i < arr.length; i++) {
-      const x0 = xPos(i - 1, arr.length), y0 = yPos(arr[i - 1].value);
-      const x1 = xPos(i, arr.length), y1 = yPos(arr[i].value);
-      const cpx = (x0 + x1) / 2;
-      d += ` C ${cpx.toFixed(2)},${y0.toFixed(2)} ${cpx.toFixed(2)},${y1.toFixed(2)} ${x1.toFixed(2)},${y1.toFixed(2)}`;
+  function yPos(value) {
+    const numericValue = Math.max(0, Number(value) || 0);
+    return MT + chartH - (numericValue / yMax) * chartH;
+  }
+
+  function buildSmoothPath(items) {
+    if (!items?.length) return "";
+    if (items.length === 1) {
+      return `M ${xPos(0).toFixed(2)},${yPos(items[0].value).toFixed(2)}`;
     }
-    return d;
+
+    let path = `M ${xPos(0).toFixed(2)},${yPos(items[0].value).toFixed(2)}`;
+
+    for (let index = 1; index < items.length; index += 1) {
+      const x0 = xPos(index - 1);
+      const y0 = yPos(items[index - 1].value);
+      const x1 = xPos(index);
+      const y1 = yPos(items[index].value);
+      const middleX = (x0 + x1) / 2;
+
+      path += ` C ${middleX.toFixed(2)},${y0.toFixed(2)} ${middleX.toFixed(2)},${y1.toFixed(2)} ${x1.toFixed(2)},${y1.toFixed(2)}`;
+    }
+
+    return path;
   }
 
-  function buildArea(arr) {
-    if (!arr || arr.length === 0) return "";
-    const base = MT + chartH;
-    const firstX = xPos(0, arr.length);
-    const lastX = xPos(arr.length - 1, arr.length);
-    return `${buildPath(arr)} L ${lastX.toFixed(2)},${base} L ${firstX.toFixed(2)},${base} Z`;
-  }
-
-  const yTicks = [0, yMax * 0.25, yMax * 0.5, yMax * 0.75, yMax].map(Math.round);
-
-  const xLabels = [];
-  if (n > 0) {
-    const step = Math.max(1, Math.floor(n / 6));
-    for (let i = 0; i < n; i += step) xLabels.push(i);
-    if (xLabels[xLabels.length - 1] !== n - 1) xLabels.push(n - 1);
-  }
-
-  const prevArr = prevData.length > 0 ? prevData : [];
-
-  const gradId = `lineg-${title.replace(/\s+/g, "")}`;
-  const areaGradId = `areag-${title.replace(/\s+/g, "")}`;
-
-  const isUp = change === null ? null : change >= 0;
-
-  let tooltipX = 0, tooltipY = 0, tooltipLeft = true;
-  if (hoverIdx !== null && data[hoverIdx]) {
-    tooltipX = xPos(hoverIdx, n);
-    tooltipY = yPos(data[hoverIdx].value);
-    tooltipLeft = tooltipX > W * 0.6;
-  }
-
-  const handleMouseMove = useCallback(
-    (e) => {
-      const svg = svgRef.current;
-      if (!svg || n === 0) return;
-      const rect = svg.getBoundingClientRect();
-      const scaleX = W / rect.width;
-      const svgX = (e.clientX - rect.left) * scaleX;
-      let closestIdx = 0;
-      let minDist = Infinity;
-      for (let i = 0; i < n; i++) {
-        const dist = Math.abs(xPos(i, n) - svgX);
-        if (dist < minDist) { minDist = dist; closestIdx = i; }
-      }
-      setHoverIdx(closestIdx);
-    },
-    [n]
+  const tickCount = 3;
+  const yTicks = Array.from({ length: tickCount + 1 }, (_, index) =>
+    (yMax / tickCount) * index,
   );
 
-  const handleMouseLeave = useCallback(() => setHoverIdx(null), []);
+  const xLabelIndexes = (() => {
+    const sourceLength = data.length || prevData.length;
+    if (!sourceLength) return [];
+    if (sourceLength <= 5) return Array.from({ length: sourceLength }, (_, index) => index);
 
-  const TW = 148, TH = prevArr.length > 0 ? 76 : 54, TR = 7;
+    const indexes = new Set([0, sourceLength - 1]);
+    const desiredLabels = 5;
+    for (let index = 1; index < desiredLabels - 1; index += 1) {
+      indexes.add(Math.round((index * (sourceLength - 1)) / (desiredLabels - 1)));
+    }
+    return [...indexes].sort((a, b) => a - b);
+  })();
+
+  const safeId = String(title || "analytics-chart")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  const currentGradientId = `${safeId}-current-gradient`;
+
+  const currentPoint = hoverIdx !== null ? data[hoverIdx] : null;
+  const previousPoint = hoverIdx !== null ? prevData[hoverIdx] : null;
+  const hoverRows = [
+    currentPoint
+      ? {
+        key: "current",
+        label: periodLabel || "Current period",
+        date: currentPoint.date,
+        value: currentPoint.value,
+        color,
+        dashed: false,
+      }
+      : null,
+    previousPoint
+      ? {
+        key: "previous",
+        label: prevPeriodLabel || "Previous period",
+        date: previousPoint.date,
+        value: previousPoint.value,
+        color: "#86ccef",
+        dashed: true,
+      }
+      : null,
+  ].filter(Boolean);
+
+  const activePoint = currentPoint || previousPoint;
+  const tooltipX = hoverIdx !== null ? xPos(hoverIdx) : 0;
+  const tooltipY = activePoint ? yPos(activePoint.value) : MT + chartH;
+  const placeTooltipLeft = tooltipX > W * 0.68;
+
+  const handlePointerMove = useCallback((event) => {
+    const svg = svgRef.current;
+    if (!svg || pointCount <= 0) return;
+
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width) return;
+
+    const relativeX = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+    const svgX = (relativeX / rect.width) * W;
+    const approximateIndex = Math.round(((svgX - ML) / chartW) * (pointCount - 1));
+    const nextIndex = Math.max(0, Math.min(pointCount - 1, approximateIndex));
+
+    setHoverIdx(nextIndex);
+  }, [chartW, pointCount]);
+
+  const handlePointerLeave = useCallback(() => setHoverIdx(null), []);
+  const isUp = change === null || change === undefined ? null : change >= 0;
 
   return (
-    <div>
-      {/* Chart header */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "18px" }}>
-        <div>
-          <div style={{ fontSize: "12px", color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.8px", fontWeight: "600", marginBottom: "4px" }}>
+    <BlockStack gap="300">
+      <InlineStack align="space-between" blockAlign="start" wrap>
+        <BlockStack gap="100">
+          <Text as="p" variant="bodySm" tone="subdued">
             {title}
-          </div>
-          <div style={{ fontSize: "30px", fontWeight: "800", color: "#111827", letterSpacing: "-1px", lineHeight: 1 }}>
+          </Text>
+          <Text as="p" variant="headingXl">
             {totalValue}
-          </div>
-        </div>
+          </Text>
+        </BlockStack>
+
         {change !== null && change !== undefined ? (
           <div
             style={{
               display: "inline-flex",
               alignItems: "center",
               gap: "4px",
+              padding: "5px 10px",
+              borderRadius: "8px",
+              color: isUp ? "#0a7a42" : "#b42318",
+              background: isUp ? "#e7f8ef" : "#fff0ee",
               fontSize: "12px",
-              fontWeight: "700",
-              color: isUp ? "#059669" : "#dc2626",
-              background: isUp ? "#d1fae5" : "#fee2e2",
-              padding: "5px 12px",
-              borderRadius: "5px",
+              fontWeight: 700,
             }}
           >
-            <AdminIcon type={isUp ? "arrow-up" : "arrow-down"} size="small" /> {Math.abs(change).toFixed(0)}% vs prev period
+            <AdminIcon type={isUp ? "arrow-up" : "arrow-down"} size="small" />
+            {Math.abs(change).toFixed(0)}% vs previous period
           </div>
         ) : null}
-      </div>
+      </InlineStack>
 
-      {/* White SVG Chart */}
       <div
         style={{
-          background: "#ffffff",
-          border: "1px solid #e5e7eb",
-          borderRadius: "5px",
-          padding: "8px 4px 4px",
-          overflow: "hidden",
           position: "relative",
+          width: "100%",
+          minHeight: "280px",
+          overflow: "hidden",
+          background: "#ffffff",
+          borderRadius: "8px",
           userSelect: "none",
+          touchAction: "pan-y",
         }}
       >
         <svg
           ref={svgRef}
           viewBox={`0 0 ${W} ${H}`}
           width="100%"
-          style={{ display: "block", cursor: "crosshair" }}
-          preserveAspectRatio="xMidYMid meet"
-          onMouseMove={handleMouseMove}
-          onMouseLeave={handleMouseLeave}
+          role="img"
+          aria-label={`${title} line chart`}
+          preserveAspectRatio="none"
+          style={{ display: "block", width: "100%", height: "300px", cursor: "crosshair" }}
+          onPointerMove={handlePointerMove}
+          onPointerDown={handlePointerMove}
+          onPointerLeave={handlePointerLeave}
         >
           <defs>
-            <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="0">
+            <linearGradient id={currentGradientId} x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor={color} />
               <stop offset="100%" stopColor={color2} />
             </linearGradient>
-            <linearGradient id={areaGradId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity="0.18" />
-              <stop offset="100%" stopColor={color} stopOpacity="0.02" />
-            </linearGradient>
           </defs>
 
-          {/* Background */}
           <rect x="0" y="0" width={W} height={H} fill="#ffffff" />
 
-          {/* Y-axis grid lines */}
-          {yTicks.map((tick, i) => {
+          {yTicks.map((tick, index) => {
             const y = yPos(tick);
             return (
-              <g key={i}>
+              <g key={`y-${index}`}>
                 <line
-                  x1={ML} y1={y} x2={W - MR} y2={y}
-                  stroke="#e5e7eb"
-                  strokeWidth={i === 0 ? 1.5 : 1}
-                  strokeDasharray={i === 0 ? "none" : "4,4"}
+                  x1={ML}
+                  y1={y}
+                  x2={W - MR}
+                  y2={y}
+                  stroke="#e6ebef"
+                  strokeWidth="1"
                 />
-                {showYAxisLabels ? (
-                  <text x={ML - 8} y={y + 4} textAnchor="end" fontSize="9.5" fill="#9ca3af">
-                    {formatY(tick)}
-                  </text>
-                ) : null}
+                <text
+                  x={ML - 12}
+                  y={y + 4}
+                  textAnchor="end"
+                  fontSize="11"
+                  fontWeight="600"
+                  fill="#4b5563"
+                >
+                  {formatY(tick)}
+                </text>
               </g>
             );
           })}
 
-          {/* Area fill (current period) */}
-          <path d={buildArea(data)} fill={`url(#${areaGradId})`} />
-
-          {/* Previous period line */}
-          {prevArr.length > 0 && (
+          {prevData.length > 0 ? (
             <path
-              d={buildPath(prevArr)}
+              d={buildSmoothPath(prevData)}
               fill="none"
-              stroke="#d1d5db"
+              stroke="#86ccef"
               strokeWidth="2"
-              strokeDasharray="6,4"
+              strokeDasharray="5 8"
               strokeLinecap="round"
-              opacity="0.9"
+              strokeLinejoin="round"
             />
-          )}
+          ) : null}
 
-          {/* Current period line with gradient stroke */}
-          <path
-            d={buildPath(data)}
-            fill="none"
-            stroke={`url(#${gradId})`}
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+          {data.length > 0 ? (
+            <path
+              d={buildSmoothPath(data)}
+              fill="none"
+              stroke={`url(#${currentGradientId})`}
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          ) : null}
 
-          {/* X-axis labels */}
-          {xLabels.map((idx) => {
-            if (!data[idx]) return null;
+          {xLabelIndexes.map((index) => {
+            const point = data[index] || prevData[index];
+            if (!point) return null;
             return (
-              <text key={idx} x={xPos(idx, n)} y={H - 8} textAnchor="middle" fontSize="9.5" fill="#9ca3af" >
-                {fmtShortDate(data[idx].date)}
+              <text
+                key={`x-${index}`}
+                x={xPos(index)}
+                y={H - 12}
+                textAnchor="middle"
+                fontSize="11"
+                fontWeight="600"
+                fill="#4b5563"
+              >
+                {fmtShortDate(point.date)}
               </text>
             );
           })}
 
-          {/* ── Hover elements ── */}
-          {hoverIdx !== null && data[hoverIdx] && (
-            <g>
-              {/* Vertical crosshair */}
+          {hoverIdx !== null && hoverRows.length > 0 ? (
+            <g pointerEvents="none">
               <line
-                x1={tooltipX} y1={MT}
-                x2={tooltipX} y2={MT + chartH}
-                stroke="#374151"
+                x1={tooltipX}
+                y1={MT}
+                x2={tooltipX}
+                y2={MT + chartH}
+                stroke="#111827"
                 strokeWidth="1"
-                strokeOpacity="0.2"
+                strokeDasharray="3 4"
+                opacity="0.18"
               />
 
-              {/* Dot on current line */}
-              <circle
-                cx={tooltipX}
-                cy={yPos(data[hoverIdx].value)}
-                r="5"
-                fill={color}
-                stroke="#ffffff"
-                strokeWidth="2.5"
-              />
-
-              {/* Dot on prev line */}
-              {prevArr[hoverIdx] && (
+              {currentPoint ? (
                 <circle
-                  cx={xPos(hoverIdx, prevArr.length)}
-                  cy={yPos(prevArr[hoverIdx].value)}
-                  r="4"
-                  fill="#9ca3af"
-                  stroke="#ffffff"
-                  strokeWidth="2"
+                  cx={tooltipX}
+                  cy={yPos(currentPoint.value)}
+                  r="5"
+                  fill="#ffffff"
+                  stroke={color}
+                  strokeWidth="2.5"
                 />
-              )}
+              ) : null}
 
-              {/* Tooltip card */}
-              {(() => {
-                const tx = tooltipLeft ? tooltipX - TW - 12 : tooltipX + 12;
-                const ty = Math.min(Math.max(tooltipY - TH / 2, MT), MT + chartH - TH);
-                return (
-                  <g>
-                    <rect
-                      x={tx} y={ty}
-                      width={TW} height={TH}
-                      rx={TR} ry={TR}
-                      fill="#1f2937"
-                      stroke="#374151"
-                      strokeWidth="1"
-                    />
-                    <text x={tx + 10} y={ty + 18} fontSize="10" fill="#ffffff" fontWeight="600">
-                      {fmtShortDate(data[hoverIdx].date)}
-                    </text>
-                    <circle cx={tx + 10} cy={ty + 32} r="3.5" fill={color} />
-                    <text x={tx + 18} y={ty + 36} fontSize="11" fill="#f9fafb" >
-                      {formatY(data[hoverIdx].value)}
-                    </text>
-                    <text x={tx + TW - 10} y={ty + 36} textAnchor="end" fontSize="9" fill="#ffffff" >
-                      {periodLabel.slice(0, 16)}
-                    </text>
-                    {prevArr[hoverIdx] && (
-                      <>
-                        <line x1={tx + 8} y1={ty + 44} x2={tx + 18} y2={ty + 44} stroke="#6b7280" strokeWidth="1.5" strokeDasharray="3,2" />
-                        <text x={tx + 22} y={ty + 49} fontSize="11" fill="#ffffff" >
-                          {formatY(prevArr[hoverIdx].value)}
-                        </text>
-                        <text x={tx + TW - 10} y={ty + 49} textAnchor="end" fontSize="9" fill="#ffffff" >
-                          prev period
-                        </text>
-                      </>
-                    )}
-                  </g>
-                );
-              })()}
+              {previousPoint ? (
+                <circle
+                  cx={tooltipX}
+                  cy={yPos(previousPoint.value)}
+                  r="4.5"
+                  fill="#ffffff"
+                  stroke="#86ccef"
+                  strokeWidth="2.5"
+                />
+              ) : null}
             </g>
-          )}
+          ) : null}
         </svg>
+
+        {hoverIdx !== null && hoverRows.length > 0 ? (
+          <div
+            style={{
+              position: "absolute",
+              left: `${(tooltipX / W) * 100}%`,
+              top: `${Math.max(12, Math.min(86, (tooltipY / H) * 100))}%`,
+              transform: placeTooltipLeft
+                ? "translate(calc(-100% - 14px), -50%)"
+                : "translate(14px, -50%)",
+              width: "min(230px, calc(100vw - 48px))",
+              pointerEvents: "none",
+              zIndex: 4,
+            }}
+          >
+            <div
+              style={{
+                background: "#ffffff",
+                border: "1px solid #dfe3e8",
+                borderRadius: "10px",
+                boxShadow: "0 10px 28px rgba(17, 24, 39, 0.14)",
+                padding: "12px",
+              }}
+            >
+              <div
+                style={{
+                  color: "#202223",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  marginBottom: "8px",
+                }}
+              >
+                {activePoint?.date
+                  ? new Date(`${activePoint.date}T00:00:00`).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })
+                  : ""}
+              </div>
+
+              <div style={{ display: "grid", gap: "6px" }}>
+                {hoverRows.map((row) => (
+                  <div
+                    key={row.key}
+                    style={{
+                      display: "grid",
+                      gap: "3px",
+                      padding: "8px 9px",
+                      borderRadius: "7px",
+                      background: "#f6f6f7",
+                      border: "1px solid #ebebed",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "7px",
+                        minWidth: 0,
+                      }}
+                    >
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          width: "9px",
+                          height: "9px",
+                          borderRadius: "50%",
+                          flexShrink: 0,
+                          background: row.color,
+                        }}
+                      />
+                      <span
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          color: "#4b5563",
+                          fontSize: "11px",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {row.label}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "baseline",
+                        justifyContent: "space-between",
+                        gap: "8px",
+                      }}
+                    >
+                      <strong style={{ color: "#202223", fontSize: "14px" }}>
+                        {formatY(row.value)}
+                      </strong>
+                      <span style={{ color: "#8c9196", fontSize: "10px" }}>
+                        {fmtShortDate(row.date)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
 
-      {/* Legend */}
-      <div style={{ display: "flex", gap: "20px", marginTop: "12px", fontSize: "12px", color: "#000000" }}>
-        <span style={{ display: "flex", alignItems: "center", gap: "7px" }}>
-          <svg width="24" height="4" style={{ verticalAlign: "middle" }}>
-            <defs>
-              <linearGradient id={`leg-${gradId}`} x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor={color} />
-                <stop offset="100%" stopColor={color2} />
-              </linearGradient>
-            </defs>
-            <line x1="0" y1="2" x2="24" y2="2" stroke={`url(#leg-${gradId})`} strokeWidth="2.5" />
-          </svg>
+      <InlineStack gap="400" wrap>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", color: "#4b5563", fontSize: "12px" }}>
+          <span style={{ width: "10px", height: "10px", borderRadius: "50%", background: color }} />
           {periodLabel}
         </span>
-        {prevArr.length > 0 && (
-          <span style={{ display: "flex", alignItems: "center", gap: "7px" }}>
-            <svg width="24" height="4" style={{ verticalAlign: "middle" }}>
-              <line x1="0" y1="2" x2="24" y2="2" stroke="#d1d5db" strokeWidth="2" strokeDasharray="5,3" />
-            </svg>
+        {prevData.length > 0 ? (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", color: "#4b5563", fontSize: "12px" }}>
+            <span style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#86ccef" }} />
             {prevPeriodLabel}
           </span>
-        )}
-      </div>
-    </div>
+        ) : null}
+      </InlineStack>
+    </BlockStack>
   );
 }
 
