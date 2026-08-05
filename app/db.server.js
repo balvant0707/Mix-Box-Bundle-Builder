@@ -165,54 +165,6 @@ CREATE TABLE IF NOT EXISTS \`feedbackmsg\` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 `;
 
-const ENSURE_COMBO_BOX_TABLE_SQL = `
-CREATE TABLE IF NOT EXISTS \`combo_box\` (
-  \`id\` INTEGER NOT NULL AUTO_INCREMENT,
-  \`shop\` VARCHAR(191) NOT NULL,
-  \`boxName\` VARCHAR(255) NOT NULL,
-  \`displayTitle\` VARCHAR(255) NOT NULL,
-  \`comboProductButtonTitle\` VARCHAR(100) NULL,
-  \`productButtonTitle\` VARCHAR(100) NULL,
-  \`itemCount\` INTEGER NOT NULL DEFAULT 1,
-  \`bundlePrice\` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-  \`isGiftBox\` BOOLEAN NOT NULL DEFAULT false,
-  \`allowDuplicates\` BOOLEAN NOT NULL DEFAULT false,
-  \`bannerImageUrl\` VARCHAR(500) NULL,
-  \`sortOrder\` INTEGER NOT NULL DEFAULT 0,
-  \`isActive\` BOOLEAN NOT NULL DEFAULT true,
-  \`giftMessageEnabled\` BOOLEAN NOT NULL DEFAULT false,
-  \`shopifyProductId\` VARCHAR(255) NULL,
-  \`shopifyVariantId\` VARCHAR(255) NULL,
-  \`deletedAt\` DATETIME(3) NULL,
-  \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  \`updatedAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
-  PRIMARY KEY (\`id\`),
-  INDEX \`combo_box_shop_idx\` (\`shop\`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-`;
-
-const ENSURE_COMBO_BOX_PRODUCT_TABLE_SQL = `
-CREATE TABLE IF NOT EXISTS \`combo_box_product\` (
-  \`id\` INTEGER NOT NULL AUTO_INCREMENT,
-  \`boxId\` INTEGER NOT NULL,
-  \`productId\` VARCHAR(255) NOT NULL,
-  \`productTitle\` VARCHAR(255) NULL,
-  \`productImageUrl\` VARCHAR(500) NULL,
-  \`productHandle\` VARCHAR(255) NULL,
-  \`isCollection\` BOOLEAN NOT NULL DEFAULT false,
-  \`variantIds\` JSON NULL,
-  \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  \`productPrice\` DECIMAL(10,2) NULL,
-  PRIMARY KEY (\`id\`),
-  INDEX \`combo_box_product_boxId_idx\` (\`boxId\`),
-  FOREIGN KEY (\`boxId\`) REFERENCES \`combo_box\`(\`id\`) ON DELETE CASCADE
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-`;
-
-const ENSURE_COMBO_BOX_PRODUCT_COLUMNS_SQL = [
-  "ALTER TABLE `combo_box_product` ADD COLUMN IF NOT EXISTS `productPrice` DECIMAL(10,2) NULL;",
-];
-
 const ENSURE_BUNDLE_ORDER_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS \`bundle_order\` (
   \`id\` INTEGER NOT NULL AUTO_INCREMENT,
@@ -244,13 +196,6 @@ const ENSURE_SHOP_COLUMNS_SQL = [
   "ALTER TABLE `shop` ADD COLUMN IF NOT EXISTS `reviewSubmittedAt` DATETIME(3) NULL;",
   "ALTER TABLE `shop` ADD COLUMN IF NOT EXISTS `reviewRating` INTEGER NULL;",
   "ALTER TABLE `shop` ADD COLUMN IF NOT EXISTS `reviewComment` TEXT NULL;",
-];
-
-const ENSURE_COMBO_BOX_COLUMNS_SQL = [
-  "ALTER TABLE `combo_box` ADD COLUMN IF NOT EXISTS `boxCode` VARCHAR(10) NULL;",
-  "ALTER TABLE `combo_box` ADD COLUMN IF NOT EXISTS `comboProductButtonTitle` VARCHAR(100) NULL;",
-  "ALTER TABLE `combo_box` ADD COLUMN IF NOT EXISTS `productButtonTitle` VARCHAR(100) NULL;",
-  "ALTER TABLE `combo_box` ADD UNIQUE INDEX IF NOT EXISTS `combo_box_boxCode_key` (`boxCode`);",
 ];
 
 // Persist across hot-reloads AND across warm serverless invocations in the
@@ -325,16 +270,8 @@ export function ensureAppTables() {
       await prisma.$executeRawUnsafe(ENSURE_SHOP_TABLE_SQL);
       await prisma.$executeRawUnsafe(ENSURE_UNINSTALL_FEEDBACK_TABLE_SQL);
       await prisma.$executeRawUnsafe(ENSURE_FEEDBACK_MSG_TABLE_SQL);
-      await prisma.$executeRawUnsafe(ENSURE_COMBO_BOX_TABLE_SQL);
-      await prisma.$executeRawUnsafe(ENSURE_COMBO_BOX_PRODUCT_TABLE_SQL);
       await prisma.$executeRawUnsafe(ENSURE_BUNDLE_ORDER_TABLE_SQL);
       for (const sql of ENSURE_SHOP_COLUMNS_SQL) {
-        await prisma.$executeRawUnsafe(sql);
-      }
-      for (const sql of ENSURE_COMBO_BOX_COLUMNS_SQL) {
-        await prisma.$executeRawUnsafe(sql);
-      }
-      for (const sql of ENSURE_COMBO_BOX_PRODUCT_COLUMNS_SQL) {
         await prisma.$executeRawUnsafe(sql);
       }
       for (const sql of ENSURE_BUNDLE_ORDER_COLUMNS_SQL) {

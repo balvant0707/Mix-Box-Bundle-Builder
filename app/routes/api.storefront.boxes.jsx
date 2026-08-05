@@ -1,5 +1,4 @@
-import { Buffer } from "node:buffer";
-import { listBoxes, getComboStepImages } from "../models/boxes.server";
+import { listBoxes } from "../models/boxes.server";
 import { unauthenticated } from "../shopify.server";
 import { getOrderCreditStatus } from "../models/order-credit.server";
 
@@ -64,17 +63,6 @@ export const loader = async ({ request }) => {
   });
   const orderLimitReached = orderCredit.orderLimitReached;
 
-  // Fetch step images for all boxes that have a specific combo config
-  const stepImagesByBox = {};
-  await Promise.all(
-    boxes
-      .filter((b) => b.comboStepsConfig)
-      .map(async (b) => {
-        const imgs = await getComboStepImages(b.id);
-        if (imgs.length > 0) stepImagesByBox[b.id] = imgs;
-      })
-  );
-
   const publicBoxes = boxes.map((box) => {
     const bannerImageUrl = box.bannerImageUrl || null;
     // Flag so the widget can build the URL via the app proxy (avoids cross-origin issues)
@@ -126,24 +114,11 @@ export const loader = async ({ request }) => {
       pageHandle: box.pageHandle || null,
       scopeType: box.scopeType || "specific_collections",
       comboConfig: (() => {
-        const boxStepImgs = stepImagesByBox[box.id] || [];
-        const primaryImageRecord = boxStepImgs.find((img) => img.imageData);
-        const primaryStepImageUrl = primaryImageRecord
-          ? `data:${primaryImageRecord.mimeType};base64,${Buffer.from(primaryImageRecord.imageData).toString("base64")}`
-          : null;
-        function attachStepImages(stepsArr) {
-          return stepsArr.map((step) => {
-            return {
-              ...step,
-              stepImageUrl: primaryStepImageUrl,
-            };
-          });
-        }
         // Fallback: parse raw comboStepsConfig JSON when ComboBoxConfig relation is missing
         if (box.comboStepsConfig) {
           try {
             const parsed = JSON.parse(box.comboStepsConfig);
-            const steps = attachStepImages(Array.isArray(parsed.steps) ? parsed.steps : []);
+            const steps = Array.isArray(parsed.steps) ? parsed.steps : [];
             return {
               comboType: parseInt(parsed.type) || 0,
               title: parsed.title || parsed.listingTitle || null,
