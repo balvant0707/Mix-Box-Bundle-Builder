@@ -22,6 +22,7 @@ import {
   EmptyState,
   IndexTable,
   useIndexResourceState,
+  DatePicker,
   InlineGrid,
   InlineStack,
   Modal,
@@ -30,27 +31,9 @@ import {
   Spinner,
   Text,
   TextField,
+  ChoiceList,
   Tooltip,
 } from "@shopify/polaris";
-
-const BUNDLE_TYPES = [
-  {
-    id: "mix-match-single-product",
-    title: "Mix & Match Bundle (Single Product)",
-    description:
-      "Create your perfect bundle by mixing different variants of a single product. Choose colors, sizes, and options to match your preferences.",
-    url: "/app/single",
-    buttonLabel: "Create Bundle",
-  },
-  {
-    id: "mix-match-multiple-products",
-    title: "Mix & Match Bundle (Multi Products)",
-    description:
-      "Create your perfect bundle by mixing different variants of multiple products. Choose colors, sizes, and options to match your preferences.",
-    url: "/app/multiplebox",
-    buttonLabel: "Create Bundle",
-  },
-];
 
 const BUNDLE_PREVIEW_PRODUCTS_QUERY = `#graphql
   query BundlePreviewProducts($ids: [ID!]!) {
@@ -377,10 +360,14 @@ export default function ManageBoxesPage() {
 
   const PAGE_SIZE = 10;
   const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [boxTypeFilter, setBoxTypeFilter] = useState("all");
+  const [{ month, year }, setDate] = useState({ month: new Date().getMonth(), year: new Date().getFullYear() });
+  const [selectedDates, setSelectedDates] = useState({ start: null, end: null });
+  const [datePickerActive, setDatePickerActive] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [manualPageLoading, setManualPageLoading] = useState(false);
   const isDeleteSubmitting =
     fetcher.state !== "idle" &&
@@ -442,9 +429,6 @@ export default function ManageBoxesPage() {
       { method: "POST" },
     );
   }
-  const [showCreateBoxModal, setShowCreateBoxModal] = useState(false);
-  const openCreateBoxModal = useCallback(() => setShowCreateBoxModal(true), []);
-  const closeCreateBoxModal = useCallback(() => setShowCreateBoxModal(false), []);
 
   const baseBoxes = useMemo(() => {
     const action = fetcher.formData?.get("_action");
@@ -482,8 +466,21 @@ export default function ManageBoxesPage() {
         (b) => b.boxName.toLowerCase().includes(q) || (b.displayTitle && b.displayTitle.toLowerCase().includes(q))
       );
     }
+    if (boxTypeFilter !== "all") {
+      result = result.filter((b) => b.boxType === boxTypeFilter);
+    }
+    if (selectedDates.start && selectedDates.end) {
+      const startDate = new Date(selectedDates.start);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(selectedDates.end);
+      endDate.setHours(23, 59, 59, 999);
+      result = result.filter((b) => {
+        const createdAt = new Date(b.createdAt);
+        return createdAt >= startDate && createdAt <= endDate;
+      });
+    }
     return result.sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
-  }, [boxesWithPendingToggle, statusFilter, search]);
+  }, [boxesWithPendingToggle, statusFilter, search, boxTypeFilter, selectedDates]);
 
   const resourceIDResolver = (item) => item.id;
 
@@ -510,7 +507,7 @@ export default function ManageBoxesPage() {
   const hasMultiplePages = totalPages > 1;
 
   // Reset to page 1 when filter/search changes
-  useEffect(() => { setCurrentPage(1); }, [statusFilter, search]);
+  useEffect(() => { setCurrentPage(1); }, [statusFilter, search, boxTypeFilter, selectedDates]);
 
   const totalOrders = baseBoxes.reduce((s, b) => s + b.orderCount, 0);
   const activeCount = boxesWithPendingToggle.filter((b) => b.isActive).length;
@@ -526,7 +523,7 @@ export default function ManageBoxesPage() {
   return (
     <Page
       title="Manage Boxes"
-      primaryAction={{ content: "+ Create Box", onAction: openCreateBoxModal }}
+      primaryAction={{ content: "+ Create Box", onAction: () => navigateTo("/app/create-bundle") }}
     >
       {/* <ui-title-bar title="MixBox â€“ Box & Bundle Builder">
         <button variant="primary" onClick={openCreateBoxModal}>
@@ -585,6 +582,61 @@ export default function ManageBoxesPage() {
                   autoComplete="off"
                 />
               </Box>
+              <Box>
+                <ChoiceList
+                  title="Box Type"
+                  titleHidden
+                  choices={[
+                    { label: "All Types", value: "all" },
+                    { label: "Single Product", value: "single" },
+                    { label: "Multi Product", value: "multiple" },
+                    { label: "Specific Combo", value: "specific" },
+                  ]}
+                  selected={[boxTypeFilter]}
+                  onChange={(value) => setBoxTypeFilter(value[0])}
+                />
+              </Box>
+              <Box>
+                <Popover
+                  active={datePickerActive}
+                  activator={
+                    <Button
+                      onClick={() => setDatePickerActive(!datePickerActive)}
+                      icon={CalendarIcon}
+                      disclosure
+                    >
+                      {selectedDates.start && selectedDates.end
+                        ? `${formatDate(selectedDates.start)} - ${formatDate(selectedDates.end)}`
+                        : "Select Date Range"}
+                    </Button>
+                  }
+                  onClose={() => setDatePickerActive(false)}
+                  preferredAlignment="right"
+                >
+                  <DatePicker
+                    month={month}
+                    year={year}
+                    onChange={handleDateSelection}
+                    onMonthChange={handleMonthChange}
+                    selected={selectedDates}
+                    allowRange
+                  />
+                  {(selectedDates.start || selectedDates.end) && (
+                    <Box padding="400">
+                      <InlineStack align="end">
+                        <Button
+                          onClick={() => {
+                            setSelectedDates({ start: null, end: null });
+                            setDatePickerActive(false);
+                          }}
+                        >
+                          Clear Dates
+                        </Button>
+                      </InlineStack>
+                    </Box>
+                  )}
+                </Popover>
+              </Box>
               <InlineStack gap="150" blockAlign="center">
                 <Button
                   variant={statusFilter === "all" ? "primary" : "secondary"}
@@ -612,6 +664,21 @@ export default function ManageBoxesPage() {
             </InlineStack>
           </Box>
 
+          {/* Analysis Chart Placeholder */}
+          {baseBoxes.length > 0 && (
+            <Box padding="400" borderBlockEndWidth="025" borderColor="border-secondary">
+              <Card padding="400">
+                <BlockStack gap="200">
+                  <Text as="h2" variant="headingMd">
+                    Bundle Performance Analysis
+                  </Text>
+                  <Text as="p" tone="subdued">
+                    (Placeholder for a future chart or detailed analytics)
+                  </Text>
+                </BlockStack>
+              </Card>
+            </Box>
+          )}
           {baseBoxes.length === 0 ? (
             /* Empty state â€” no boxes at all */
             <EmptyState
@@ -974,43 +1041,6 @@ export default function ManageBoxesPage() {
         </Modal.Section>
       </Modal>
 
-      {/* Create Box Modal */}
-      <Modal
-        open={showCreateBoxModal}
-        onClose={closeCreateBoxModal}
-        title="Create a new bundle"
-      >
-        <Modal.Section>
-          <BlockStack gap="400">
-            {BUNDLE_TYPES.map((bundle) => {
-              const isLoading =
-                navigation.state === "loading" &&
-                navigation.location.pathname.startsWith(bundle.url);
-              return (
-                <Card key={bundle.id} padding="400">
-                  <BlockStack gap="300">
-                    <Text as="h3" variant="headingMd">
-                      {bundle.title}
-                    </Text>
-                    <Text as="p" tone="subdued">
-                      {bundle.description}
-                    </Text>
-                    <InlineStack align="end">
-                      <Button
-                        variant="primary"
-                        onClick={() => navigate(withEmbeddedAppParams(bundle.url, location.search))}
-                        loading={isLoading}
-                      >
-                        {bundle.buttonLabel}
-                      </Button>
-                    </InlineStack>
-                  </BlockStack>
-                </Card>
-              );
-            })}
-          </BlockStack>
-        </Modal.Section>
-      </Modal>
     </Page>
   );
 }
