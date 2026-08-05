@@ -14,7 +14,15 @@ export const action = async ({ request }) => {
   const { session, admin } = await authenticate.admin(request);
   const body = await request.json();
   try {
-    const box = await createBox(session.shop, body, admin);
+    // The frontend sends configuration in `pageConfig`, but `createBox` expects a flat object.
+    // We merge the nested and top-level properties to create the expected structure.
+    const dataForCreate = {
+      ...body.pageConfig,
+      ...body,
+    };
+    delete dataForCreate.pageConfig;
+
+    const box = await createBox(session.shop, dataForCreate, admin);
     return Response.json(box, { status: 201 });
   } catch (error) {
     if (error instanceof BoxCodeValidationError || error?.name === "BoxCodeValidationError") {
