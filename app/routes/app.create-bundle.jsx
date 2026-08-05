@@ -127,10 +127,9 @@ export default function BundleTypesPage() {
 
         <InlineGrid
           columns={{
-            xs: 1,
             sm: 1,
             md: 2,
-            lg: 3,
+            lg: 2,
           }}
           gap="300"
           alignItems="stretch"
