@@ -327,8 +327,6 @@ export default function App() {
       `}</style>
       <s-app-nav>
         <s-link href="/app/create-bundle">Create Bundle</s-link>
-        <s-link href="/app/single">Single Boxes</s-link>
-        <s-link href="/app/multiplebox">Multiple Boxes</s-link>
         <s-link href="/app/boxes">Manage Boxes</s-link>
         <s-link href="/app/analytics">Analytics</s-link>
         <s-link href="/app/pricing">Price Plan</s-link>

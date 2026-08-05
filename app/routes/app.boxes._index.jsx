@@ -180,27 +180,39 @@ export const loader = async ({ request }) => {
   );
   return {
     currencyCode,
-    boxes: boxes.map((b) => ({
-      id: b.id,
-      boxCode: b.boxCode || null,
-      boxName: b.boxName,
-      displayTitle: b.displayTitle,
-      itemCount: b.itemCount,
-      bundlePrice: parseFloat(b.bundlePrice),
-      bundlePriceType: b.bundlePriceType || "manual",
-      isGiftBox: b.isGiftBox,
-      isActive: b.isActive,
-      sortOrder: b.sortOrder,
-      orderCount: b._count?.orders ?? 0,
-      comboConfig: getComboConfigSummary(b),
-      discount: getDiscountSummary(b),
-      listImageSrc: getBoxListImageSrc(b),
-      previewUrl: buildBundlePreviewUrl(
-        session.shop,
-        b.boxCode || b.id,
-        b.shopifyProductId ? previewUrlByProductId.get(b.shopifyProductId) || null : null,
-      ),
-    })),
+    boxes: boxes.map((b) => {
+      let boxType = "simple";
+      if (b.multipleBoxPage) {
+        boxType = "multiple";
+      } else if (b.simpleBoxPage) {
+        boxType = "single";
+      } else if (getComboConfigSummary(b)) {
+        boxType = "specific";
+      }
+
+      return {
+        id: b.id,
+        boxType,
+        boxCode: b.boxCode || null,
+        boxName: b.boxName,
+        displayTitle: b.displayTitle,
+        itemCount: b.itemCount,
+        bundlePrice: parseFloat(b.bundlePrice),
+        bundlePriceType: b.bundlePriceType || "manual",
+        isGiftBox: b.isGiftBox,
+        isActive: b.isActive,
+        sortOrder: b.sortOrder,
+        orderCount: b._count?.orders ?? 0,
+        comboConfig: getComboConfigSummary(b),
+        discount: getDiscountSummary(b),
+        listImageSrc: getBoxListImageSrc(b),
+        previewUrl: buildBundlePreviewUrl(
+          session.shop,
+          b.boxCode || b.id,
+          b.shopifyProductId ? previewUrlByProductId.get(b.shopifyProductId) || null : null,
+        ),
+      };
+    }),
   };
 };
 
@@ -828,12 +840,16 @@ export default function ManageBoxesPage() {
                             </Button>
                           </Tooltip>
                           <Tooltip content="Edit box">
-                            <Button
-                              size="slim"
-                              onClick={() => navigateTo(box.comboConfig ? `/app/boxes/${box.id}/combo` : `/app/boxes/${box.id}`)}
-                              icon={<AdminIcon type="edit" size="small" />}
-                            >
-                            </Button>
+                            <Button size="slim" onClick={() => {
+                              const editUrl = box.boxType === "single"
+                                ? `/app/boxes/${box.id}/edit-single`
+                                : box.boxType === "multiple"
+                                  ? `/app/boxes/${box.id}/edit-multiple`
+                                  : box.comboConfig
+                                    ? `/app/boxes/${box.id}/combo`
+                                    : `/app/boxes/${box.id}`;
+                              navigateTo(editUrl);
+                            }} icon={<AdminIcon type="edit" size="small" />} />
                           </Tooltip>
                           {box.orderCount === 0 && (
                             <Tooltip content="Delete box">
@@ -913,5 +929,3 @@ export default function ManageBoxesPage() {
 export const headers = (headersArgs) => {
   return boundary.headers(headersArgs);
 };
-
-
