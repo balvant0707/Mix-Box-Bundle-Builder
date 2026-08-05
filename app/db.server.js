@@ -66,7 +66,13 @@ process.env.DATABASE_URL = dbUrl;
 // Use globalThis singleton in ALL environments to avoid multiple client instances
 // within the same module cache (dev hot-reload or serverless warm containers).
 if (!globalThis.__prismaClient) {
-  globalThis.__prismaClient = new PrismaClient();
+  try {
+    globalThis.__prismaClient = new PrismaClient();
+  } catch (e) {
+    console.error("[DB Init] Failed to create PrismaClient instance:", e);
+    // Ensure globalThis.__prismaClient is explicitly undefined if it fails
+    globalThis.__prismaClient = undefined;
+  }
 }
 
 const prisma = globalThis.__prismaClient;
