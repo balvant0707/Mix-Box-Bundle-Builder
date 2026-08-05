@@ -20,9 +20,9 @@ const BUNDLE_TYPES = [
     title: "Mix & Match Bundle (Single Product)",
     description:
       "Create your perfect bundle by mixing different variants of a single product. Choose colors, sizes, and options to match your preferences.",
-    image: "/media/bundle/mix-n-match-sp.jpg",
+    image: "/images/mix-n-match-sp.jpg",
     buttonLabel: "Create Mix & Match Bundle",
-    url: "/images/mix-n-match-sp.jpg",
+    url: "/app/create-bundle/mix-n-match-bundle-sp/new?from=CBC",
     premium: true,
   },
   {
@@ -30,9 +30,9 @@ const BUNDLE_TYPES = [
     title: "Mix & Match Bundle (Multi Products)",
     description:
       "Create your perfect bundle by mixing different variants of multiple products. Choose colors, sizes, and options to match your preferences.",
-    image: "/media/bundle/mix-n-match-mp.jpg",
+    image: "/images/mix-n-match-mp.jpg",
     buttonLabel: "Create Mix & Match Bundle",
-    url: "/images/mix-n-match-mp.jpg",
+    url: "/app/create-bundle/mix-n-match-bundle-mp/new?from=CBC",
     premium: true,
   },
 ];
