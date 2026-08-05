@@ -321,6 +321,7 @@ export default function App() {
         }
       `}</style>
       <s-app-nav>
+        <s-link href={withEmbeddedAppParams("/app/create-bundle", location.search)}>Create Bundle</s-link>
         <s-link href={withEmbeddedAppParams("/app/single", location.search)}>Single Boxes</s-link>
         <s-link href={withEmbeddedAppParams("/app/multiplebox", location.search)}>Multiple Boxes</s-link>
         <s-link href={withEmbeddedAppParams("/app/boxes", location.search)}>Manage Boxes</s-link>
