@@ -1,4 +1,4 @@
-﻿import { useState, useMemo, useEffect } from "react";
+﻿import { useState, useMemo, useEffect, useCallback } from "react";
 import { useFetcher, useLoaderData, useLocation, useNavigate, useNavigation } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
@@ -31,6 +31,25 @@ import {
   TextField,
   Tooltip,
 } from "@shopify/polaris";
+
+const BUNDLE_TYPES = [
+  {
+    id: "mix-match-single-product",
+    title: "Mix & Match Bundle (Single Product)",
+    description:
+      "Create your perfect bundle by mixing different variants of a single product. Choose colors, sizes, and options to match your preferences.",
+    url: "/app/single",
+    buttonLabel: "Create Bundle",
+  },
+  {
+    id: "mix-match-multiple-products",
+    title: "Mix & Match Bundle (Multi Products)",
+    description:
+      "Create your perfect bundle by mixing different variants of multiple products. Choose colors, sizes, and options to match your preferences.",
+    url: "/app/multiplebox",
+    buttonLabel: "Create Bundle",
+  },
+];
 
 const BUNDLE_PREVIEW_PRODUCTS_QUERY = `#graphql
   query BundlePreviewProducts($ids: [ID!]!) {
@@ -348,10 +367,7 @@ export default function ManageBoxesPage() {
   const toggleFetcher = useFetcher();
 
   const PAGE_SIZE = 10;
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [showCreateBoxModal, setShowCreateBoxModal] = useState(false);
-  const [pendingCreateRoute, setPendingCreateRoute] = useState(null);
-  const [search, setSearch] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState(null);  const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [manualPageLoading, setManualPageLoading] = useState(false);
@@ -393,17 +409,6 @@ export default function ManageBoxesPage() {
     startPageLoading();
     navigate(withEmbeddedAppParams(path, location.search));
   }
-  function openCreateBoxModal() {
-    setShowCreateBoxModal(true);
-  }
-  function closeCreateBoxModal() {
-    setShowCreateBoxModal(false);
-    setPendingCreateRoute(null);
-  }
-  function goToCreateRoute(path) {
-    setPendingCreateRoute(path);
-    navigateTo(path);
-  }
 
   function handleDelete(id, name) { setDeleteConfirm({ id, name }); }
 
@@ -421,6 +426,9 @@ export default function ManageBoxesPage() {
       { method: "POST" },
     );
   }
+  const [showCreateBoxModal, setShowCreateBoxModal] = useState(false);
+  const openCreateBoxModal = useCallback(() => setShowCreateBoxModal(true), []);
+  const closeCreateBoxModal = useCallback(() => setShowCreateBoxModal(false), []);
 
   const baseBoxes =
     fetcher.formData?.get("_action") === "delete"
@@ -890,6 +898,44 @@ export default function ManageBoxesPage() {
           <Text as="p">
             Are you sure you want to delete &ldquo;<strong>{deleteConfirm?.name}</strong>&rdquo;? Its Shopify product will be permanently removed.
           </Text>
+        </Modal.Section>
+      </Modal>
+
+      {/* Create Box Modal */}
+      <Modal
+        open={showCreateBoxModal}
+        onClose={closeCreateBoxModal}
+        title="Create a new bundle"
+      >
+        <Modal.Section>
+          <BlockStack gap="400">
+            {BUNDLE_TYPES.map((bundle) => {
+              const isLoading =
+                navigation.state === "loading" &&
+                navigation.location.pathname.startsWith(bundle.url);
+              return (
+                <Card key={bundle.id} padding="400">
+                  <BlockStack gap="300">
+                    <Text as="h3" variant="headingMd">
+                      {bundle.title}
+                    </Text>
+                    <Text as="p" tone="subdued">
+                      {bundle.description}
+                    </Text>
+                    <InlineStack align="end">
+                      <Button
+                        variant="primary"
+                        onClick={() => navigate(withEmbeddedAppParams(bundle.url, location.search))}
+                        loading={isLoading}
+                      >
+                        {bundle.buttonLabel}
+                      </Button>
+                    </InlineStack>
+                  </BlockStack>
+                </Card>
+              );
+            })}
+          </BlockStack>
         </Modal.Section>
       </Modal>
     </Page>
