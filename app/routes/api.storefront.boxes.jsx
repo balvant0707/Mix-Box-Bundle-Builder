@@ -68,7 +68,7 @@ export const loader = async ({ request }) => {
   const stepImagesByBox = {};
   await Promise.all(
     boxes
-      .filter((b) => b.config)
+      .filter((b) => b.comboStepsConfig)
       .map(async (b) => {
         const imgs = await getComboStepImages(b.id);
         if (imgs.length > 0) stepImagesByBox[b.id] = imgs;
@@ -138,36 +138,6 @@ export const loader = async ({ request }) => {
               stepImageUrl: primaryStepImageUrl,
             };
           });
-        }
-        if (box.config) {
-          let steps = [];
-          try { steps = JSON.parse(box.config.stepsJson || '[]'); } catch {}
-          steps = attachStepImages(steps);
-          // discountType/discountValue live only in the raw JSON blob (ComboBoxConfig lacks these columns)
-          let discountType = 'none', discountValue = '0', buyQuantity = 1, getQuantity = 1;
-          if (rawComboConfig) {
-            discountType = rawComboConfig.discountType || 'none';
-            discountValue = String(rawComboConfig.discountValue || '0');
-            buyQuantity = Math.max(1, parseInt(String(rawComboConfig.buyQuantity ?? 1), 10) || 1);
-            getQuantity = Math.max(1, parseInt(String(rawComboConfig.getQuantity ?? 1), 10) || 1);
-          }
-          return {
-            comboType: box.config.comboType || steps.length || 2,
-            title: box.config.title || null,
-            subtitle: box.config.subtitle || null,
-            highlightText: typeof rawComboConfig?.highlightText === "string" ? rawComboConfig.highlightText : "",
-            supportText: typeof rawComboConfig?.supportText === "string" ? rawComboConfig.supportText : "",
-            bundlePriceType: box.config.bundlePriceType || 'manual',
-            bundlePrice: box.config.bundlePrice != null ? parseFloat(box.config.bundlePrice) : 0,
-            discountType,
-            discountValue,
-            buyQuantity,
-            getQuantity,
-            ctaButtonLabel,
-            addToCartLabel,
-            productButtonTitle: addToCartLabel,
-            steps,
-          };
         }
         // Fallback: parse raw comboStepsConfig JSON when ComboBoxConfig relation is missing
         if (box.comboStepsConfig) {
