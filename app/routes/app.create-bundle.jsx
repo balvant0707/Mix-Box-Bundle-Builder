@@ -16,33 +16,13 @@ import "../styles/BundleTypesPage.css";
 
 const BUNDLE_TYPES = [
   {
-    id: "volume-bundle",
-    title: "Volume Bundle",
-    description:
-      "Craft a personalized bundle by selecting your favorite products, variants, and quantities. Elevate your shopping experience now.",
-    image: "/media/bundle/volume-bundle.jpg",
-    buttonLabel: "Create Volume Bundle",
-    url: "/app/create-bundle/volume-bundle/new?from=CBC",
-    premium: false,
-  },
-  {
-    id: "cross-sell-bundle",
-    title: "Cross Sell Bundle",
-    description:
-      "Create product bundles by combining related items together. Offer customers complementary products in a single bundle for a seamless purchasing experience.",
-    image: "/media/bundle/cross-sell-bundle.png",
-    buttonLabel: "Create Cross Sell Bundle",
-    url: "/app/create-bundle/cross-sell-bundle/new?from=CBC",
-    premium: true,
-  },
-  {
     id: "mix-match-single-product",
     title: "Mix & Match Bundle (Single Product)",
     description:
       "Create your perfect bundle by mixing different variants of a single product. Choose colors, sizes, and options to match your preferences.",
     image: "/media/bundle/mix-n-match-sp.jpg",
     buttonLabel: "Create Mix & Match Bundle",
-    url: "/app/create-bundle/mix-n-match-bundle-sp/new?from=CBC",
+    url: "/images/mix-n-match-sp.jpg",
     premium: true,
   },
   {
@@ -52,17 +32,7 @@ const BUNDLE_TYPES = [
       "Create your perfect bundle by mixing different variants of multiple products. Choose colors, sizes, and options to match your preferences.",
     image: "/media/bundle/mix-n-match-mp.jpg",
     buttonLabel: "Create Mix & Match Bundle",
-    url: "/app/create-bundle/mix-n-match-bundle-mp/new?from=CBC",
-    premium: true,
-  },
-  {
-    id: "build-your-own-box",
-    title: "Build Your Own Box",
-    description:
-      "Create a step-by-step bundle builder. Let customers pick a box, add products, gift cards, and personalize with custom forms.",
-    image: "/media/bundle/volume-bundle.jpg",
-    buttonLabel: "Create BYOB Bundle",
-    url: "/app/create-bundle/byob-bundle/new?from=CBC",
+    url: "/images/mix-n-match-mp.jpg",
     premium: true,
   },
 ];
