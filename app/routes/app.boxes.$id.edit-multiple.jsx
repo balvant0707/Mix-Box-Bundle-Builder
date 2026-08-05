@@ -343,9 +343,8 @@ export const loader = async ({ request, params }) => {
 
   return {
     initialData: {
-      ...(box.multipleBoxPage || {}),
+      ...(box.pageConfig || {}),
       ...box,
-      quantityPacks: box.multipleBoxQuantityPacks || [],
     },
     customers: [],
     customerTags: [],
@@ -3107,7 +3106,6 @@ export default function EditMultipleMixMatchBundlePage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...submission,
           boxName: title,
           displayTitle: title,
           itemCount: activePack?.productItems || form.productItems || '1',
@@ -3115,6 +3113,7 @@ export default function EditMultipleMixMatchBundlePage() {
             (activePack || form).discountMode === 'fixed_amount'
               ? (activePack || form).discountValue || '0'
               : '0',
+          pageConfig: submission,
         }),
       });
       if (!response.ok) {

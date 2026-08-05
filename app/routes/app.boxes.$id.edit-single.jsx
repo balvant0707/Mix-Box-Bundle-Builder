@@ -309,7 +309,7 @@ export const loader = async ({ request, params }) => {
 
   return {
     initialData: {
-      ...(box.simpleBoxPage || {}),
+      ...(box.pageConfig || {}),
       ...box,
     },
     customers: [],
@@ -2372,11 +2372,11 @@ export default function EditSingleMixMatchBundlePage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...submission,
           boxName: title,
           displayTitle: title,
           itemCount: form.productItems || '1',
           bundlePrice: form.discountMode === 'fixed_amount' ? form.discountValue || '0' : '0',
+          pageConfig: submission,
         }),
       });
       if (!response.ok) {

@@ -180,39 +180,28 @@ export const loader = async ({ request }) => {
   );
   return {
     currencyCode,
-    boxes: boxes.map((b) => {
-      let boxType = "simple";
-      if (b.multipleBoxPage) {
-        boxType = "multiple";
-      } else if (b.simpleBoxPage) {
-        boxType = "single";
-      } else if (getComboConfigSummary(b)) {
-        boxType = "specific";
-      }
-
-      return {
-        id: b.id,
-        boxType,
-        boxCode: b.boxCode || null,
-        boxName: b.boxName,
-        displayTitle: b.displayTitle,
-        itemCount: b.itemCount,
-        bundlePrice: parseFloat(b.bundlePrice),
-        bundlePriceType: b.bundlePriceType || "manual",
-        isGiftBox: b.isGiftBox,
-        isActive: b.isActive,
-        sortOrder: b.sortOrder,
-        orderCount: b._count?.orders ?? 0,
-        comboConfig: getComboConfigSummary(b),
-        discount: getDiscountSummary(b),
-        listImageSrc: getBoxListImageSrc(b),
-        previewUrl: buildBundlePreviewUrl(
-          session.shop,
-          b.boxCode || b.id,
-          b.shopifyProductId ? previewUrlByProductId.get(b.shopifyProductId) || null : null,
-        ),
-      };
-    }),
+    boxes: boxes.map((b) => ({
+      id: b.id,
+      boxType: b.boxType || (getComboConfigSummary(b) ? "specific" : "simple"),
+      boxCode: b.boxCode || null,
+      boxName: b.boxName,
+      displayTitle: b.displayTitle,
+      itemCount: b.itemCount,
+      bundlePrice: parseFloat(b.bundlePrice),
+      bundlePriceType: b.bundlePriceType || "manual",
+      isGiftBox: b.isGiftBox,
+      isActive: b.isActive,
+      sortOrder: b.sortOrder,
+      orderCount: b._count?.orders ?? 0,
+      comboConfig: getComboConfigSummary(b),
+      discount: getDiscountSummary(b),
+      listImageSrc: getBoxListImageSrc(b),
+      previewUrl: buildBundlePreviewUrl(
+        session.shop,
+        b.boxCode || b.id,
+        b.shopifyProductId ? previewUrlByProductId.get(b.shopifyProductId) || null : null,
+      ),
+    })),
   };
 };
 

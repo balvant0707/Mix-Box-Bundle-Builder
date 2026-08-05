@@ -2078,7 +2078,7 @@ function SelectedItems({ items, selectedIds, onRemove, type }) {
     />
   );
 }
-export default function MixMatchBundleFormPolaris({
+export default function CreateSingleMixMatchBundlePage({
   initialData,
   products: propProducts = EMPTY_ITEMS,
   collections: propCollections = EMPTY_ITEMS,
@@ -2366,11 +2366,12 @@ export default function MixMatchBundleFormPolaris({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            ...submission,
             boxName: title,
             displayTitle: title,
             itemCount: form.productItems || '1',
             bundlePrice: form.discountMode === 'fixed_amount' ? form.discountValue || '0' : '0',
+            boxType: 'single',
+            pageConfig: submission,
           }),
         });
         if (!response.ok) {
