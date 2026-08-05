@@ -1,4 +1,5 @@
 import React from "react";
+import { useLocation, useNavigate, useNavigation } from "react-router";
 import {
   Badge,
   BlockStack,
@@ -11,6 +12,7 @@ import {
   Tooltip,
 } from "@shopify/polaris";
 import {ArrowLeftIcon} from "@shopify/polaris-icons";
+import { withEmbeddedAppParams } from "../utils/embedded-app";
 
 import "../styles/BundleTypesPage.css";
 
@@ -22,7 +24,7 @@ const BUNDLE_TYPES = [
       "Create your perfect bundle by mixing different variants of a single product. Choose colors, sizes, and options to match your preferences.",
     image: "/images/mix-n-match-sp.jpg",
     buttonLabel: "Create Mix & Match Bundle",
-    url: "/app/single/",
+    url: "/app/single",
     premium: true,
   },
   {
@@ -32,12 +34,24 @@ const BUNDLE_TYPES = [
       "Create your perfect bundle by mixing different variants of multiple products. Choose colors, sizes, and options to match your preferences.",
     image: "/images/mix-n-match-mp.jpg",
     buttonLabel: "Create Mix & Match Bundle",
-    url: "/app/multiplebox/",
+    url: "/app/multiplebox",
     premium: true,
   },
 ];
 
 function BundleTypeCard({bundle}) {
+  const navigate = useNavigate();
+  const navigation = useNavigation();
+  const location = useLocation();
+
+  const isLoading =
+    navigation.state === "loading" &&
+    navigation.location.pathname === bundle.url;
+
+  const handleClick = () => {
+    const target = withEmbeddedAppParams(bundle.url, location.search);
+    navigate(target);
+  };
   return (
     <div className="bundle-type-card">
       <Card padding="400">
@@ -93,7 +107,12 @@ function BundleTypeCard({bundle}) {
           </BlockStack>
 
           <div className="bundle-type-card__action">
-            <Button variant="primary" fullWidth url={bundle.url}>
+            <Button
+              variant="primary"
+              fullWidth
+              onClick={handleClick}
+              loading={isLoading}
+            >
               {bundle.buttonLabel}
             </Button>
           </div>
