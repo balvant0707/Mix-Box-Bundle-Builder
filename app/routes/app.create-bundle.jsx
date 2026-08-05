@@ -22,7 +22,7 @@ const BUNDLE_TYPES = [
       "Create your perfect bundle by mixing different variants of a single product. Choose colors, sizes, and options to match your preferences.",
     image: "/images/mix-n-match-sp.jpg",
     buttonLabel: "Create Mix & Match Bundle",
-    url: "/app/create-bundle/mix-n-match-bundle-sp/new?from=CBC",
+    url: "/app/single/",
     premium: true,
   },
   {
@@ -32,7 +32,7 @@ const BUNDLE_TYPES = [
       "Create your perfect bundle by mixing different variants of multiple products. Choose colors, sizes, and options to match your preferences.",
     image: "/images/mix-n-match-mp.jpg",
     buttonLabel: "Create Mix & Match Bundle",
-    url: "/app/create-bundle/mix-n-match-bundle-mp/new?from=CBC",
+    url: "/app/multiplebox/",
     premium: true,
   },
 ];

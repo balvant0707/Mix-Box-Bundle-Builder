@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Outlet, redirect, useFetcher, useLoaderData, useLocation, useRevalidator, useRouteError } from "react-router";
+import { isbot } from "isbot";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider as ShopifyAppProvider } from "@shopify/shopify-app-react-router/react";
 import { AppProvider as PolarisAppProvider } from "@shopify/polaris";
@@ -31,6 +32,10 @@ function getNextPlanLabel(planKey) {
 }
 
 export const loader = async ({ request }) => {
+  if (isbot(request.headers.get("User-Agent") || "")) {
+    throw new Response(null, { status: 204 });
+  }
+
   const { session, admin, billing } = await authenticate.admin(request);
   const url = new URL(request.url);
   const pathname = url.pathname;
@@ -321,12 +326,12 @@ export default function App() {
         }
       `}</style>
       <s-app-nav>
-        <s-link href={withEmbeddedAppParams("/app/create-bundle", location.search)}>Create Bundle</s-link>
-        <s-link href={withEmbeddedAppParams("/app/single", location.search)}>Single Boxes</s-link>
-        <s-link href={withEmbeddedAppParams("/app/multiplebox", location.search)}>Multiple Boxes</s-link>
-        <s-link href={withEmbeddedAppParams("/app/boxes", location.search)}>Manage Boxes</s-link>
-        <s-link href={withEmbeddedAppParams("/app/analytics", location.search)}>Analytics</s-link>
-        <s-link href={withEmbeddedAppParams("/app/pricing", location.search)}>Price Plan</s-link>
+        <s-link href="/app/create-bundle">Create Bundle</s-link>
+        <s-link href="/app/single">Single Boxes</s-link>
+        <s-link href="/app/multiplebox">Multiple Boxes</s-link>
+        <s-link href="/app/boxes">Manage Boxes</s-link>
+        <s-link href="/app/analytics">Analytics</s-link>
+        <s-link href="/app/pricing">Price Plan</s-link>
       </s-app-nav>
       {!embedBlockEnabled && (
         <Page>
