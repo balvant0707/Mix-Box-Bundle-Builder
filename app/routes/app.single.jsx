@@ -2078,96 +2078,60 @@ function SelectedItems({ items, selectedIds, onRemove, type }) {
     />
   );
 }
-export default function CreateSingleMixMatchBundlePage({
-  initialData,
-  products: propProducts = EMPTY_ITEMS,
-  collections: propCollections = EMPTY_ITEMS,
-  onBack,
-  onSubmit,
-}) {
+export default function CreateSingleMixMatchBundlePage() {
   const loaderData = useLoaderData() || {};
   const location = useLocation();
   const navigate = useNavigate();
   const customerOptions = loaderData.customers || [];
   const customerTagOptions = loaderData.customerTags || [];
-  const initialProducts = useMemo(
-    () => (propProducts.length ? propProducts : loaderData.products || []),
-    [loaderData.products, propProducts],
-  );
-  const initialCollections = useMemo(
-    () =>
-      propCollections.length
-        ? propCollections
-        : loaderData.collections || [],
-    [loaderData.collections, propCollections],
-  );
-  const initialProductsPageInfo = propProducts.length
-    ? EMPTY_PAGE_INFO
-    : loaderData.productsPageInfo || EMPTY_PAGE_INFO;
-  const initialCollectionsPageInfo = propCollections.length
-    ? EMPTY_PAGE_INFO
-    : loaderData.collectionsPageInfo || EMPTY_PAGE_INFO;
+  const initialProducts = loaderData.products || [];
+  const initialCollections = loaderData.collections || [];
+  const initialProductsPageInfo = loaderData.productsPageInfo || EMPTY_PAGE_INFO;
+  const initialCollectionsPageInfo = loaderData.collectionsPageInfo || EMPTY_PAGE_INFO;
   const currentSchedule = useMemo(() => getCurrentDateTimeInput(), []);
   const minScheduleDate = currentSchedule.date;
   const handleBack = useCallback(() => {
-    if (onBack) {
-      onBack();
-      return;
-    }
-
     navigate(withEmbeddedAppParams('/app/boxes', location.search));
-  }, [location.search, navigate, onBack]);
+  }, [location.search, navigate]);
 
   const [form, setForm] = useState({
-    status: initialData?.status || 'active',
-    boxCode: initialData?.boxCode || '',
-    title: initialData?.title || '',
-    description: initialData?.description || '',
-    bundleImage: initialData?.bundleImage || null,
-    bannerImage: initialData?.bannerImage || null,
-    stepTitle: initialData?.stepTitle || 'Choose your products',
-    stepDescription:
-      initialData?.stepDescription ||
-      'Select products to create your custom bundle.',
-    productItems: initialData?.productItems || '3',
-    buttonLabel: initialData?.buttonLabel || 'Add bundle to cart',
-    discountMode:
-      initialData?.discountMode ||
-      (initialData?.discountType && initialData.discountType !== 'fixed_bundle_price'
-        ? 'flat_discount'
-        : 'fixed_amount'),
-    discountType:
-      initialData?.discountType && initialData.discountType !== 'fixed_bundle_price'
-        ? initialData.discountType
-        : 'percentage',
-    discountValue: initialData?.discountValue || '',
-    productConfiguration:
-      initialData?.productConfiguration || 'whole_store',
-    scheduleType: initialData?.scheduleType || 'immediately',
-    startDate: clampDateInput(initialData?.startDate, minScheduleDate) || minScheduleDate,
-    startTime: initialData?.startTime || currentSchedule.time,
-    hasEndDate: initialData?.hasEndDate || false,
-    endDate: initialData?.endDate
-      ? clampDateInput(initialData.endDate, initialData?.startDate || minScheduleDate)
-      : '',
-    endTime: initialData?.endTime || '',
-    eligibility: initialData?.eligibility || ['all'],
-    customerTags: initialData?.customerTags || '',
-    customers: initialData?.customers || '',
-    hideOutOfStockProducts: Boolean(initialData?.hideOutOfStockProducts),
-    showProductSearch: Boolean(initialData?.showProductSearch),
-    hideBundleHeader: Boolean(initialData?.hideBundleHeader),
-    hideBannerImage: Boolean(initialData?.hideBannerImage),
-    hideProductInfoModal: Boolean(initialData?.hideProductInfoModal),
-    productImageAutoHeight: Boolean(initialData?.productImageAutoHeight),
-    displayCompareAtPrice: Boolean(initialData?.displayCompareAtPrice),
-    redirectToCheckout: Boolean(initialData?.redirectToCheckout),
-    redirectToCart: Boolean(initialData?.redirectToCart),
+    status: 'active',
+    boxCode: '',
+    title: '',
+    description: '',
+    bundleImage: null,
+    bannerImage: null,
+    stepTitle: 'Choose your products',
+    stepDescription: 'Select products to create your custom bundle.',
+    productItems: '3',
+    buttonLabel: 'Add bundle to cart',
+    discountMode: 'fixed_amount',
+    discountType: 'percentage',
+    discountValue: '',
+    productConfiguration: 'whole_store',
+    scheduleType: 'immediately',
+    startDate: minScheduleDate,
+    startTime: currentSchedule.time,
+    hasEndDate: false,
+    endDate: '',
+    endTime: '',
+    eligibility: ['all'],
+    customerTags: '',
+    customers: '',
+    hideOutOfStockProducts: false,
+    showProductSearch: true,
+    hideBundleHeader: false,
+    hideBannerImage: false,
+    hideProductInfoModal: false,
+    productImageAutoHeight: false,
+    displayCompareAtPrice: true,
+    redirectToCheckout: false,
+    redirectToCart: false,
   });
 
   const [openSections, setOpenSections] = useState({
-    bundleInformation: false,
-    configureBundle: false,
+    bundleInformation: true,
+    configureBundle: true,
     discount: false,
     productConfiguration: false,
     customerEligibility: false,
@@ -2175,13 +2139,13 @@ export default function CreateSingleMixMatchBundlePage({
   });
 
   const [selectedProductIds, setSelectedProductIds] = useState(
-    initialData?.selectedProductIds || [],
+    [],
   );
   const [selectedCollectionIds, setSelectedCollectionIds] = useState(
-    initialData?.selectedCollectionIds || [],
+    [],
   );
   const [selectedGiftProductIds, setSelectedGiftProductIds] = useState(
-    initialData?.selectedGiftProductIds || [],
+    [],
   );
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [giftProductModalOpen, setGiftProductModalOpen] = useState(false);
@@ -2193,7 +2157,7 @@ export default function CreateSingleMixMatchBundlePage({
   const [selectedTab, setSelectedTab] = useState(0);
   const [designSettings, setDesignSettings] = useState({
     ...DEFAULT_DESIGN_SETTINGS,
-    ...(initialData?.designSettings || {}),
+    ...({}),
   });
   const productPicker = useInfinitePickerPagination({
     resource: 'products',
@@ -2340,6 +2304,11 @@ export default function CreateSingleMixMatchBundlePage({
 
   const handleSubmit = useCallback(async () => {
     const codeError = getBoxCodeValidationError(form.boxCode);
+    if (!form.title.trim()) {
+      setSubmitError('Bundle title is required.');
+      setOpenSections((current) => ({ ...current, bundleInformation: true }));
+      return;
+    }
     if (codeError) {
       setSubmitError(codeError);
       setOpenSections((current) => ({ ...current, bundleInformation: true }));
@@ -2358,27 +2327,22 @@ export default function CreateSingleMixMatchBundlePage({
         selectedGiftProductIds,
       };
 
-      if (onSubmit) {
-        await onSubmit(submission);
-      } else {
-        const title = form.title?.trim() || 'Mix n Match Bundle';
-        const response = await fetch('/api/admin/boxes', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            boxName: title,
-            displayTitle: title,
-            itemCount: form.productItems || '1',
-            bundlePrice: form.discountMode === 'fixed_amount' ? form.discountValue || '0' : '0',
-            boxType: 'single',
-            pageConfig: submission,
-          }),
-        });
-        if (!response.ok) {
-          const json = await response.json().catch(() => null);
-          throw new Error(json?.error || 'Failed to save bundle');
-        }
-        navigate(withEmbeddedAppParams('/app/boxes', location.search));
+      const title = form.title.trim();
+      const response = await fetch('/api/admin/boxes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          boxName: title,
+          displayTitle: title,
+          itemCount: form.productItems || '1',
+          bundlePrice: form.discountMode === 'fixed_amount' ? form.discountValue || '0' : '0',
+          boxType: 'single',
+          pageConfig: submission,
+        }),
+      });
+      if (!response.ok) {
+        const json = await response.json().catch(() => null);
+        throw new Error(json?.error || 'Failed to save bundle');
       }
     } catch (error) {
       setSubmitError(error?.message || 'Failed to save bundle');
@@ -2389,7 +2353,6 @@ export default function CreateSingleMixMatchBundlePage({
     form,
     location.search,
     navigate,
-    onSubmit,
     selectedCollectionIds,
     selectedGiftProductIds,
     selectedProductIds,

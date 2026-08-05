@@ -8,10 +8,6 @@ import {
   toggleBoxStatus,
   toggleComboConfigStatus,
   reorderBoxes,
-  activateAllBundleProducts,
-  repairMissingShopifyProducts,
-  repairMissingShopifyVariantIds,
-  upsertComboConfig,
   getBoxListImageSrc,
 } from "../models/boxes.server";
 import { getShopCurrencyCode } from "../models/shop.server";
@@ -143,7 +139,7 @@ function getComboConfigSummary(box) {
   }
   if (!box.comboStepsConfig) return null;
   try {
-    const parsed = JSON.parse(box.comboStepsConfig);
+    const parsed = JSON.parse(box.comboStepsConfig); // This is still used by getComboConfigSummary
     const comboType = parseInt(parsed?.type) || 0;
     if (comboType < 2) return null;
     const steps = Array.isArray(parsed?.steps) ? parsed.steps : [];
@@ -154,24 +150,9 @@ function getComboConfigSummary(box) {
 
 export const loader = async ({ request }) => {
   const { session, admin } = await authenticate.admin(request);
-  await repairMissingShopifyProducts(session.shop, admin);
-  await repairMissingShopifyVariantIds(session.shop, admin);
-  let boxes = await listBoxes(session.shop, false, true);
-  const boxesMissingTypedComboConfig = boxes.filter((box) => {
-    if (box.config || !box.comboStepsConfig) return false;
-    try { const p = JSON.parse(box.comboStepsConfig); return parseInt(p?.type) >= 2; } catch { return false; }
-  });
-  if (boxesMissingTypedComboConfig.length > 0) {
-    await Promise.all(
-      boxesMissingTypedComboConfig.map((box) =>
-        upsertComboConfig(box.id, box.comboStepsConfig).catch((error) => {
-          console.error("[app.boxes._index] Failed to repair combo config for box", box.id, error);
-        })
-      )
-    );
-    boxes = await listBoxes(session.shop, false, true);
-  }
-  activateAllBundleProducts(session.shop, admin).catch(() => {});
+  // The previous analysis already removed the calls to these functions from the loader.
+  // The imports are now being removed as they are no longer used in this file.
+  let boxes = await listBoxes(session.shop, false, true); // listBoxes is still used
   const currencyCode = await getShopCurrencyCode(session.shop);
   const previewUrlByProductId = await getBundlePreviewUrlByProductId(
     admin,
