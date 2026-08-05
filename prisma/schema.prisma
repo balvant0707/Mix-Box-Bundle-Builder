@@ -79,46 +79,278 @@ model feedbackmsg {
   createdAt    DateTime @default(now())
 }
 
-model Box {
-  id                      Int           @id @default(autoincrement())
+model ComboBox {
+  id                      Int               @id @default(autoincrement())
   shop                    String
-  boxName                 String        @db.VarChar(255)
-  displayTitle            String        @db.VarChar(255)
-  comboProductButtonTitle String?       @db.VarChar(100)
-  productButtonTitle      String?       @db.VarChar(100)
-  itemCount               Int           @default(1)
-  bundlePrice             Decimal       @db.Decimal(10, 2)
-  bundlePriceType         String        @default("manual") @db.VarChar(10)
-  isGiftBox               Boolean       @default(false)
-  allowDuplicates         Boolean       @default(false)
-  bannerImageUrl          String?       @db.VarChar(500)
-  sortOrder               Int           @default(0)
-  isActive                Boolean       @default(true)
-  giftMessageEnabled      Boolean       @default(false)
-  shopifyProductId        String?       @db.VarChar(255)
-  shopifyVariantId        String?       @db.VarChar(255)
-  shopifyDiscountId       String?       @db.VarChar(255)
+  boxName                 String            @db.VarChar(255)
+  displayTitle            String            @db.VarChar(255)
+  comboProductButtonTitle String?           @db.VarChar(100)
+  productButtonTitle      String?           @db.VarChar(100)
+  itemCount               Int               @default(1)
+  bundlePrice             Decimal           @db.Decimal(10, 2)
+  bundlePriceType         String            @default("manual") @db.VarChar(10)
+  isGiftBox               Boolean           @default(false)
+  allowDuplicates         Boolean           @default(false)
+  bannerImageUrl          String?           @db.VarChar(500)
+  sortOrder               Int               @default(0)
+  isActive                Boolean           @default(true)
+  giftMessageEnabled      Boolean           @default(false)
+  shopifyProductId        String?           @db.VarChar(255)
+  shopifyVariantId        String?           @db.VarChar(255)
+  shopifyDiscountId       String?           @db.VarChar(255)
   deletedAt               DateTime?
-  createdAt               DateTime      @default(now())
-  updatedAt               DateTime      @updatedAt
-  bannerImageData         Bytes?        @db.MediumBlob
-  bannerImageFileName     String?       @db.VarChar(255)
-  bannerImageMimeType     String?       @db.VarChar(100)
-  comboStepsConfig        String?       @db.LongText
-  scopeType               String        @default("specific_collections") @db.VarChar(30)
-  scopeItemsJson          String?       @db.LongText
-  pageHandle              String?       @db.VarChar(255)
-  boxCode                 String?       @unique @db.VarChar(10)
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
+  bannerImageData         Bytes?            @db.MediumBlob
+  bannerImageFileName     String?           @db.VarChar(255)
+  bannerImageMimeType     String?           @db.VarChar(100)
+  comboStepsConfig        String?           @map("combo_steps_config") @db.LongText
+  scopeType               String            @default("specific_collections") @db.VarChar(30)
+  scopeItemsJson          String?           @db.LongText
+  pageHandle              String?           @db.VarChar(255)
+  boxCode                 String?           @unique @db.VarChar(10)
   orders                  BundleOrder[]
+  simpleBoxPage           SimpleBoxPage?
+  multipleBoxPage         MultipleBoxPage?
+  products                ComboBoxProduct[]
+  stepImages              ComboStepImage[]
 
   @@index([shop])
-  @@map("boxes")
+  @@map("combo_box")
+}
+
+model SimpleBoxPage {
+  id                         Int      @id @default(autoincrement())
+  boxId                      Int      @unique
+  box                        ComboBox @relation(fields: [boxId], references: [id], onDelete: Cascade)
+  status                     String   @default("active") @db.VarChar(20)
+  title                      String   @db.VarChar(255)
+  description                String?  @db.Text
+  bundleImageUrl             String?  @db.VarChar(500)
+  bundleImageData            Bytes?   @db.MediumBlob
+  bundleImageMimeType        String?  @db.VarChar(100)
+  bundleImageFileName        String?  @db.VarChar(255)
+  bannerImageUrl             String?  @db.VarChar(500)
+  bannerImageData            Bytes?   @db.MediumBlob
+  bannerImageMimeType        String?  @db.VarChar(100)
+  bannerImageFileName        String?  @db.VarChar(255)
+  stepTitle                  String   @default("Choose your products") @db.VarChar(255)
+  stepDescription            String?  @db.Text
+  productItems               Int      @default(3)
+  buttonLabel                String   @default("Add bundle to cart") @db.VarChar(100)
+  bundlePriceType            String   @default("dynamic") @db.VarChar(10)
+  discountMode               String   @default("fixed_amount") @db.VarChar(30)
+  discountType               String   @default("fixed") @db.VarChar(30)
+  discountValue              Decimal  @default(0) @db.Decimal(10, 2)
+  buyQuantity                Int      @default(1)
+  getQuantity                Int      @default(1)
+  selectedGiftProductIdsJson String?  @db.LongText
+  productConfiguration       String   @default("whole_store") @db.VarChar(40)
+  selectedProductIdsJson     String?  @db.LongText
+  selectedCollectionIdsJson  String?  @db.LongText
+  scheduleType               String   @default("immediately") @db.VarChar(20)
+  startDate                  String?  @db.VarChar(10)
+  startTime                  String?  @db.VarChar(5)
+  hasEndDate                 Boolean  @default(false)
+  endDate                    String?  @db.VarChar(10)
+  endTime                    String?  @db.VarChar(5)
+  eligibilityJson            String?  @db.LongText
+  customerTags               String?  @db.Text
+  customers                  String?  @db.Text
+  hideOutOfStockProducts     Boolean  @default(false)
+  showProductSearch          Boolean  @default(false)
+  hideBundleHeader           Boolean  @default(false)
+  hideBannerImage            Boolean  @default(false)
+  hideProductInfoModal       Boolean  @default(false)
+  productImageAutoHeight     Boolean  @default(false)
+  displayCompareAtPrice      Boolean  @default(false)
+  redirectToCheckout         Boolean  @default(false)
+  redirectToCart             Boolean  @default(false)
+  backgroundColor            String   @default("#FFFFFF") @db.VarChar(20)
+  cardBorderColor            String   @default("#F2F2F2") @db.VarChar(20)
+  imageHeight                Int      @default(200)
+  imageHeightMobile          Int      @default(160)
+  imageDisplay               String   @default("Desktop/Mobile") @db.VarChar(30)
+  productCardDesktopSize     String   @default("Large") @db.VarChar(20)
+  productCardMobileSize      String   @default("Medium") @db.VarChar(20)
+  borderWidth                Int      @default(0)
+  borderRadius               Int      @default(0)
+  titleTextColor             String   @default("#050505") @db.VarChar(20)
+  titleSize                  Int      @default(14)
+  titleStyle                 String   @default("Regular") @db.VarChar(20)
+  productPriceColor          String   @default("#000000") @db.VarChar(20)
+  productPriceSize           Int      @default(14)
+  productPriceStyle          String   @default("Medium") @db.VarChar(20)
+  compareAtPriceColor        String   @default("#9D9D9D") @db.VarChar(20)
+  compareAtPriceSize         Int      @default(12)
+  compareAtPriceStyle        String   @default("Light") @db.VarChar(20)
+  ctaBackgroundColor         String   @default("#303030") @db.VarChar(20)
+  ctaTextColor               String   @default("#F5F5F5") @db.VarChar(20)
+  ctaSize                    Int      @default(14)
+  ctaStyle                   String   @default("Bold") @db.VarChar(20)
+  variantSelectorColor       String   @default("#383838") @db.VarChar(20)
+  variantSelectorSize        Int      @default(12)
+  variantSelectorStyle       String   @default("Regular") @db.VarChar(20)
+  imagePopupBackgroundColor  String   @default("#FFFFFF") @db.VarChar(20)
+  imagePopupTextColor        String   @default("#303030") @db.VarChar(20)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@map("simple_box_page")
+}
+
+model MultipleBoxPage {
+  id                         Int                       @id @default(autoincrement())
+  boxId                      Int                       @unique
+  box                        ComboBox                  @relation(fields: [boxId], references: [id], onDelete: Cascade)
+  status                     String                    @default("active") @db.VarChar(20)
+  title                      String                    @db.VarChar(255)
+  description                String?                   @db.Text
+  bundleImageUrl             String?                   @db.VarChar(500)
+  bundleImageData            Bytes?                    @db.MediumBlob
+  bundleImageMimeType        String?                   @db.VarChar(100)
+  bundleImageFileName        String?                   @db.VarChar(255)
+  bannerImageUrl             String?                   @db.VarChar(500)
+  bannerImageData            Bytes?                    @db.MediumBlob
+  bannerImageMimeType        String?                   @db.VarChar(100)
+  bannerImageFileName        String?                   @db.VarChar(255)
+  stepTitle                  String                    @default("Choose your products") @db.VarChar(255)
+  stepDescription            String?                   @db.Text
+  productItems               Int                       @default(3)
+  buttonLabel                String                    @default("Add bundle to cart") @db.VarChar(100)
+  bundlePriceType            String                    @default("dynamic") @db.VarChar(10)
+  discountMode               String                    @default("fixed_amount") @db.VarChar(30)
+  discountType               String                    @default("fixed") @db.VarChar(30)
+  discountValue              Decimal                   @default(0) @db.Decimal(10, 2)
+  buyQuantity                Int                       @default(1)
+  getQuantity                Int                       @default(1)
+  selectedGiftProductIdsJson String?                   @db.LongText
+  productConfiguration       String                    @default("whole_store") @db.VarChar(40)
+  selectedProductIdsJson     String?                   @db.LongText
+  selectedCollectionIdsJson  String?                   @db.LongText
+  scheduleType               String                    @default("immediately") @db.VarChar(20)
+  startDate                  String?                   @db.VarChar(10)
+  startTime                  String?                   @db.VarChar(5)
+  hasEndDate                 Boolean                   @default(false)
+  endDate                    String?                   @db.VarChar(10)
+  endTime                    String?                   @db.VarChar(5)
+  eligibilityJson            String?                   @db.LongText
+  customerTags               String?                   @db.Text
+  customers                  String?                   @db.Text
+  createQuantityPackProduct  Boolean                   @default(false)
+  hideOutOfStockProducts     Boolean                   @default(false)
+  showProductSearch          Boolean                   @default(false)
+  hideBundleHeader           Boolean                   @default(false)
+  hideBannerImage            Boolean                   @default(false)
+  hideProductInfoModal       Boolean                   @default(false)
+  productImageAutoHeight     Boolean                   @default(false)
+  displayCompareAtPrice      Boolean                   @default(false)
+  redirectToCheckout         Boolean                   @default(false)
+  redirectToCart             Boolean                   @default(false)
+  backgroundColor            String                    @default("#FFFFFF") @db.VarChar(20)
+  cardBorderColor            String                    @default("#F2F2F2") @db.VarChar(20)
+  imageHeight                Int                       @default(200)
+  imageHeightMobile          Int                       @default(160)
+  imageDisplay               String                    @default("Desktop/Mobile") @db.VarChar(30)
+  productCardDesktopSize     String                    @default("Large") @db.VarChar(20)
+  productCardMobileSize      String                    @default("Medium") @db.VarChar(20)
+  borderWidth                Int                       @default(0)
+  borderRadius               Int                       @default(0)
+  titleTextColor             String                    @default("#050505") @db.VarChar(20)
+  titleSize                  Int                       @default(14)
+  titleStyle                 String                    @default("Regular") @db.VarChar(20)
+  productPriceColor          String                    @default("#000000") @db.VarChar(20)
+  productPriceSize           Int                       @default(14)
+  productPriceStyle          String                    @default("Medium") @db.VarChar(20)
+  compareAtPriceColor        String                    @default("#9D9D9D") @db.VarChar(20)
+  compareAtPriceSize         Int                       @default(12)
+  compareAtPriceStyle        String                    @default("Light") @db.VarChar(20)
+  ctaBackgroundColor         String                    @default("#303030") @db.VarChar(20)
+  ctaTextColor               String                    @default("#F5F5F5") @db.VarChar(20)
+  ctaSize                    Int                       @default(14)
+  ctaStyle                   String                    @default("Bold") @db.VarChar(20)
+  variantSelectorColor       String                    @default("#383838") @db.VarChar(20)
+  variantSelectorSize        Int                       @default(12)
+  variantSelectorStyle       String                    @default("Regular") @db.VarChar(20)
+  imagePopupBackgroundColor  String                    @default("#FFFFFF") @db.VarChar(20)
+  imagePopupTextColor        String                    @default("#303030") @db.VarChar(20)
+  createdAt                  DateTime                  @default(now())
+  updatedAt                  DateTime                  @updatedAt
+  quantityPacks              MultipleBoxQuantityPack[]
+
+  @@map("multiple_box_page")
+}
+
+model MultipleBoxQuantityPack {
+  id                         Int             @id @default(autoincrement())
+  multipleBoxPageId          Int
+  packKey                    String          @db.VarChar(100)
+  sortOrder                  Int             @default(0)
+  title                      String          @db.VarChar(100)
+  stepTitle                  String          @default("Choose your products") @db.VarChar(255)
+  stepDescription            String?         @db.Text
+  productItems               Int             @default(3)
+  buttonLabel                String          @default("Add bundle to cart") @db.VarChar(100)
+  bundlePriceType            String          @default("dynamic") @db.VarChar(10)
+  discountMode               String          @default("fixed_amount") @db.VarChar(30)
+  discountType               String          @default("fixed") @db.VarChar(30)
+  discountValue              Decimal         @default(0) @db.Decimal(10, 2)
+  buyQuantity                Int             @default(1)
+  getQuantity                Int             @default(1)
+  selectedGiftProductIdsJson String?         @db.LongText
+  productConfiguration       String          @default("whole_store") @db.VarChar(40)
+  selectedProductIdsJson     String?         @db.LongText
+  selectedCollectionIdsJson  String?         @db.LongText
+  scheduleType               String          @default("immediately") @db.VarChar(20)
+  startDate                  String?         @db.VarChar(10)
+  startTime                  String?         @db.VarChar(5)
+  hasEndDate                 Boolean         @default(false)
+  endDate                    String?         @db.VarChar(10)
+  endTime                    String?         @db.VarChar(5)
+  createdAt                  DateTime        @default(now())
+  updatedAt                  DateTime        @updatedAt
+  multipleBoxPage            MultipleBoxPage @relation(fields: [multipleBoxPageId], references: [id], onDelete: Cascade)
+
+  @@unique([multipleBoxPageId, packKey])
+  @@index([multipleBoxPageId])
+  @@map("multiple_box_quantity_pack")
+}
+
+model ComboBoxProduct {
+  id            Int      @id @default(autoincrement())
+  boxId         Int
+  box           ComboBox @relation(fields: [boxId], references: [id], onDelete: Cascade)
+  productId     String   @db.VarChar(255)
+  productTitle  String?  @db.VarChar(255)
+  productImageUrl String? @db.VarChar(500)
+  productHandle String?  @db.VarChar(255)
+  isCollection  Boolean  @default(false)
+  variantIds    String?  @db.LongText // JSON string
+  productPrice  Decimal? @db.Decimal(10, 2)
+  createdAt     DateTime @default(now())
+
+  @@index([boxId])
+  @@map("combo_box_product")
+}
+
+model ComboStepImage {
+  id            Int      @id @default(autoincrement())
+  boxId         Int
+  box           ComboBox @relation(fields: [boxId], references: [id], onDelete: Cascade)
+  stepIndex     Int
+  imageData     Bytes?   @db.MediumBlob
+  mimeType      String?  @db.VarChar(100)
+  fileName      String?  @db.VarChar(255)
+  createdAt     DateTime @default(now())
+
+  @@index([boxId])
+  @@map("combo_step_image")
 }
 
 model BundleOrder {
   id               Int      @id @default(autoincrement())
   boxId            Int
-  box              Box      @relation(fields: [boxId], references: [id])
+  box              ComboBox @relation(fields: [boxId], references: [id])
   shop             String
   orderId          String   @db.VarChar(255)
   orderName        String?  @db.VarChar(64)

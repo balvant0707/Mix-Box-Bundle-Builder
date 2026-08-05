@@ -437,7 +437,7 @@ export async function syncShopifyDiscount(admin, { boxId, existingDiscountId, ti
           "syncShopifyDiscount:disable",
         );
         if (deleted) {
-          await db.box.update({ where: { id: boxId }, data: { shopifyDiscountId: null } });
+          await db.comboBox.update({ where: { id: boxId }, data: { shopifyDiscountId: null } });
         }
       } catch (e) {
         if (!isScopeError(e)) console.error("[syncShopifyDiscount] delete error:", e);
@@ -479,7 +479,7 @@ export async function syncShopifyDiscount(admin, { boxId, existingDiscountId, ti
     }
     const discountId = createJson?.data?.discountAutomaticBasicCreate?.automaticDiscountNode?.id || null;
     if (discountId && boxId) {
-      await db.box.update({ where: { id: boxId }, data: { shopifyDiscountId: discountId } });
+      await db.comboBox.update({ where: { id: boxId }, data: { shopifyDiscountId: discountId } });
     }
     return discountId;
   } catch (e) {
@@ -529,7 +529,7 @@ export async function syncShopifyBuyXGetYDiscount(
           "syncShopifyBuyXGetYDiscount:disable",
         );
         if (deleted) {
-          await db.box.update({
+          await db.comboBox.update({
             where: { id: parseInt(boxId) },
             data: { shopifyDiscountId: null },
           });
@@ -577,7 +577,7 @@ export async function syncShopifyBuyXGetYDiscount(
       json?.data?.discountAutomaticBxgyCreate?.automaticDiscountNode?.id || null;
 
     if (boxId) {
-      await db.box.update({
+      await db.comboBox.update({
         where: { id: parseInt(boxId) },
         data: { shopifyDiscountId: discountId || null },
       });
@@ -919,7 +919,7 @@ export async function syncSpecificComboProductMedia(
 
   const persistedStepImages = Array.isArray(stepImages)
     ? stepImages
-    : []; // getComboStepImages was a placeholder and has been removed.
+    : await getComboStepImages(box.id);
   const sortedStepImages = persistedStepImages
     .filter((image) => image && (image.bytes || image.imageData))
     .filter((image) => activeStepCount === 0 || image.stepIndex < activeStepCount)
@@ -1119,14 +1119,14 @@ export async function listBoxes(shop, activeOnly = false, includeBannerBinary = 
     ...(activeOnly ? { isActive: true } : {}),
   };
 
-  const boxes = await db.box.findMany({
+  const boxes = await db.comboBox.findMany({
     where,
     include: { _count: { select: { orders: true } } },
     orderBy: { sortOrder: "asc" },
   });
 
   // Lazy backfill: assign a boxCode to any existing box that doesn't have one
-  const noCode = boxes.filter((b) => !b.boxCode);
+  const noCode = boxes.filter((b) => !b.boxCode); // This line was already using `boxes`
   if (noCode.length > 0) {
     await Promise.all(
       noCode.map(async (b) => {
@@ -1149,13 +1149,13 @@ export async function listBoxes(shop, activeOnly = false, includeBannerBinary = 
 }
 
 export async function getBox(id, shop) {
-  return db.box.findFirst({
+  return db.comboBox.findFirst({
     where: { id: parseInt(id), shop, deletedAt: null },
   });
 }
 
 export async function getBoxWithProducts(id, shop) {
-  const box = await db.box.findFirst({
+  const box = await db.comboBox.findFirst({
     where: { id: parseInt(id), shop, deletedAt: null, isActive: true },
   });
   return box;
@@ -1218,7 +1218,7 @@ export async function createBox(shop, data, admin) {
 
   const hasUploadedBanner = Boolean(data.bannerImage?.bytes);
 
-  const box = await db.box.create({
+  const box = await db.comboBox.create({
     data: {
       shop,
       boxCode,
@@ -1777,3 +1777,4 @@ export async function getActiveBoxCount(shop) {
   return db.comboBox.count({
     where: { shop, isActive: true, deletedAt: null },
   });
+}
