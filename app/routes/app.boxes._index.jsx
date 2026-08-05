@@ -6,7 +6,6 @@ import {
   listBoxes,
   deleteBox,
   toggleBoxStatus,
-  toggleComboConfigStatus,
   reorderBoxes,
 } from "../models/boxes.server";
 import { getShopCurrencyCode } from "../models/shop.server";
@@ -239,7 +238,6 @@ export const action = async ({ request }) => {
     const id = formData.get("id");
     const isActive = formData.get("isActive") === "true";
     await toggleBoxStatus(id, shop, isActive);
-    await toggleComboConfigStatus(id, isActive).catch(() => {});
     return { ok: true };
   }
   if (intent === "bulk_delete") {

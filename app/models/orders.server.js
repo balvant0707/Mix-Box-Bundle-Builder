@@ -11,18 +11,14 @@ function normalizeAnalyticsComboTypeFilter(value) {
 }
 
 function isSpecificComboBoxRecord(box) {
-  if (!box) return false;
-
-  const configType = Number.parseInt(box?.config?.comboType, 10);
-  if (Number.isFinite(configType) && configType > 0) return true;
+  if (!box || !box.comboStepsConfig) return false;
 
   const raw = typeof box.comboStepsConfig === "string" ? box.comboStepsConfig.trim() : "";
   if (!raw) return false;
 
   try {
     const parsed = JSON.parse(raw);
-    const parsedType = Number.parseInt(parsed?.comboType ?? parsed?.type, 10);
-    if (Number.isFinite(parsedType) && parsedType > 0) return true;
+    if (Number.parseInt(parsed?.type, 10) >= 2) return true; // Aligns with getComboConfigSummary in _index.jsx
     if (Array.isArray(parsed?.steps) && parsed.steps.length > 0) return true;
   } catch {
     return false;
@@ -236,7 +232,7 @@ export async function getAnalytics(shop, from, to, options = {}) {
             displayTitle: true,
             itemCount: true,
             comboStepsConfig: true,
-            config: { select: { comboType: true } },
+            // config: { select: { comboType: true } }, // Removed: no longer exists
           },
         },
       },
@@ -248,7 +244,7 @@ export async function getAnalytics(shop, from, to, options = {}) {
         box: {
           select: {
             comboStepsConfig: true,
-            config: { select: { comboType: true } },
+            // config: { select: { comboType: true } }, // Removed: no longer exists
           },
         },
       },
@@ -260,7 +256,7 @@ export async function getAnalytics(shop, from, to, options = {}) {
         id: true,
         displayTitle: true,
         comboStepsConfig: true,
-        config: { select: { comboType: true } },
+        // config: { select: { comboType: true } }, // Removed: no longer exists
       },
       orderBy: { sortOrder: "asc" },
     }),
@@ -393,7 +389,7 @@ export async function getRecentOrders(shop, limit = 10) {
           displayTitle: true,
           itemCount: true,
           comboStepsConfig: true,
-          config: { select: { comboType: true } },
+          // config: { select: { comboType: true } }, // Removed: no longer exists
         },
       },
     },
