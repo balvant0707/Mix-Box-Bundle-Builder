@@ -232,7 +232,7 @@ export async function getAnalytics(shop, from, to, options = {}) {
             displayTitle: true,
             itemCount: true,
             comboStepsConfig: true,
-            // config: { select: { comboType: true } }, // Removed: no longer exists
+            // config: { select: { comboType: true } },
           },
         },
       },
@@ -244,7 +244,7 @@ export async function getAnalytics(shop, from, to, options = {}) {
         box: {
           select: {
             comboStepsConfig: true,
-            // config: { select: { comboType: true } }, // Removed: no longer exists
+            // config: { select: { comboType: true } },
           },
         },
       },
@@ -256,7 +256,7 @@ export async function getAnalytics(shop, from, to, options = {}) {
         id: true,
         displayTitle: true,
         comboStepsConfig: true,
-        // config: { select: { comboType: true } }, // Removed: no longer exists
+        // config: { select: { comboType: true } },
       },
       orderBy: { sortOrder: "asc" },
     }),
@@ -389,7 +389,7 @@ export async function getRecentOrders(shop, limit = 10) {
           displayTitle: true,
           itemCount: true,
           comboStepsConfig: true,
-          // config: { select: { comboType: true } }, // Removed: no longer exists
+          // config: { select: { comboType: true } },
         },
       },
     },
