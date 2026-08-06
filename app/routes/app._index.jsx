@@ -11,6 +11,7 @@ import {
   DataTable,
   Divider,
   EmptyState,
+  Icon,
   InlineGrid,
   InlineStack,
   Link,
@@ -19,8 +20,15 @@ import {
   Page,
   Spinner,
   Text,
+  Thumbnail,
   Tooltip,
 } from "@shopify/polaris";
+import {
+  EmailIcon,
+  QuestionCircleIcon,
+  StarFilledIcon,
+  ViewIcon,
+} from "@shopify/polaris-icons";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { AdminIcon } from "../components/admin-icons";
@@ -350,28 +358,6 @@ function StatCard({ label, value, sub }) {
   );
 }
 
-function EyeIcon({ size = 16, color = "#000000", fill = "#ffffff" }) {
-  return (
-    <svg
-      width={`${size}px`}
-      height={`${size}px`}
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      <path
-        d="M1.5 12s3.75-6.75 10.5-6.75S22.5 12 22.5 12s-3.75 6.75-10.5 6.75S1.5 12 1.5 12Z"
-        stroke={color}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="12" cy="12" r="3.25" fill={fill} stroke={color} strokeWidth="2" />
-    </svg>
-  );
-}
-
 function formatRecentOrderItems(selectedProducts) {
   const items = Array.isArray(selectedProducts)
     ? selectedProducts.map((entry) => String(entry || "").trim()).filter(Boolean)
@@ -557,21 +543,11 @@ export default function DashboardPage() {
 
       return (
         <InlineStack gap="100" blockAlign="center">
-          <Box
-            as="span"
-            style={{
-              display: "inline-block",
-              maxWidth: "360px",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-            title={items.join(", ")}
-          >
-            <Text as="span" variant="bodySm">
+          <Tooltip content={items.join(", ")}>
+            <Text as="span" variant="bodySm" truncate>
               {previewText}
             </Text>
-          </Box>
+          </Tooltip>
           {moreCount > 0 && (
             <Button variant="plain" onClick={() => openItemsPopup(order)}>
               +{moreCount} more
@@ -733,20 +709,12 @@ export default function DashboardPage() {
               </EmptyState>
             ) : (
               <>
-                <style>{`
-                  .cb-recent-orders .Polaris-DataTable__Cell,
-                  .cb-recent-orders .Polaris-DataTable__Heading {
-                    font-size: 12px !important;
-                  }
-                `}</style>
-                <div className="cb-recent-orders">
-                  <DataTable
-                    columnContentTypes={["text", "text", "text", "text", "text", "text"]}
-                    headings={["Order ID", "Name", "Type", "Products", "Revenue", "Date"]}
-                    rows={paginatedOrderTableRows}
-                    hoverable
-                  />
-                </div>
+                <DataTable
+                  columnContentTypes={["text", "text", "text", "text", "text", "text"]}
+                  headings={["Order ID", "Name", "Type", "Products", "Revenue", "Date"]}
+                  rows={paginatedOrderTableRows}
+                  hoverable
+                />
                 {recentOrdersTotalPages > 1 && (
                   <Box paddingBlockStart="300">
                     <InlineStack align="space-between" blockAlign="center" wrap>
@@ -790,10 +758,7 @@ export default function DashboardPage() {
               <Card>
                 <BlockStack gap="300">
                   <InlineStack gap="200" blockAlign="center">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="#616161" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      <polyline points="22,6 12,13 2,6" stroke="#616161" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
+                    <Icon source={EmailIcon} tone="subdued" />
                     <Text as="h3" variant="headingSm">Support ticket</Text>
                   </InlineStack>
                   <Text as="p" variant="bodySm" tone="subdued">
@@ -816,11 +781,7 @@ export default function DashboardPage() {
               <Card>
                 <BlockStack gap="300">
                   <InlineStack gap="200" blockAlign="center">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                      <circle cx="12" cy="12" r="10" stroke="#616161" strokeWidth="2"/>
-                      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" stroke="#616161" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      <line x1="12" y1="17" x2="12.01" y2="17" stroke="#616161" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
+                    <Icon source={QuestionCircleIcon} tone="subdued" />
                     <Text as="h3" variant="headingSm">Knowledge base</Text>
                   </InlineStack>
                   <Text as="p" variant="bodySm" tone="subdued">
@@ -833,11 +794,7 @@ export default function DashboardPage() {
                     <Button
                       url="https://apps.shopify.com/mixbox-box-bundle-builder#modal-show=WriteReviewModal"
                       target="_blank"
-                      icon={
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#fbbf24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.86L12 17.77l-6.18 3.23L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-                        </svg>
-                      }
+                      icon={StarFilledIcon}
                     >
                       Write a review
                     </Button>
@@ -864,12 +821,7 @@ export default function DashboardPage() {
                   <BlockStack gap="200">
                     <InlineStack align="space-between" blockAlign="center" wrap={false}>
                       <InlineStack gap="200" blockAlign="center" wrap={false}>
-                        <img
-                          src={appItem.image}
-                          alt={appItem.title}
-                          onError={(e) => { e.currentTarget.style.display = "none"; }}
-                          style={{ width: "34px", height: "34px", objectFit: "contain", display: "block", flexShrink: 0 }}
-                        />
+                        <Thumbnail source={appItem.image} alt={appItem.title} size="small" />
                         <Text as="h3" variant="headingSm">
                           {appItem.title}
                         </Text>
@@ -925,7 +877,7 @@ export default function DashboardPage() {
                             url={productUrl}
                             target="_blank"
                             variant="plain"
-                            icon={<EyeIcon size={16} color="#000000" fill="#ffffff" />}
+                            icon={ViewIcon}
                             accessibilityLabel={`Open ${itemLabel} product`}
                           />
                         </Tooltip>
@@ -977,9 +929,7 @@ export default function DashboardPage() {
 
       {/* ── Full-page loading overlay ── */}
       {isPageLoading && (
-        <Box
-          as="div"
-          padding="400"
+        <div
           style={{
             position: "fixed",
             inset: 0,
@@ -991,7 +941,7 @@ export default function DashboardPage() {
           }}
         >
           <Spinner accessibilityLabel="Loading page" size="large" />
-        </Box>
+        </div>
       )}
     </Page>
   );

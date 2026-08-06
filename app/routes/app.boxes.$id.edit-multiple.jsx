@@ -50,6 +50,7 @@ import {
 import { ToggleSwitch } from '../components/toggle-switch';
 import { authenticate } from '../shopify.server';
 import { withEmbeddedAppParams } from '../utils/embedded-app';
+import { resolveImageField } from '../utils/image-upload';
 import { getBox } from '../models/boxes.server';
 
 const PICKER_PAGE_SIZE = 10;
@@ -3093,10 +3094,17 @@ export default function EditMultipleMixMatchBundlePage() {
     try {
       setSaving(true);
       setSubmitError('');
+      const [bundleImage, bannerImage] = await Promise.all([
+        resolveImageField(form.bundleImage),
+        resolveImageField(form.bannerImage),
+      ]);
       const submission = {
         ...form,
         boxCode: normalizeBoxCode(form.boxCode),
         ...getDiscountSubmissionFields(form, activePack || form),
+        ...designSettings,
+        bundleImage,
+        bannerImage,
         selectedProductIds,
         selectedCollectionIds,
       };
@@ -3128,6 +3136,7 @@ export default function EditMultipleMixMatchBundlePage() {
     }
   }, [
     activePack,
+    designSettings,
     form,
     id,
     location.search,

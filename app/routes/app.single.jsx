@@ -48,6 +48,7 @@ import {
 } from '@shopify/polaris-icons';
 import { ToggleSwitch } from '../components/toggle-switch';
 import { authenticate } from '../shopify.server';
+import { resolveImageField } from '../utils/image-upload';
 import { withEmbeddedAppParams } from '../utils/embedded-app';
 
 const PICKER_PAGE_SIZE = 10;
@@ -2299,9 +2300,16 @@ export default function CreateSingleMixMatchBundlePage() {
     try {
       setSaving(true);
       setSubmitError('');
+      const [bundleImage, bannerImage] = await Promise.all([
+        resolveImageField(form.bundleImage),
+        resolveImageField(form.bannerImage),
+      ]);
       const submission = {
         ...form,
         ...getDiscountSubmissionFields(form, selectedGiftProductIds),
+        ...designSettings,
+        bundleImage,
+        bannerImage,
         selectedProductIds,
         selectedCollectionIds,
         selectedGiftProductIds,
@@ -2331,6 +2339,7 @@ export default function CreateSingleMixMatchBundlePage() {
       setSaving(false);
     }
   }, [
+    designSettings,
     form,
     location.search,
     navigate,

@@ -13,6 +13,7 @@ import { AdminIcon } from "../components/admin-icons";
 import { withEmbeddedAppParams } from "../utils/embedded-app";
 import { formatCurrencyAmount, getCurrencySymbol } from "../utils/currency";
 import {
+  Avatar,
   Badge,
   BlockStack,
   Box,
@@ -31,10 +32,21 @@ import {
   Spinner,
   Text,
   TextField,
+  Thumbnail,
   Tooltip,
   useIndexResourceState,
 } from "@shopify/polaris";
-import { CalendarIcon } from "@shopify/polaris-icons";
+import {
+  CalendarIcon,
+  CheckIcon,
+  ClipboardIcon,
+  GiftCardIcon,
+  HideIcon,
+  OrderIcon,
+  PackageIcon,
+  ViewIcon,
+} from "@shopify/polaris-icons";
+import { StatCard } from "../components/stat-card";
 function formatDate(value) {
   if (!value) return "";
   const date = value instanceof Date ? value : new Date(value);
@@ -258,82 +270,6 @@ export const action = async ({ request }) => {
   return { ok: false };
 };
 
-// Avatar color palette for box initials
-const AVATAR_COLORS = [
-  { bg: "#dbeafe", color: "#1d4ed8" },
-  { bg: "#dcfce7", color: "#15803d" },
-  { bg: "#ede9fe", color: "#7c3aed" },
-  { bg: "#fce7f3", color: "#be185d" },
-  { bg: "#ffedd5", color: "#c2410c" },
-  { bg: "#ecfeff", color: "#0e7490" },
-  { bg: "#fef9c3", color: "#854d0e" },
-  { bg: "#f0fdf4", color: "#166534" },
-];
-
-function getAvatarColor(id) {
-  return AVATAR_COLORS[id % AVATAR_COLORS.length];
-}
-
-function CopyCodeIcon({ size = 16 }) {
-  return (
-    <svg
-      width={`${size}px`}
-      height={`${size}px`}
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      <path
-        d="M7.5 3H14.6C16.8402 3 17.9603 3 18.816 3.43597C19.5686 3.81947 20.1805 4.43139 20.564 5.18404C21 6.03969 21 7.15979 21 9.4V16.5M6.2 21H14.3C15.4201 21 15.9802 21 16.408 20.782C16.7843 20.5903 17.0903 20.2843 17.282 19.908C17.5 19.4802 17.5 18.9201 17.5 17.8V9.7C17.5 8.57989 17.5 8.01984 17.282 7.59202C17.0903 7.21569 16.7843 6.90973 16.408 6.71799C15.9802 6.5 15.4201 6.5 14.3 6.5H6.2C5.0799 6.5 4.51984 6.5 4.09202 6.71799C3.71569 6.90973 3.40973 7.21569 3.21799 7.59202C3 8.01984 3 8.57989 3 9.7V17.8C3 18.9201 3 19.4802 3.21799 19.908C3.40973 20.2843 3.71569 20.5903 4.09202 20.782C4.51984 21 5.0799 21 6.2 21Z"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function EyeIcon({ size = 16, color = "#ffffff" }) {
-  return (
-    <svg
-      width={`${size}px`}
-      height={`${size}px`}
-      viewBox="0 0 24 24"
-      fill="#ffffff"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      <path
-        d="M1.5 12s3.75-6.75 10.5-6.75S22.5 12 22.5 12s-3.75 6.75-10.5 6.75S1.5 12 1.5 12Z"
-        stroke="#ffffff"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="12" cy="12" r="3.25" stroke={color} strokeWidth="2" />
-    </svg>
-  );
-}
-
-function GiftIcon({ size = 14, fill = "#ffffff" }) {
-  return (
-    <svg
-      width={`${size}px`}
-      height={`${size}px`}
-      viewBox="0 0 24 24"
-      fill={fill}
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      <path
-        d="M20.5 7H17.86A2.99 2.99 0 0 0 18.5 5.2C18.5 3.44 17.06 2 15.3 2c-1.25 0-2.39.73-2.9 1.87L12 4.8l-.4-.93A3.16 3.16 0 0 0 8.7 2C6.94 2 5.5 3.44 5.5 5.2c0 .65.2 1.26.54 1.8H3.5A1.5 1.5 0 0 0 2 8.5v2c0 .83.67 1.5 1.5 1.5H4v7.5A2.5 2.5 0 0 0 6.5 22h11a2.5 2.5 0 0 0 2.5-2.5V12h.5a1.5 1.5 0 0 0 1.5-1.5v-2A1.5 1.5 0 0 0 20.5 7ZM15.3 4c.66 0 1.2.54 1.2 1.2S15.96 6.4 15.3 6.4H13.2l.38-.87c.3-.67.97-1.53 1.72-1.53ZM7.5 5.2C7.5 4.54 8.04 4 8.7 4c.75 0 1.43.86 1.72 1.53l.38.87H8.7c-.66 0-1.2-.54-1.2-1.2ZM4 10V9h7v1H4Zm2 2h5v8H6v-8Zm7 8v-8h5v8h-5Zm7-10h-7V9h7v1Z"
-      />
-    </svg>
-  );
-}
-
 function CopyCodeBtn({ code }) {
   const [copied, setCopied] = useState(false);
   function handleCopy() {
@@ -344,43 +280,15 @@ function CopyCodeBtn({ code }) {
   }
   return (
     <InlineStack gap="100" blockAlign="center">
-      <span
-        style={{
-          fontSize: "12px",
-          fontWeight: 700,
-          letterSpacing: "0.1em",
-          color: "#1d4ed8",
-          background: "#eff6ff",
-          border: "1px solid #bfdbfe",
-          borderRadius: "5px",
-          padding: "3px 8px",
-          userSelect: "all",
-        }}
-      >
-        {code}
-      </span>
+      <Badge tone="info">{code}</Badge>
       <Tooltip content={copied ? "Copied" : "Copy code"}>
-        <button
-          type="button"
+        <Button
+          variant="plain"
+          size="micro"
+          icon={ClipboardIcon}
           onClick={handleCopy}
-          style={{
-            width: "24px",
-            height: "24px",
-            borderRadius: "5px",
-            border: `1px solid ${copied ? "#86efac" : "#e5e7eb"}`,
-            background: copied ? "#dcfce7" : "#fff",
-            cursor: "pointer",
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: copied ? "#16a34a" : "#9ca3af",
-            fontSize: "12px",
-            transition: "all 0.13s",
-            flexShrink: 0,
-          }}
-        >
-          <CopyCodeIcon size={16} />
-        </button>
+          accessibilityLabel={copied ? "Copied" : "Copy code"}
+        />
       </Tooltip>
     </InlineStack>
   );
@@ -594,10 +502,10 @@ export default function ManageBoxesPage() {
   }, [filteredBoxes]);
 
   const statCards = [
-    { label: "Total Boxes",  value: baseBoxes.length,  icon: "package",    iconBg: "#eff6ff", iconColor: "#2563eb" },
-    { label: "Active Boxes", value: activeCount,        icon: "check",      iconBg: "#f0fdf4", iconColor: "#16a34a" },
-    { label: "Inactive Boxes", value: inactiveCount,    icon: "hide",       iconBg: "#fafafa", iconColor: "#9ca3af" },
-    { label: "Total Orders", value: totalOrders,        icon: "order",      iconBg: "#fdf4ff", iconColor: "#9333ea" },
+    { label: "Total Boxes", value: baseBoxes.length, icon: PackageIcon, iconTone: "info" },
+    { label: "Active Boxes", value: activeCount, icon: CheckIcon, iconTone: "success" },
+    { label: "Inactive Boxes", value: inactiveCount, icon: HideIcon, iconTone: "tertiary" },
+    { label: "Total Orders", value: totalOrders, icon: OrderIcon, iconTone: "magic" },
   ];
 
   return (
@@ -615,28 +523,7 @@ export default function ManageBoxesPage() {
         {/* Stats row */}
         <InlineGrid columns={{ xs: 2, md: 4 }} gap="400">
           {statCards.map((s) => (
-            <Card key={s.label} padding="400">
-              <InlineStack gap="300" blockAlign="center">
-                <div
-                  style={{
-                    width: "38px",
-                    height: "38px",
-                    borderRadius: "8px",
-                    background: s.iconBg,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
-                  }}
-                >
-                  <AdminIcon type={s.icon} size="base" style={{ color: s.iconColor }} />
-                </div>
-                <BlockStack gap="050">
-                  <Text variant="headingLg" as="p" fontWeight="bold">{s.value}</Text>
-                  <Text variant="bodySm" as="p" tone="subdued">{s.label}</Text>
-                </BlockStack>
-              </InlineStack>
-            </Card>
+            <StatCard key={s.label} label={s.label} value={s.value} icon={s.icon} iconTone={s.iconTone} />
           ))}
         </InlineGrid>
 
@@ -858,32 +745,10 @@ export default function ManageBoxesPage() {
                 .Polaris-IndexTable__TableCell * {
                   font-size: 12px;
                 }
-                .cb-action-buttons .Polaris-Button,
-                .cb-action-buttons .Polaris-Button__Content,
-                .cb-action-buttons .Polaris-Button__Icon {
-                  display: inline-flex;
-                  align-items: center;
-                  justify-content: center;
-                }
-                .cb-action-buttons .Polaris-Button__Icon {
-                  margin: 0;
-                  line-height: 0;
-                  height: 100%;
-                }
-                .cb-action-buttons .Polaris-Button__Icon svg {
-                  display: block;
-                }
-                  .Polaris-Button--textAlignCenter {
-                     justify-content: center;
-                      text-align: center;
-                      display: flex;
-                      align-items: center;
-                      font-size: 14px;
-                }
               `}</style>
               <IndexTable
                 resourceName={{ singular: "box", plural: "boxes" }}
-                itemCount={filteredBoxes.length}
+                itemCount={displayBoxes.length}
                 headings={[
                   { title: "Name" },
                   { title: "Code" },
@@ -901,7 +766,6 @@ export default function ManageBoxesPage() {
                 bulkActions={bulkActions}
               >
                 {displayBoxes.map((box, index) => {
-                  const avatar = getAvatarColor(box.id);
                   return (
                     <IndexTable.Row
                       key={box.id}
@@ -912,54 +776,21 @@ export default function ManageBoxesPage() {
                       {/* Bundle Name */}
                       <IndexTable.Cell>
                         <InlineStack gap="300" blockAlign="center">
-                          <div
-                            style={{
-                              width: "36px",
-                              height: "36px",
-                              borderRadius: "8px",
-                              background: avatar.bg,
-                              color: avatar.color,
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              fontWeight: 800,
-                              fontSize: "14px",
-                              flexShrink: 0,
-                              letterSpacing: "-0.5px",
-                              overflow: "hidden",
-                              border: "1px solid rgba(0,0,0,0.04)",
-                            }}
-                          >
-                            {box.listImageSrc ? (
-                              <img
-                                src={box.listImageSrc}
-                                alt={`${box.boxName} image`}
-                                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                              />
-                            ) : (
-                              box.boxName.charAt(0).toUpperCase()
-                            )}
-                          </div>
+                          {box.listImageSrc ? (
+                            <Thumbnail source={box.listImageSrc} alt={box.boxName} size="small" />
+                          ) : (
+                            <Avatar
+                              size="sm"
+                              name={box.boxName}
+                              initials={box.boxName?.charAt(0)?.toUpperCase()}
+                            />
+                          )}
                           <BlockStack gap="050">
                             <InlineStack gap="150" blockAlign="center">
                               <Text variant="bodySm" fontWeight="semibold" as="span">{box.boxName}</Text>
                               {box.isGiftBox && (
                                 <Tooltip content="Gift bundle">
-                                  <span
-                                    aria-label="Gift bundle"
-                                    style={{
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      justifyContent: "center",
-                                      width: "22px",
-                                      height: "22px",
-                                      borderRadius: "6px",
-                                      background: "#f59e0b",
-                                      border: "1px solid #d97706",
-                                    }}
-                                  >
-                                    <GiftIcon size={12} fill="#FFFFFF" />
-                                  </span>
+                                  <Badge tone="warning" icon={GiftCardIcon}>Gift</Badge>
                                 </Tooltip>
                               )}
                             </InlineStack>
@@ -1021,53 +852,30 @@ export default function ManageBoxesPage() {
 
                       {/* Enabled toggle */}
                       <IndexTable.Cell>
-                        <BlockStack gap="050">
-                          <button
-                            type="button"
-                            style={{
-                              position: "relative",
-                              width: "42px",
-                              height: "24px",
-                              border: "none",
-                              borderRadius: "999px",
-                              background: box.isActive ? "#111827" : "#d1d5db",
-                              padding: 0,
-                              cursor: isToggleSubmitting ? "not-allowed" : "pointer",
-                              transition: "background 0.16s",
-                              opacity: isToggleSubmitting ? 0.7 : 1,
-                            }}
+                        <Tooltip content={box.isActive ? "Disable on storefront" : "Enable on storefront"}>
+                          <Button
+                            size="slim"
+                            pressed={box.isActive}
+                            tone={box.isActive ? "success" : undefined}
                             disabled={isToggleSubmitting}
-                            aria-label={box.isActive ? "Disable box" : "Enable box"}
-                            title={box.isActive ? "Disable on storefront" : "Enable on storefront"}
+                            accessibilityLabel={box.isActive ? "Disable box" : "Enable box"}
                             onClick={() => toggleStatus(box.id, !box.isActive)}
                           >
-                            <span
-                              style={{
-                                position: "absolute",
-                                top: "3px",
-                                left: box.isActive ? "21px" : "3px",
-                                width: "18px",
-                                height: "18px",
-                                borderRadius: "50%",
-                                background: "#ffffff",
-                                boxShadow: "0 1px 4px rgba(0,0,0,0.24)",
-                                transition: "left 0.16s",
-                              }}
-                            />
-                          </button>
-                        </BlockStack>
+                            {box.isActive ? "Active" : "Inactive"}
+                          </Button>
+                        </Tooltip>
                       </IndexTable.Cell>
 
                       {/* Actions */}
                       <IndexTable.Cell>
-                        <InlineStack gap="100" align="center" blockAlign="center" className="cb-action-buttons">
+                        <InlineStack gap="100" align="center" blockAlign="center">
                           <Tooltip content={box.previewUrl ? "Preview on storefront" : "Preview unavailable"}>
                             <Button
                               size="slim"
                               url={box.previewUrl || undefined}
                               target="_blank"
                               disabled={!box.previewUrl}
-                              icon={<EyeIcon size={16} color="#FFFFFF" />}
+                              icon={ViewIcon}
                               accessibilityLabel="Preview on storefront"
                             >
                             </Button>

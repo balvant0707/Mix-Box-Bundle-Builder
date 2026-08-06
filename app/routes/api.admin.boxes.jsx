@@ -2,6 +2,53 @@ import { authenticate } from "../shopify.server";
 import { BoxCodeValidationError, listBoxes, createBox } from "../models/boxes.server";
 import { saveSimpleBox, saveMultipleBox } from "../models/shop.server";
 
+const DESIGN_SETTINGS_FIELDS = [
+  "backgroundColor", "cardBorderColor", "imageHeight", "imageHeightMobile",
+  "imageDisplay", "productCardDesktopSize", "productCardMobileSize",
+  "borderWidth", "borderRadius", "titleTextColor", "titleSize", "titleStyle",
+  "productPriceColor", "productPriceSize", "productPriceStyle",
+  "compareAtPriceColor", "compareAtPriceSize", "compareAtPriceStyle",
+  "ctaBackgroundColor", "ctaTextColor", "ctaSize", "ctaStyle",
+  "variantSelectorColor", "variantSelectorSize", "variantSelectorStyle",
+  "imagePopupBackgroundColor", "imagePopupTextColor",
+];
+
+// These design fields are persisted/read back as integers even though the
+// form control for a few of them (TextField vs RangeSlider) hands back a
+// string — matches each field's Prisma column type (schema.prisma).
+const INT_DESIGN_FIELDS = new Set([
+  "imageHeight", "imageHeightMobile", "borderWidth", "borderRadius",
+  "titleSize", "productPriceSize", "compareAtPriceSize", "ctaSize", "variantSelectorSize",
+]);
+
+const BOOLEAN_PAGE_FIELDS = [
+  "hideOutOfStockProducts", "showProductSearch", "hideBundleHeader",
+  "hideBannerImage", "hideProductInfoModal", "productImageAutoHeight",
+  "displayCompareAtPrice", "redirectToCheckout", "redirectToCart",
+];
+
+/**
+ * Applies an uploaded-image field (bundleImage/bannerImage) to the page
+ * payload. `source[key]` is one of:
+ *   - {bytes, mimeType, fileName} — a new upload (bytes is base64)
+ *   - null                        — explicit removal
+ *   - undefined                   — untouched, leave existing value alone
+ */
+function applyImageField(payload, source, key) {
+  const value = source[key];
+  if (value && typeof value === "object" && typeof value.bytes === "string") {
+    payload[`${key}Data`] = Buffer.from(value.bytes, "base64");
+    payload[`${key}MimeType`] = value.mimeType || null;
+    payload[`${key}FileName`] = value.fileName || null;
+    payload[`${key}Url`] = null;
+  } else if (value === null) {
+    payload[`${key}Data`] = null;
+    payload[`${key}MimeType`] = null;
+    payload[`${key}FileName`] = null;
+    payload[`${key}Url`] = null;
+  }
+}
+
 function buildPagePayload(body) {
   const pageConfig = body?.pageConfig || {};
   const source = { ...pageConfig, ...body };
@@ -27,6 +74,30 @@ function buildPagePayload(body) {
   if (source.productConfiguration != null) payload.productConfiguration = source.productConfiguration;
   if (source.customerTags != null) payload.customerTags = source.customerTags;
   if (source.customers != null) payload.customers = source.customers;
+
+  if (source.stepTitle != null) payload.stepTitle = String(source.stepTitle);
+  if (source.stepDescription != null) payload.stepDescription = String(source.stepDescription);
+  if (source.scheduleType != null) payload.scheduleType = source.scheduleType;
+  if (source.startDate != null) payload.startDate = source.startDate || null;
+  if (source.startTime != null) payload.startTime = source.startTime || null;
+  if (source.hasEndDate != null) payload.hasEndDate = Boolean(source.hasEndDate);
+  if (source.endDate != null) payload.endDate = source.endDate || null;
+  if (source.endTime != null) payload.endTime = source.endTime || null;
+
+  for (const flag of BOOLEAN_PAGE_FIELDS) {
+    if (source[flag] != null) payload[flag] = Boolean(source[flag]);
+  }
+
+  for (const field of DESIGN_SETTINGS_FIELDS) {
+    if (source[field] == null) continue;
+    payload[field] = INT_DESIGN_FIELDS.has(field)
+      ? Number.parseInt(String(source[field]), 10) || 0
+      : String(source[field]);
+  }
+
+  applyImageField(payload, source, "bundleImage");
+  applyImageField(payload, source, "bannerImage");
+
   return payload;
 }
 

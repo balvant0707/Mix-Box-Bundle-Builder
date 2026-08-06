@@ -117,6 +117,10 @@ model SimpleBoxPage {
   status                     String   @default("active") @db.VarChar(20)
   title                      String   @db.VarChar(255)
   description                String?  @db.Text
+  bundleImageUrl             String?  @db.VarChar(500)
+  bundleImageData            Bytes?   @db.MediumBlob
+  bundleImageMimeType        String?  @db.VarChar(100)
+  bundleImageFileName        String?  @db.VarChar(255)
   bannerImageUrl             String?  @db.VarChar(500)
   bannerImageData            Bytes?   @db.MediumBlob
   bannerImageMimeType        String?  @db.VarChar(100)
@@ -193,6 +197,10 @@ model MultipleBoxPage {
   status                     String                    @default("active") @db.VarChar(20)
   title                      String                    @db.VarChar(255)
   description                String?                   @db.Text
+  bundleImageUrl             String?                   @db.VarChar(500)
+  bundleImageData            Bytes?                    @db.MediumBlob
+  bundleImageMimeType        String?                   @db.VarChar(100)
+  bundleImageFileName        String?                   @db.VarChar(255)
   bannerImageUrl             String?                   @db.VarChar(500)
   bannerImageData            Bytes?                    @db.MediumBlob
   bannerImageMimeType        String?                   @db.VarChar(100)

@@ -4,7 +4,7 @@ import { isbot } from "isbot";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider as ShopifyAppProvider } from "@shopify/shopify-app-react-router/react";
 import { AppProvider as PolarisAppProvider } from "@shopify/polaris";
-import { Banner, BlockStack, Box, Button, InlineStack, Modal, Page, Text, TextField } from "@shopify/polaris";
+import { Banner, BlockStack, Box, Button, InlineStack, Modal, Page, Text, TextField, Thumbnail } from "@shopify/polaris";
 import enTranslations from "@shopify/polaris/locales/en.json";
 import "@shopify/polaris/build/esm/styles.css";
 import { authenticate } from "../shopify.server";
@@ -386,22 +386,7 @@ export default function App() {
           <BlockStack gap="400">
             <BlockStack gap="200">
               <InlineStack gap="300" blockAlign="start">
-                <Box
-                  as="div"
-                  style={{
-                    width: "52px",
-                    height: "52px",
-                    borderRadius: "10px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#ffffff",
-                    fontSize: "26px",
-                    flexShrink: 0,
-                  }}
-                >
-                  <image src="/images/mix-bundle.jpg" alt="Star icon" width="50" height="50" />
-                </Box>
+                <Thumbnail source="/images/mix-bundle.jpg" alt="Star icon" size="small" />
                 <BlockStack gap="100">
                   <Text as="p" variant="headingMd" fontWeight="semibold">
                     How would you rate MixBox - Box & Bundle Builder?

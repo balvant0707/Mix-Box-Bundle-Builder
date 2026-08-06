@@ -1,6 +1,10 @@
 function sanitizePageData(pageData = {}) {
+  // Only drop `undefined` (field untouched). `null` is kept intentionally —
+  // it's how callers explicitly clear a field (e.g. removing an uploaded
+  // image), and every caller already guards against sending an accidental
+  // `null` for fields that shouldn't be cleared.
   return Object.fromEntries(
-    Object.entries(pageData || {}).filter(([, value]) => value !== undefined && value !== null),
+    Object.entries(pageData || {}).filter(([, value]) => value !== undefined),
   );
 }
 

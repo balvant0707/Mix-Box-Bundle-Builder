@@ -1102,11 +1102,58 @@ function parseJsonArray(value) {
   }
 }
 
+function buildImageDataUri(data, mimeType, url) {
+  if (data) {
+    const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+    return `data:${mimeType || "image/jpeg"};base64,${buffer.toString("base64")}`;
+  }
+  return url || null;
+}
+
+// Mirrors DEFAULT_DESIGN_SETTINGS in the edit forms (app.single.jsx etc):
+// a handful of these are read back as strings even though the column is an
+// Int, because the TextField controls that display them expect a string.
+function buildDesignSettingsForRead(page) {
+  return {
+    backgroundColor: page.backgroundColor,
+    cardBorderColor: page.cardBorderColor,
+    imageHeight: page.imageHeight,
+    imageHeightMobile: page.imageHeightMobile,
+    imageDisplay: page.imageDisplay,
+    productCardDesktopSize: page.productCardDesktopSize,
+    productCardMobileSize: page.productCardMobileSize,
+    borderWidth: String(page.borderWidth),
+    borderRadius: page.borderRadius,
+    titleTextColor: page.titleTextColor,
+    titleSize: String(page.titleSize),
+    titleStyle: page.titleStyle,
+    productPriceColor: page.productPriceColor,
+    productPriceSize: String(page.productPriceSize),
+    productPriceStyle: page.productPriceStyle,
+    compareAtPriceColor: page.compareAtPriceColor,
+    compareAtPriceSize: String(page.compareAtPriceSize),
+    compareAtPriceStyle: page.compareAtPriceStyle,
+    ctaBackgroundColor: page.ctaBackgroundColor,
+    ctaTextColor: page.ctaTextColor,
+    ctaSize: String(page.ctaSize),
+    ctaStyle: page.ctaStyle,
+    variantSelectorColor: page.variantSelectorColor,
+    variantSelectorSize: String(page.variantSelectorSize),
+    variantSelectorStyle: page.variantSelectorStyle,
+    imagePopupBackgroundColor: page.imagePopupBackgroundColor,
+    imagePopupTextColor: page.imagePopupTextColor,
+  };
+}
+
 function buildPageConfigFromSimpleBoxPage(page) {
   if (!page) return null;
 
+  const { bundleImageData, bannerImageData, ...rest } = page;
   return {
-    ...page,
+    ...rest,
+    bundleImage: buildImageDataUri(bundleImageData, page.bundleImageMimeType, page.bundleImageUrl),
+    bannerImage: buildImageDataUri(bannerImageData, page.bannerImageMimeType, page.bannerImageUrl),
+    designSettings: buildDesignSettingsForRead(page),
     selectedProductIds: parseJsonArray(page.selectedProductIdsJson),
     selectedCollectionIds: parseJsonArray(page.selectedCollectionIdsJson),
     selectedGiftProductIds: parseJsonArray(page.selectedGiftProductIdsJson),
@@ -1117,8 +1164,12 @@ function buildPageConfigFromSimpleBoxPage(page) {
 function buildPageConfigFromMultipleBoxPage(page) {
   if (!page) return null;
 
+  const { bundleImageData, bannerImageData, ...rest } = page;
   return {
-    ...page,
+    ...rest,
+    bundleImage: buildImageDataUri(bundleImageData, page.bundleImageMimeType, page.bundleImageUrl),
+    bannerImage: buildImageDataUri(bannerImageData, page.bannerImageMimeType, page.bannerImageUrl),
+    designSettings: buildDesignSettingsForRead(page),
     selectedProductIds: parseJsonArray(page.selectedProductIdsJson),
     selectedCollectionIds: parseJsonArray(page.selectedCollectionIdsJson),
     selectedGiftProductIds: parseJsonArray(page.selectedGiftProductIdsJson),
