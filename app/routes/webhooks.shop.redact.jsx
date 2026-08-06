@@ -7,20 +7,6 @@ export const action = async ({ request }) => {
   console.log(`Received ${topic} webhook for ${shop}`);
 
   const result = await db.$transaction(async (tx) => {
-    const boxes = await tx.comboBox.findMany({
-      where: { shop },
-      select: { id: true },
-    });
-    const boxIds = boxes.map((box) => box.id);
-
-    let comboProductsDeleted = 0;
-    if (boxIds.length > 0) {
-      const deletedProducts = await tx.comboBoxProduct.deleteMany({
-        where: { boxId: { in: boxIds } },
-      });
-      comboProductsDeleted = deletedProducts.count;
-    }
-
     const bundleOrdersDeleted = await tx.bundleOrder.deleteMany({
       where: { shop },
     });
@@ -29,7 +15,6 @@ export const action = async ({ request }) => {
     const shopsDeleted = await tx.shop.deleteMany({ where: { shop } });
 
     return {
-      comboProductsDeleted,
       bundleOrdersDeleted: bundleOrdersDeleted.count,
       comboBoxesDeleted: comboBoxesDeleted.count,
       sessionsDeleted: sessionsDeleted.count,

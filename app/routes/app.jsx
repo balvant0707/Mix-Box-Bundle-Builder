@@ -400,7 +400,7 @@ export default function App() {
                     flexShrink: 0,
                   }}
                 >
-                  <image src="https://combo-product-ten.vercel.app/images/mix-bundle.jpg" alt="Star icon" width="50" height="50" />
+                  <image src="/images/mix-bundle.jpg" alt="Star icon" width="50" height="50" />
                 </Box>
                 <BlockStack gap="100">
                   <Text as="p" variant="headingMd" fontWeight="semibold">

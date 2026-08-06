@@ -130,6 +130,7 @@ export async function trackBundleOrder(shop, orderData) {
   // Verify box exists for this shop
   const box = await db.comboBox.findFirst({
     where: { id: parsedBoxId, shop },
+    select: { id: true },
   });
   if (!box) {
     console.warn(`[trackBundleOrder] Box ${boxId} not found for shop ${shop}`);

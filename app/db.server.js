@@ -84,94 +84,6 @@ if (prismaProvider && prismaProvider !== "mysql") {
   );
 }
 
-const ENSURE_SESSION_TABLE_SQL = `
-CREATE TABLE IF NOT EXISTS \`session\` (
-  \`id\` VARCHAR(191) NOT NULL,
-  \`shop\` VARCHAR(191) NOT NULL,
-  \`state\` VARCHAR(191) NOT NULL,
-  \`isOnline\` BOOLEAN NOT NULL DEFAULT false,
-  \`scope\` TEXT NULL,
-  \`expires\` DATETIME(3) NULL,
-  \`accessToken\` TEXT NOT NULL,
-  \`userId\` BIGINT NULL,
-  \`firstName\` TEXT NULL,
-  \`lastName\` TEXT NULL,
-  \`email\` TEXT NULL,
-  \`accountOwner\` BOOLEAN NOT NULL DEFAULT false,
-  \`locale\` TEXT NULL,
-  \`collaborator\` BOOLEAN NULL DEFAULT false,
-  \`emailVerified\` BOOLEAN NULL DEFAULT false,
-  \`refreshToken\` TEXT NULL,
-  \`refreshTokenExpires\` DATETIME(3) NULL,
-  PRIMARY KEY (\`id\`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-`;
-
-const ENSURE_SHOP_TABLE_SQL = `
-CREATE TABLE IF NOT EXISTS \`shop\` (
-  \`id\` INTEGER NOT NULL AUTO_INCREMENT,
-  \`shop\` VARCHAR(191) NOT NULL,
-  \`accessToken\` VARCHAR(191) NULL,
-  \`installed\` BOOLEAN NOT NULL DEFAULT false,
-  \`status\` VARCHAR(32) NULL DEFAULT 'installed',
-  \`ownerName\` VARCHAR(255) NULL,
-  \`email\` VARCHAR(320) NULL,
-  \`contactEmail\` VARCHAR(320) NULL,
-  \`name\` VARCHAR(255) NULL,
-  \`country\` VARCHAR(100) NULL,
-  \`city\` VARCHAR(100) NULL,
-  \`currency\` VARCHAR(10) NULL,
-  \`phone\` VARCHAR(50) NULL,
-  \`primaryDomain\` VARCHAR(255) NULL,
-  \`plan\` VARCHAR(100) NULL,
-  \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  \`updatedAt\` DATETIME(3) NOT NULL,
-  \`onboardedAt\` DATETIME(3) NULL,
-  \`uninstalledAt\` DATETIME(3) NULL,
-  \`announcementEmailSentAt\` DATETIME(3) NULL,
-  \`reviewPromptDelayDays\` INTEGER NOT NULL DEFAULT 7,
-  \`reviewPopupDismissedAt\` DATETIME(3) NULL,
-  \`reviewSubmittedAt\` DATETIME(3) NULL,
-  \`reviewRating\` INTEGER NULL,
-  \`reviewComment\` TEXT NULL,
-  UNIQUE INDEX \`Shop_shop_key\`(\`shop\`),
-  PRIMARY KEY (\`id\`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-`;
-
-const ENSURE_BUNDLE_ORDER_TABLE_SQL = `
-CREATE TABLE IF NOT EXISTS \`bundle_order\` (
-  \`id\` INTEGER NOT NULL AUTO_INCREMENT,
-  \`shop\` VARCHAR(191) NOT NULL,
-  \`orderId\` VARCHAR(255) NOT NULL,
-  \`orderName\` VARCHAR(64) NULL,
-  \`orderNumber\` INTEGER NULL,
-  \`boxId\` INTEGER NOT NULL,
-  \`selectedProducts\` JSON NOT NULL,
-  \`bundlePrice\` DECIMAL(10,2) NOT NULL,
-  \`giftMessage\` TEXT NULL,
-  \`orderDate\` DATETIME(3) NOT NULL,
-  \`customerId\` VARCHAR(255) NULL,
-  \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  PRIMARY KEY (\`id\`),
-  INDEX \`bundle_order_shop_idx\` (\`shop\`),
-  INDEX \`bundle_order_boxId_idx\` (\`boxId\`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-`;
-
-const ENSURE_BUNDLE_ORDER_COLUMNS_SQL = [
-  "ALTER TABLE `bundle_order` ADD COLUMN IF NOT EXISTS `orderName` VARCHAR(64) NULL;",
-  "ALTER TABLE `bundle_order` ADD COLUMN IF NOT EXISTS `orderNumber` INTEGER NULL;",
-];
-
-const ENSURE_SHOP_COLUMNS_SQL = [
-  "ALTER TABLE `shop` ADD COLUMN IF NOT EXISTS `reviewPromptDelayDays` INTEGER NOT NULL DEFAULT 7;",
-  "ALTER TABLE `shop` ADD COLUMN IF NOT EXISTS `reviewPopupDismissedAt` DATETIME(3) NULL;",
-  "ALTER TABLE `shop` ADD COLUMN IF NOT EXISTS `reviewSubmittedAt` DATETIME(3) NULL;",
-  "ALTER TABLE `shop` ADD COLUMN IF NOT EXISTS `reviewRating` INTEGER NULL;",
-  "ALTER TABLE `shop` ADD COLUMN IF NOT EXISTS `reviewComment` TEXT NULL;",
-];
-
 // Persist across hot-reloads AND across warm serverless invocations in the
 // same container so the DDL only fires once per process lifetime.
 // Retry a DB operation with exponential backoff for transient connection errors.
@@ -230,33 +142,17 @@ export async function withDbRetry(fn, { retries = 3, delayMs = 500 } = {}) {
         }
       }
       await new Promise((r) => setTimeout(r, wait));
-      // Reset the cached promise so ensureAppTables re-runs after reconnect
-      if (!isLockError) globalThis.__ensureTablesPromise = null;
     }
   }
   throw lastErr;
 }
 
+// `npm run migrate:deploy` (wired into vercel.json's buildCommand and the
+// docker-start/setup scripts) already applies the Prisma migration history on
+// every deploy, so schema no longer needs to be hand-rolled here. Kept as a
+// no-op so existing call sites don't need to change.
 export function ensureAppTables() {
-  if (!globalThis.__ensureTablesPromise) {
-    globalThis.__ensureTablesPromise = (async () => {
-      await prisma.$executeRawUnsafe(ENSURE_SESSION_TABLE_SQL);
-      await prisma.$executeRawUnsafe(ENSURE_SHOP_TABLE_SQL);
-      await prisma.$executeRawUnsafe(ENSURE_BUNDLE_ORDER_TABLE_SQL);
-      for (const sql of ENSURE_SHOP_COLUMNS_SQL) {
-        await prisma.$executeRawUnsafe(sql);
-      }
-      for (const sql of ENSURE_BUNDLE_ORDER_COLUMNS_SQL) {
-        await prisma.$executeRawUnsafe(sql);
-      }
-    })().catch((err) => {
-      // Allow retry on next request
-      globalThis.__ensureTablesPromise = null;
-      throw err;
-    });
-  }
-
-  return globalThis.__ensureTablesPromise;
+  return Promise.resolve();
 }
 
 export default prisma;

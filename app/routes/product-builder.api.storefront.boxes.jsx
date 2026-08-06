@@ -63,18 +63,6 @@ export const loader = async ({ request }) => {
   });
   const orderLimitReached = orderCredit.orderLimitReached;
 
-  // Fetch step images for all boxes that have a specific combo config
-  const stepImagesByBox = {};
-  const { getComboStepImages } = await import("../models/boxes.server"); // Import here
-  await Promise.all(
-    boxes
-      .filter((b) => b.comboStepsConfig)
-      .map(async (b) => {
-        const imgs = await getComboStepImages(b.id);
-        if (imgs.length > 0) stepImagesByBox[b.id] = imgs;
-      })
-  );
-
   const publicBoxes = boxes.map((box) => {
     const bannerImageUrl = box.bannerImageUrl || null;
     // Flag so the widget can build the URL via the app proxy (avoids cross-origin issues)
@@ -124,21 +112,17 @@ export const loader = async ({ request }) => {
       bundlePriceType: box.bundlePriceType || "manual",
       sortOrder: box.sortOrder,
       pageHandle: box.pageHandle || null,
-      scopeType: box.scopeType || "specific_collections",
+      // The widget only distinguishes "wholestore" (resolved client-side via
+      // /products.json) from everything else (resolved by the server from the
+      // box's Simple/Multiple Box Page product configuration).
+      scopeType: (box.simpleBoxPage || box.multipleBoxPage)?.productConfiguration === "whole_store"
+        ? "wholestore"
+        : "specific",
       comboConfig: (() => {
-        // Fallback: parse raw comboStepsConfig JSON when ComboBoxConfig relation is missing
-        const boxStepImgs = stepImagesByBox[box.id] || [];
-        const primaryImageRecord = boxStepImgs.find((img) => img.imageData);
-        const primaryStepImageUrl = primaryImageRecord
-          ? `data:${primaryImageRecord.mimeType};base64,${Buffer.from(primaryImageRecord.imageData).toString("base64")}`
-          : null;
-        function attachStepImages(stepsArr) {
-          return stepsArr.map((step) => ({ ...step, stepImageUrl: primaryStepImageUrl }));
-        }
         if (box.comboStepsConfig) {
           try {
             const parsed = JSON.parse(box.comboStepsConfig);
-            const steps = attachStepImages(Array.isArray(parsed.steps) ? parsed.steps : []);
+            const steps = Array.isArray(parsed.steps) ? parsed.steps : [];
             return {
               comboType: parseInt(parsed.type) || 0,
               title: parsed.title || parsed.listingTitle || null,

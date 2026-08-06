@@ -28,13 +28,13 @@ model Session {
   refreshToken        String?   @db.Text
   refreshTokenExpires DateTime?
 
+  @@index([shop])
   @@map("session")
 }
 
 model shop {
   id                      Int       @id @default(autoincrement())
   shop                    String    @unique(map: "Shop_shop_key")
-  accessToken             String?
   installed               Boolean   @default(false)
   status                  String?   @default("installed") @db.VarChar(32)
   ownerName               String?   @db.VarChar(255)
@@ -51,12 +51,26 @@ model shop {
   updatedAt               DateTime  @updatedAt
   onboardedAt             DateTime?
   uninstalledAt           DateTime?
-  announcementEmailSentAt DateTime?
   reviewPromptDelayDays   Int       @default(7)
   reviewPopupDismissedAt  DateTime?
   reviewSubmittedAt       DateTime?
   reviewRating            Int?
   reviewComment           String?   @db.Text
+}
+
+model UninstallFeedback {
+  id                  Int       @id @default(autoincrement())
+  shop                String    @db.VarChar(255)
+  ownerName           String?   @db.VarChar(255)
+  email               String?   @db.VarChar(320)
+  contactEmail        String?   @db.VarChar(320)
+  feedbackText        String?   @db.Text
+  feedbackToken       String?   @unique @db.VarChar(128)
+  feedbackSubmittedAt DateTime?
+  uninstalledAt       DateTime  @default(now())
+
+  @@index([shop])
+  @@map("uninstallfeedback")
 }
 
 model ComboBox {
@@ -85,17 +99,14 @@ model ComboBox {
   bannerImageFileName     String?           @db.VarChar(255)
   bannerImageMimeType     String?           @db.VarChar(100)
   comboStepsConfig        String?           @map("combo_steps_config") @db.LongText
-  scopeType               String            @default("specific_collections") @db.VarChar(30)
-  scopeItemsJson          String?           @db.LongText
   pageHandle              String?           @db.VarChar(255)
-  boxCode                 String?           @unique @db.VarChar(10)
+  boxCode                 String?           @db.VarChar(10)
   orders                  BundleOrder[]
   simpleBoxPage           SimpleBoxPage?
   multipleBoxPage         MultipleBoxPage?
-  products                ComboBoxProduct[]
-  stepImages              ComboStepImage[]
 
   @@index([shop])
+  @@unique([shop, boxCode], map: "combo_box_shop_boxCode_key")
   @@map("combo_box")
 }
 
@@ -106,10 +117,6 @@ model SimpleBoxPage {
   status                     String   @default("active") @db.VarChar(20)
   title                      String   @db.VarChar(255)
   description                String?  @db.Text
-  bundleImageUrl             String?  @db.VarChar(500)
-  bundleImageData            Bytes?   @db.MediumBlob
-  bundleImageMimeType        String?  @db.VarChar(100)
-  bundleImageFileName        String?  @db.VarChar(255)
   bannerImageUrl             String?  @db.VarChar(500)
   bannerImageData            Bytes?   @db.MediumBlob
   bannerImageMimeType        String?  @db.VarChar(100)
@@ -186,10 +193,6 @@ model MultipleBoxPage {
   status                     String                    @default("active") @db.VarChar(20)
   title                      String                    @db.VarChar(255)
   description                String?                   @db.Text
-  bundleImageUrl             String?                   @db.VarChar(500)
-  bundleImageData            Bytes?                    @db.MediumBlob
-  bundleImageMimeType        String?                   @db.VarChar(100)
-  bundleImageFileName        String?                   @db.VarChar(255)
   bannerImageUrl             String?                   @db.VarChar(500)
   bannerImageData            Bytes?                    @db.MediumBlob
   bannerImageMimeType        String?                   @db.VarChar(100)
@@ -296,37 +299,6 @@ model MultipleBoxQuantityPack {
   @@map("multiple_box_quantity_pack")
 }
 
-model ComboBoxProduct {
-  id            Int      @id @default(autoincrement())
-  boxId         Int
-  box           ComboBox @relation(fields: [boxId], references: [id], onDelete: Cascade)
-  productId     String   @db.VarChar(255)
-  productTitle  String?  @db.VarChar(255)
-  productImageUrl String? @db.VarChar(500)
-  productHandle String?  @db.VarChar(255)
-  isCollection  Boolean  @default(false)
-  variantIds    String?  @db.LongText // JSON string
-  productPrice  Decimal? @db.Decimal(10, 2)
-  createdAt     DateTime @default(now())
-
-  @@index([boxId])
-  @@map("combo_box_product")
-}
-
-model ComboStepImage {
-  id            Int      @id @default(autoincrement())
-  boxId         Int
-  box           ComboBox @relation(fields: [boxId], references: [id], onDelete: Cascade)
-  stepIndex     Int
-  imageData     Bytes?   @db.MediumBlob
-  mimeType      String?  @db.VarChar(100)
-  fileName      String?  @db.VarChar(255)
-  createdAt     DateTime @default(now())
-
-  @@index([boxId])
-  @@map("combo_step_image")
-}
-
 model BundleOrder {
   id               Int      @id @default(autoincrement())
   boxId            Int
@@ -342,6 +314,7 @@ model BundleOrder {
   customerId       String?  @db.VarChar(255)
   createdAt        DateTime @default(now())
 
+  @@unique([shop, orderId, boxId])
   @@index([shop])
   @@index([boxId])
   @@map("bundle_order")

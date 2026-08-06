@@ -1,7 +1,10 @@
 (function () {
   'use strict';
 
-  var DEFAULT_API_BASE = 'https://combo-product-ten.vercel.app';
+  // Routed through Shopify's app proxy (see shopify.app.toml [app_proxy]) so the
+  // widget always talks to whichever backend the shop's app installation points
+  // at, instead of a hardcoded (and easily stale) absolute host.
+  var DEFAULT_API_BASE = '/apps/product-builder';
 
   // ─── Utilities ───────────────────────────────────────────────────────────────
 

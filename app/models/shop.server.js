@@ -107,7 +107,6 @@ export async function upsertShopFromAdmin(session, admin) {
   const details = body?.data?.shop;
 
   const shopFields = {
-    accessToken:   session.accessToken ?? null,
     installed:     true,
     status:        "installed",
     ownerName:     details?.shopOwnerName ?? null,
@@ -254,13 +253,11 @@ export async function markShopUninstalled(shop) {
       shop,
       installed: false,
       status: "uninstalled",
-      accessToken: null,
       uninstalledAt: new Date(),
     },
     update: {
       installed: false,
       status: "uninstalled",
-      accessToken: null,
       uninstalledAt: new Date(),
     },
   });
@@ -354,52 +351,6 @@ export async function submitShopReview(shopDomain, { rating, feedback }) {
   `;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Box Management Functions
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Fetches all combo boxes for a shop to display on the "Manage Boxes" page.
- *
- * @param {string} shop - The shop domain.
- * @returns {Promise<Array<object>>} A list of boxes with relevant details.
- */
-export async function getBoxesForManagePage(shop) {
-  const boxes = await db.comboBox.findMany({
-    where: { shop, deletedAt: null },
-    select: {
-      id: true,
-      boxName: true,
-      displayTitle: true,
-      isActive: true,
-      createdAt: true,
-      simpleBoxPage: { select: { id: true, status: true, title: true } },
-      multipleBoxPage: { select: { id: true, status: true, title: true } },
-      _count: {
-        select: { orders: true },
-      },
-    },
-    orderBy: {
-      sortOrder: "asc",
-    },
-  });
-
-  return boxes.map((box) => {
-    const simplePage = box.simpleBoxPage;
-    const multiplePage = box.multipleBoxPage;
-    const page = simplePage || multiplePage;
-    const isSimple = Boolean(simplePage);
-    return {
-      id: box.id,
-      title: page?.title || box.displayTitle || box.boxName,
-      active: box.isActive,
-      status: page?.status || "active",
-      type: isSimple ? "Simple" : "Multiple",
-      orders: box._count.orders,
-      createdAt: box.createdAt,
-    };
-  });
-}
 
 /**
  * Creates or updates a "Simple Box" and its associated page settings.
@@ -422,8 +373,15 @@ export async function saveSimpleBox(shop, { id, comboBoxData, simpleBoxPageData 
   };
 
   if (id) {
+    const boxId = Number(id);
+    // A box switching from Multiple -> Simple must drop its stale MultipleBoxPage,
+    // otherwise the orphaned row lingers and listBoxes()/getBox() misreport the box type.
+    const existingMultiplePage = await db.multipleBoxPage.findUnique({ where: { boxId }, select: { id: true } });
+    if (existingMultiplePage?.id) {
+      data.multipleBoxPage = { delete: true };
+    }
     return db.comboBox.update({
-      where: { id: Number(id), shop },
+      where: { id: boxId, shop },
       data,
       include: { simpleBoxPage: true },
     });
@@ -456,6 +414,10 @@ export async function saveMultipleBox(shop, { id, comboBoxData, multipleBoxPageD
         await tx.multipleBoxQuantityPack.deleteMany({ where: { multipleBoxPageId: existingPage.id } });
       }
 
+      // A box switching from Simple -> Multiple must drop its stale SimpleBoxPage,
+      // otherwise the orphaned row lingers and listBoxes()/getBox() misreport the box type.
+      const existingSimplePage = await tx.simpleBoxPage.findUnique({ where: { boxId }, select: { id: true } });
+
       return tx.comboBox.update({
         where: { id: boxId, shop },
         data: {
@@ -466,6 +428,7 @@ export async function saveMultipleBox(shop, { id, comboBoxData, multipleBoxPageD
               update: relationData.update,
             },
           },
+          ...(existingSimplePage?.id ? { simpleBoxPage: { delete: true } } : {}),
         },
         include: { multipleBoxPage: { include: { quantityPacks: true } } },
       });

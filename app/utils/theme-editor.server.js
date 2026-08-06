@@ -21,23 +21,28 @@ function extractNumericId(gid) {
   return match?.[1] || null;
 }
 
-async function getPreviewProductHandle(shop) {
-  const product = await db.comboBoxProduct.findFirst({
-    where: {
-      productHandle: { not: null },
-      box: {
-        shop,
-        deletedAt: null,
-        isActive: true,
-      },
-    },
-    orderBy: [{ boxId: "asc" }, { id: "asc" }],
-    select: {
-      productHandle: true,
-    },
+async function getPreviewProductHandle(shop, admin) {
+  const box = await db.comboBox.findFirst({
+    where: { shop, deletedAt: null, isActive: true, shopifyProductId: { not: null } },
+    orderBy: { id: "asc" },
+    select: { shopifyProductId: true },
   });
+  if (!box?.shopifyProductId || !admin) return null;
 
-  return product?.productHandle || null;
+  try {
+    const response = await admin.graphql(
+      `#graphql
+        query PreviewProductHandle($id: ID!) {
+          product(id: $id) { handle }
+        }
+      `,
+      { variables: { id: box.shopifyProductId } },
+    );
+    const json = await response.json();
+    return json?.data?.product?.handle || null;
+  } catch {
+    return null;
+  }
 }
 
 async function getMainThemeId(admin) {
@@ -152,7 +157,7 @@ export async function buildThemeEditorUrl({ shop, admin }) {
   const storeHandle = getStoreHandle(shop);
   const apiKey = process.env.SHOPIFY_API_KEY?.trim();
   const [previewProductHandle, themeId] = await Promise.all([
-    getPreviewProductHandle(shop),
+    getPreviewProductHandle(shop, admin),
     getMainThemeId(admin),
   ]);
 
