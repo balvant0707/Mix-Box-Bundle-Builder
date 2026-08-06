@@ -1145,7 +1145,11 @@ export async function listBoxes(shop, activeOnly = false, includeBannerBinary = 
 
   const boxes = await db.comboBox.findMany({
     where,
-    include: { _count: { select: { orders: true } } },
+    include: {
+      simpleBoxPage: { select: { id: true, title: true, status: true } },
+      multipleBoxPage: { select: { id: true, title: true, status: true } },
+      _count: { select: { orders: true } },
+    },
     orderBy: { sortOrder: "asc" },
   });
 
@@ -1164,7 +1168,12 @@ export async function listBoxes(shop, activeOnly = false, includeBannerBinary = 
   if (includeBannerBinary) return boxes;
 
   return boxes.map((box) => {
-    const sanitized = { ...box };
+    const sanitized = {
+      ...box,
+      boxType: box.simpleBoxPage ? "single" : box.multipleBoxPage ? "multiple" : "simple",
+      pageTitle: box.simpleBoxPage?.title || box.multipleBoxPage?.title || null,
+      pageStatus: box.simpleBoxPage?.status || box.multipleBoxPage?.status || null,
+    };
     delete sanitized.bannerImageData;
     // Keep bannerImageMimeType as a marker that a binary upload exists
     delete sanitized.bannerImageFileName;
@@ -1348,12 +1357,12 @@ export async function updateComboStepsConfig(id, shop, comboStepsConfig) {
   });
 }
 
-// Removed the entire upsertComboConfig function as ComboBoxConfig model no longer exists.
+// The combo-step config is now stored directly on the ComboBox record.
 // The logic for updating comboStepsConfig is handled in updateComboStepsConfig and updateBox.
 /**
- * Upsert the ComboBoxConfig record for a box.
+ * Persist combo-step config for a box.
  * Handles both INSERT (first save) and UPDATE (subsequent saves).
- * `config` may be a JSON string or a plain object matching DEFAULT_COMBO_CONFIG shape.
+ * `config` may be a JSON string or a plain object matching the expected shape.
  */
 export async function upsertComboConfig(boxId, config, admin = null) {
   const parsed = typeof config === "string" ? JSON.parse(config) : config;
@@ -1506,10 +1515,17 @@ export async function upsertComboConfig(boxId, config, admin = null) {
     data:  comboBoxUpdate,
   });
 
-  const result = await db.comboBoxConfig.upsert({
-    where:  { boxId: parseInt(boxId) },
-    create: { boxId: parseInt(boxId), ...payload },
-    update: payload,
+  const result = await db.comboBox.update({
+    where: { id: parseInt(boxId) },
+    data: {
+      comboStepsConfig: rawJson,
+      itemCount: payload.comboType,
+      bundlePriceType: payload.bundlePriceType,
+      isActive: payload.isActive,
+      ...(hasIsGiftBox ? { isGiftBox: parsedIsGiftBox } : {}),
+      ...(hasAllowDuplicates ? { allowDuplicates: parsedAllowDuplicates } : {}),
+      ...(hasGiftMessageEnabled ? { giftMessageEnabled: parsedGiftMessageEnabled } : {}),
+    },
   });
 
   // Sync Shopify automatic discount for specific combo boxes.

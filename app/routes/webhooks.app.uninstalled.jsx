@@ -30,16 +30,17 @@ export const action = async ({ request }) => {
   // Keep a feedback row for each uninstall event so merchant response can be captured later.
   let feedbackToken = null;
   try {
-    const uninstallFeedback = await db.uninstallfeedback.create({
-      data: {
-        shop,
-        ownerName: shopRecord?.ownerName || null,
-        email: shopRecord?.email || null,
-        contactEmail: shopRecord?.contactEmail || null,
-        feedbackToken: randomUUID().replace(/-/g, ""),
-      },
-    });
-    feedbackToken = uninstallFeedback.feedbackToken || null;
+    const feedbackTokenValue = randomUUID().replace(/-/g, "");
+    await db.$executeRawUnsafe(
+      `INSERT INTO uninstallfeedback (shop, ownerName, email, contactEmail, feedbackText, feedbackToken, feedbackSubmittedAt, uninstalledAt) VALUES (?, ?, ?, ?, ?, ?, NULL, NOW(3))`,
+      shop,
+      shopRecord?.ownerName || null,
+      shopRecord?.email || null,
+      shopRecord?.contactEmail || null,
+      null,
+      feedbackTokenValue,
+    );
+    feedbackToken = feedbackTokenValue;
   } catch (error) {
     console.error("[uninstall webhook] failed to create uninstallfeedback row", error);
   }

@@ -1,4 +1,5 @@
 import db, { withDbRetry } from "../db.server";
+import { buildMultipleBoxPageRelationData, buildSimpleBoxPageRelationData } from "./box-page-persistence.js";
 
 const SHOP_DETAILS_QUERY = `#graphql
   query AppShopDetails {
@@ -351,4 +352,134 @@ export async function submitShopReview(shopDomain, { rating, feedback }) {
         updatedAt = NOW(3)
     WHERE shop = ${shopDomain}
   `;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Box Management Functions
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Fetches all combo boxes for a shop to display on the "Manage Boxes" page.
+ *
+ * @param {string} shop - The shop domain.
+ * @returns {Promise<Array<object>>} A list of boxes with relevant details.
+ */
+export async function getBoxesForManagePage(shop) {
+  const boxes = await db.comboBox.findMany({
+    where: { shop, deletedAt: null },
+    select: {
+      id: true,
+      boxName: true,
+      displayTitle: true,
+      isActive: true,
+      createdAt: true,
+      simpleBoxPage: { select: { id: true, status: true, title: true } },
+      multipleBoxPage: { select: { id: true, status: true, title: true } },
+      _count: {
+        select: { orders: true },
+      },
+    },
+    orderBy: {
+      sortOrder: "asc",
+    },
+  });
+
+  return boxes.map((box) => {
+    const simplePage = box.simpleBoxPage;
+    const multiplePage = box.multipleBoxPage;
+    const page = simplePage || multiplePage;
+    const isSimple = Boolean(simplePage);
+    return {
+      id: box.id,
+      title: page?.title || box.displayTitle || box.boxName,
+      active: box.isActive,
+      status: page?.status || "active",
+      type: isSimple ? "Simple" : "Multiple",
+      orders: box._count.orders,
+      createdAt: box.createdAt,
+    };
+  });
+}
+
+/**
+ * Creates or updates a "Simple Box" and its associated page settings.
+ *
+ * @param {string} shop - The shop domain.
+ * @param {object} payload - The box data.
+ * @param {number} [payload.id] - The ID of the box to update. If null, a new box is created.
+ * @param {object} payload.comboBoxData - Data for the ComboBox model.
+ * @param {object} payload.simpleBoxPageData - Data for the SimpleBoxPage model.
+ * @returns {Promise<object>} The created or updated ComboBox with its SimpleBoxPage.
+ */
+export async function saveSimpleBox(shop, { id, comboBoxData, simpleBoxPageData }) {
+  const pageRelation = buildSimpleBoxPageRelationData(simpleBoxPageData);
+  const data = {
+    ...comboBoxData,
+    shop,
+    simpleBoxPage: {
+      upsert: pageRelation,
+    },
+  };
+
+  if (id) {
+    return db.comboBox.update({
+      where: { id: Number(id), shop },
+      data,
+      include: { simpleBoxPage: true },
+    });
+  }
+  return db.comboBox.create({
+    data,
+    include: { simpleBoxPage: true },
+  });
+}
+
+/**
+ * Creates or updates a "Multiple Box" and its associated page and quantity pack settings.
+ *
+ * @param {string} shop - The shop domain.
+ * @param {object} payload - The box data.
+ * @param {number} [payload.id] - The ID of the box to update. If null, a new box is created.
+ * @param {object} payload.comboBoxData - Data for the ComboBox model.
+ * @param {object} payload.multipleBoxPageData - Data for the MultipleBoxPage model, including `quantityPacks`.
+ * @returns {Promise<object>} The created or updated ComboBox with its MultipleBoxPage.
+ */
+export async function saveMultipleBox(shop, { id, comboBoxData, multipleBoxPageData }) {
+  const { quantityPacks, ...pageData } = multipleBoxPageData || {};
+  const relationData = buildMultipleBoxPageRelationData(pageData, quantityPacks);
+
+  if (id) {
+    const boxId = Number(id);
+    return db.$transaction(async (tx) => {
+      const existingPage = await tx.multipleBoxPage.findUnique({ where: { boxId }, select: { id: true } });
+      if (existingPage?.id) {
+        await tx.multipleBoxQuantityPack.deleteMany({ where: { multipleBoxPageId: existingPage.id } });
+      }
+
+      return tx.comboBox.update({
+        where: { id: boxId, shop },
+        data: {
+          ...comboBoxData,
+          multipleBoxPage: {
+            upsert: {
+              create: relationData.create,
+              update: relationData.update,
+            },
+          },
+        },
+        include: { multipleBoxPage: { include: { quantityPacks: true } } },
+      });
+    });
+  }
+
+  return db.comboBox.create({
+    data: {
+      ...comboBoxData,
+      shop,
+      multipleBoxPage: {
+        create: relationData.create,
+      },
+    },
+    include: { multipleBoxPage: { include: { quantityPacks: true } } },
+  });
 }

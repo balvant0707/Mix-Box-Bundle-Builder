@@ -15,27 +15,19 @@ export const loader = async ({ request }) => {
     return { ok: false, error: "Invalid feedback link.", token: "" };
   }
 
-  const row = await db.uninstallfeedback.findUnique({
-    where: { feedbackToken: normalizedToken },
-    select: {
-      id: true,
-      shop: true,
-      feedbackText: true,
-      feedbackSubmittedAt: true,
-    },
-  });
+  const row = await db.$queryRawUnsafe(`SELECT id, shop, feedbackText, feedbackSubmittedAt FROM uninstallfeedback WHERE feedbackToken = ? LIMIT 1`, normalizedToken);
 
-  if (!row) {
+  if (!row || row.length === 0) {
     return { ok: false, error: "This feedback link is invalid or expired.", token: normalizedToken };
   }
 
   return {
     ok: true,
-    rowId: row.id,
+    rowId: row[0].id,
     token: normalizedToken,
-    shop: row.shop,
-    submitted: Boolean(row.feedbackSubmittedAt),
-    feedbackText: row.feedbackText || "",
+    shop: row[0].shop,
+    submitted: Boolean(row[0].feedbackSubmittedAt),
+    feedbackText: row[0].feedbackText || "",
   };
 };
 
@@ -58,29 +50,23 @@ export const action = async ({ request }) => {
 
     // Primary update path: match both row id and token.
     if (Number.isFinite(rowId) && rowId > 0) {
-      const updatedById = await db.uninstallfeedback.updateMany({
-        where: {
-          id: rowId,
-          feedbackToken: token,
-        },
-        data: {
-          feedbackText,
-          feedbackSubmittedAt: new Date(),
-        },
-      });
-      updatedCount += updatedById.count;
+      const updatedById = await db.$executeRawUnsafe(
+        `UPDATE uninstallfeedback SET feedbackText = ?, feedbackSubmittedAt = NOW(3) WHERE id = ? AND feedbackToken = ?`,
+        feedbackText,
+        rowId,
+        token,
+      );
+      updatedCount += Number(updatedById) || 0;
     }
 
     // Fallback path: token-only update (for old links/forms without rowId).
     if (updatedCount === 0) {
-      const updatedByToken = await db.uninstallfeedback.updateMany({
-        where: { feedbackToken: token },
-        data: {
-          feedbackText,
-          feedbackSubmittedAt: new Date(),
-        },
-      });
-      updatedCount += updatedByToken.count;
+      const updatedByToken = await db.$executeRawUnsafe(
+        `UPDATE uninstallfeedback SET feedbackText = ?, feedbackSubmittedAt = NOW(3) WHERE feedbackToken = ?`,
+        feedbackText,
+        token,
+      );
+      updatedCount += Number(updatedByToken) || 0;
     }
 
     if (updatedCount === 0) {

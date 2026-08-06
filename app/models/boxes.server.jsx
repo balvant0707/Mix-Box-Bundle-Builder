@@ -1303,11 +1303,10 @@ export async function updateComboStepsConfig(id, shop, comboStepsConfig) {
   });
 }
 
-// Removed the entire upsertComboConfig function as ComboBoxConfig model no longer exists.
+// The combo-step config is now stored directly on the ComboBox record.
 // The logic for updating comboStepsConfig is handled in updateComboStepsConfig and updateBox.
 /**
- * Upsert the ComboBoxConfig record for a box.
- * Sync a combo box's title and price to its associated Shopify bundle product.
+ * Persist combo-step config for a box and sync the associated Shopify bundle product.
  * Call this whenever combo config is saved (price or title may have changed).
  */
 export async function syncShopifyBundleProduct(admin, shopifyProductId, shopifyVariantId, { title, bundlePrice }) {
