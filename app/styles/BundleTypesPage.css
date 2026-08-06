@@ -33,8 +33,8 @@
 .bundle-type-card__image {
   display: block;
   width: 100%;
-  height: 220px;
-  object-fit: cover;
+  height: 100%;
+  object-fit: contain;
   transition:
     transform 250ms ease,
     opacity 250ms ease;
