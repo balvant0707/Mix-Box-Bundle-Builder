@@ -1080,10 +1080,13 @@ export async function listBoxes(shop, activeOnly = false, includeBannerBinary = 
     );
   }
 
-  if (includeBannerBinary) return boxes;
+  if (includeBannerBinary) {
+    return boxes.map((box) => ({ ...box, bundlePrice: toPlainNumber(box.bundlePrice) }));
+  }
 
   return boxes.map((box) => ({
     ...box,
+    bundlePrice: toPlainNumber(box.bundlePrice),
     boxType: box.simpleBoxPage ? "single" : box.multipleBoxPage ? "multiple" : "single",
     pageTitle: box.simpleBoxPage?.title || box.multipleBoxPage?.title || null,
     pageStatus: box.simpleBoxPage?.status || box.multipleBoxPage?.status || null,
@@ -1145,12 +1148,27 @@ function buildDesignSettingsForRead(page) {
   };
 }
 
+// Prisma returns `Decimal` columns as Decimal.js instances, not plain
+// numbers/strings. That's fine for routes that respond via Response.json()
+// (JSON.stringify calls toString() on them correctly), but admin page loaders
+// here return plain objects, which React Router serializes for hydration via
+// turbo-stream — and turbo-stream has no revival logic for an arbitrary
+// Decimal.js class instance, so the value silently breaks in transit to the
+// browser. Convert every Decimal field to a plain number before it leaves
+// this module so it's safe under either serialization path.
+function toPlainNumber(value) {
+  if (value === null || value === undefined) return value;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : value;
+}
+
 function buildPageConfigFromSimpleBoxPage(page) {
   if (!page) return null;
 
   const { bundleImageData, bannerImageData, ...rest } = page;
   return {
     ...rest,
+    discountValue: toPlainNumber(page.discountValue),
     bundleImage: buildImageDataUri(bundleImageData, page.bundleImageMimeType, page.bundleImageUrl),
     bannerImage: buildImageDataUri(bannerImageData, page.bannerImageMimeType, page.bannerImageUrl),
     designSettings: buildDesignSettingsForRead(page),
@@ -1167,6 +1185,7 @@ function buildPageConfigFromMultipleBoxPage(page) {
   const { bundleImageData, bannerImageData, ...rest } = page;
   return {
     ...rest,
+    discountValue: toPlainNumber(page.discountValue),
     bundleImage: buildImageDataUri(bundleImageData, page.bundleImageMimeType, page.bundleImageUrl),
     bannerImage: buildImageDataUri(bannerImageData, page.bannerImageMimeType, page.bannerImageUrl),
     designSettings: buildDesignSettingsForRead(page),
@@ -1176,6 +1195,7 @@ function buildPageConfigFromMultipleBoxPage(page) {
     eligibility: parseJsonArray(page.eligibilityJson),
     quantityPacks: (page.quantityPacks || []).map((pack) => ({
       ...pack,
+      discountValue: toPlainNumber(pack.discountValue),
       selectedProductIds: parseJsonArray(pack.selectedProductIdsJson),
       selectedCollectionIds: parseJsonArray(pack.selectedCollectionIdsJson),
       selectedGiftProductIds: parseJsonArray(pack.selectedGiftProductIdsJson),
@@ -1229,6 +1249,7 @@ export async function getBox(id, shop) {
 
   return {
     ...box,
+    bundlePrice: toPlainNumber(box.bundlePrice),
     pageConfig,
   };
 }
