@@ -695,15 +695,14 @@ export default function ManageBoxesPage() {
                     </IndexTable>
                   </Card>
                 ) : (
-                  <Card>
-                    <Text as="p" tone="subdued">
-                      No order data is available for the selected filters.
-                    </Text>
-                  </Card>
+                  <Text as="p" tone="subdued">
+                    
+                  </Text>
                 )}
               </BlockStack>
             </Box>
           )}
+
           {baseBoxes.length === 0 ? (
             /* Empty state — no boxes at all */
             <EmptyState
