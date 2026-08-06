@@ -20,10 +20,13 @@ function buildPagePayload(body) {
   if (source.buyQuantity != null) payload.buyQuantity = Number.parseInt(String(source.buyQuantity), 10) || 1;
   if (source.getQuantity != null) payload.getQuantity = Number.parseInt(String(source.getQuantity), 10) || 1;
   if (Array.isArray(source.quantityPacks)) payload.quantityPacks = source.quantityPacks;
-  if (Array.isArray(source.selectedProductIds)) payload.selectedProductIds = source.selectedProductIds;
-  if (Array.isArray(source.selectedCollectionIds)) payload.selectedCollectionIds = source.selectedCollectionIds;
+  if (Array.isArray(source.selectedProductIds)) payload.selectedProductIdsJson = JSON.stringify(source.selectedProductIds);
+  if (Array.isArray(source.selectedCollectionIds)) payload.selectedCollectionIdsJson = JSON.stringify(source.selectedCollectionIds);
+  if (Array.isArray(source.selectedGiftProductIds)) payload.selectedGiftProductIdsJson = JSON.stringify(source.selectedGiftProductIds);
+  if (Array.isArray(source.eligibility)) payload.eligibilityJson = JSON.stringify(source.eligibility);
   if (source.productConfiguration != null) payload.productConfiguration = source.productConfiguration;
-  if (source.selectedGiftProductIds != null) payload.selectedGiftProductIds = source.selectedGiftProductIds;
+  if (source.customerTags != null) payload.customerTags = source.customerTags;
+  if (source.customers != null) payload.customers = source.customers;
   return payload;
 }
 
