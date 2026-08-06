@@ -384,8 +384,11 @@ function getDiscountSubmissionFields(form, source = form) {
     };
   }
 
+  // "Fixed Amount": the entered value IS the pack's flat price (a manual
+  // price override), not a discount subtracted from a dynamically computed
+  // total — so this is manual pricing, not dynamic.
   return {
-    bundlePriceType: 'dynamic',
+    bundlePriceType: 'manual',
     discountMode: 'fixed_amount',
     discountType: 'fixed',
     discountValue: source?.discountValue || '0',

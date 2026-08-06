@@ -22,7 +22,12 @@ function normalizeDiscountConfigForPriceType({
   fallbackSelectedGiftProductIds = [],
 }) {
   const uiDiscountMode = String(discountMode || "");
-  const hasUiDiscountMode = ["fixed_amount", "flat_discount", "free_gift_product"].includes(uiDiscountMode);
+  // "fixed_amount" means the entered value IS the bundle's flat price — a
+  // manual price override, not a discount subtracted from a dynamically
+  // computed total. Only "flat_discount" (% or $ off the selected products'
+  // combined price) and "free_gift_product" (dynamic total + a free item)
+  // actually need dynamic pricing with a computed discount.
+  const hasUiDiscountMode = ["flat_discount", "free_gift_product"].includes(uiDiscountMode);
   const safePriceType = bundlePriceType === "dynamic" || hasUiDiscountMode ? "dynamic" : "manual";
   if (safePriceType !== "dynamic") {
     return {
@@ -41,7 +46,6 @@ function normalizeDiscountConfigForPriceType({
     ? requestedGiftProductIds.filter(Boolean)
     : [];
   let requestedType = String(discountType ?? fallbackDiscountType ?? "none");
-  if (uiDiscountMode === "fixed_amount") requestedType = "fixed";
   if (uiDiscountMode === "free_gift_product") requestedType = "buy_x_get_y";
   if (requestedType === "percentage") requestedType = "percent";
   if (requestedType === "fixed_amount") requestedType = "fixed";
