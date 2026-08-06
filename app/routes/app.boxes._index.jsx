@@ -53,6 +53,13 @@ function getBoxTypeLabel(box) {
   return "Simple Box";
 }
 
+function getBoxSearchText(box) {
+  return [box?.boxName, box?.displayTitle, box?.title]
+    .filter((value) => value != null && String(value).trim() !== "")
+    .join(" ")
+    .toLowerCase();
+}
+
 function getBoxTypeBadgeTone(box) {
   if (box?.boxType === "specific" || box?.comboConfig) return "info";
   if (box?.boxType === "multiple") return "attention";
@@ -509,9 +516,7 @@ export default function ManageBoxesPage() {
     if (statusFilter === "inactive") result = result.filter((b) => !b.isActive);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
-      result = result.filter(
-        (b) => b.boxName.toLowerCase().includes(q) || (b.displayTitle && b.displayTitle.toLowerCase().includes(q))
-      );
+      result = result.filter((b) => getBoxSearchText(b).includes(q));
     }
     if (boxTypeFilter !== "all") {
       result = result.filter((b) => b.boxType === boxTypeFilter);
