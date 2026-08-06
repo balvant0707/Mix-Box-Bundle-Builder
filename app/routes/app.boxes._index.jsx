@@ -47,7 +47,7 @@ function formatDate(value) {
 }
 
 function getBoxTypeLabel(box) {
-  if (box?.boxType === "single") return "Single Product";
+  if (box?.boxType === "single" || box?.boxType === "simple") return "Single Product";
   if (box?.boxType === "multiple") return "Multi Product";
   if (box?.boxType === "specific" || box?.comboConfig) return "Specific Combo";
   return "Simple Box";
@@ -1074,7 +1074,7 @@ export default function ManageBoxesPage() {
                           </Tooltip>
                           <Tooltip content="Edit box">
                             <Button size="slim" onClick={() => {
-                              const editUrl = box.boxType === "single"
+                              const editUrl = box.boxType === "single" || box.boxType === "simple"
                                 ? `/app/boxes/${box.id}/edit-single`
                                 : box.boxType === "multiple"
                                   ? `/app/boxes/${box.id}/edit-multiple`

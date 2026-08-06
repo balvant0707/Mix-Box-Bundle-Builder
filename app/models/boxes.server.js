@@ -1170,7 +1170,7 @@ export async function listBoxes(shop, activeOnly = false, includeBannerBinary = 
   return boxes.map((box) => {
     const sanitized = {
       ...box,
-      boxType: box.simpleBoxPage ? "single" : box.multipleBoxPage ? "multiple" : "simple",
+      boxType: box.simpleBoxPage ? "single" : box.multipleBoxPage ? "multiple" : "single",
       pageTitle: box.simpleBoxPage?.title || box.multipleBoxPage?.title || null,
       pageStatus: box.simpleBoxPage?.status || box.multipleBoxPage?.status || null,
     };
