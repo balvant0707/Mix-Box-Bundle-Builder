@@ -1181,10 +1181,70 @@ export async function listBoxes(shop, activeOnly = false, includeBannerBinary = 
   });
 }
 
+function parseJsonArray(value) {
+  if (Array.isArray(value)) return value;
+  if (value == null) return [];
+
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function buildPageConfigFromSimpleBoxPage(page) {
+  if (!page) return null;
+
+  return {
+    ...page,
+    selectedProductIds: parseJsonArray(page.selectedProductIdsJson),
+    selectedCollectionIds: parseJsonArray(page.selectedCollectionIdsJson),
+    selectedGiftProductIds: parseJsonArray(page.selectedGiftProductIdsJson),
+    eligibility: parseJsonArray(page.eligibilityJson),
+  };
+}
+
+function buildPageConfigFromMultipleBoxPage(page) {
+  if (!page) return null;
+
+  return {
+    ...page,
+    selectedProductIds: parseJsonArray(page.selectedProductIdsJson),
+    selectedCollectionIds: parseJsonArray(page.selectedCollectionIdsJson),
+    selectedGiftProductIds: parseJsonArray(page.selectedGiftProductIdsJson),
+    eligibility: parseJsonArray(page.eligibilityJson),
+    quantityPacks: (page.quantityPacks || []).map((pack) => ({
+      ...pack,
+      selectedProductIds: parseJsonArray(pack.selectedProductIdsJson),
+      selectedCollectionIds: parseJsonArray(pack.selectedCollectionIdsJson),
+      selectedGiftProductIds: parseJsonArray(pack.selectedGiftProductIdsJson),
+      eligibility: parseJsonArray(pack.eligibilityJson),
+    })),
+  };
+}
+
 export async function getBox(id, shop) {
-  return db.comboBox.findFirst({
+  const box = await db.comboBox.findFirst({
     where: { id: parseInt(id), shop, deletedAt: null },
+    include: {
+      simpleBoxPage: true,
+      multipleBoxPage: {
+        include: { quantityPacks: true },
+      },
+    },
   });
+
+  if (!box) return null;
+
+  const pageConfig = box.simpleBoxPage
+    ? buildPageConfigFromSimpleBoxPage(box.simpleBoxPage)
+    : buildPageConfigFromMultipleBoxPage(box.multipleBoxPage);
+
+  return {
+    ...box,
+    pageConfig,
+  };
 }
 
 export async function getBoxWithProducts(id, shop) {
