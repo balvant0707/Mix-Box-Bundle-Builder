@@ -632,7 +632,7 @@ export default function ManageBoxesPage() {
           </Box>
 
           {/* Bundle performance — Polaris IndexTable, no chart dependency */}
-          {baseBoxes.length > 0 && (
+          {/* {baseBoxes.length > 0 && (
             <Box
               padding="400"
               borderBlockEndWidth="025"
@@ -701,7 +701,7 @@ export default function ManageBoxesPage() {
                 )}
               </BlockStack>
             </Box>
-          )}
+          )} */}
 
           {baseBoxes.length === 0 ? (
             /* Empty state — no boxes at all */
