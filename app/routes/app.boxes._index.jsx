@@ -639,18 +639,6 @@ export default function ManageBoxesPage() {
               borderColor="border-secondary"
             >
               <BlockStack gap="300">
-                <InlineStack align="space-between" blockAlign="center" wrap>
-                  <BlockStack gap="050">
-                    <Text as="h2" variant="headingMd">
-                      Bundle Performance Analysis
-                    </Text>
-                    <Text as="p" variant="bodySm" tone="subdued">
-                      Top bundles by order count for the current filters.
-                    </Text>
-                  </BlockStack>
-                  <Badge tone="info">Top 10</Badge>
-                </InlineStack>
-
                 {performanceRows.length > 0 ? (
                   <Card padding="0">
                     <IndexTable
