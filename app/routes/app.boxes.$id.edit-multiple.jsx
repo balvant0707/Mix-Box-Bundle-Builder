@@ -2142,7 +2142,7 @@ function useInfinitePickerPagination({
   initialItems,
   initialPageInfo,
   open,
-  routePath = '/app/simple',
+  routePath = '/app/single',
 }) {
   const fetcher = useFetcher();
   const pendingCursorRef = useRef(null);

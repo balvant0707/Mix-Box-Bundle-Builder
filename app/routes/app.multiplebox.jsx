@@ -1042,16 +1042,6 @@ function BundleInformationSection({
       />
 
       <TextField
-        label="Code"
-        value={form.boxCode}
-        onChange={(value) => onChange('boxCode', value)}
-        placeholder="Auto-generated if blank"
-        helpText="Use 3-10 digits. This code is saved with the box and must be unique."
-        error={boxCodeError || undefined}
-        autoComplete="off"
-      />
-
-      <TextField
         label="Description"
         value={form.description}
         onChange={(value) => onChange('description', value)}
@@ -2128,7 +2118,7 @@ function useInfinitePickerPagination({
   initialItems,
   initialPageInfo,
   open,
-  routePath = '/app/simple',
+  routePath = '/app/single',
 }) {
   const fetcher = useFetcher();
   const pendingCursorRef = useRef(null);
@@ -2726,22 +2716,15 @@ export default function CreateMultipleMixMatchBundlePage() {
   const customerOptions = loaderData.customers || [];
   const customerTagOptions = loaderData.customerTags || [];
   const initialProducts = useMemo(
-    () => (propProducts.length ? propProducts : loaderData.products || []),
+    () => loaderData.products || [],
     [loaderData.products],
   );
   const initialCollections = useMemo(
-    () =>
-      propCollections.length
-        ? propCollections
-        : loaderData.collections || [],
+    () => loaderData.collections || [],
     [loaderData.collections],
   );
-  const initialProductsPageInfo = propProducts.length
-    ? EMPTY_PAGE_INFO
-    : loaderData.productsPageInfo || EMPTY_PAGE_INFO;
-  const initialCollectionsPageInfo = propCollections.length
-    ? EMPTY_PAGE_INFO
-    : loaderData.collectionsPageInfo || EMPTY_PAGE_INFO;
+  const initialProductsPageInfo = loaderData.productsPageInfo || EMPTY_PAGE_INFO;
+  const initialCollectionsPageInfo = loaderData.collectionsPageInfo || EMPTY_PAGE_INFO;
   const currentSchedule = useMemo(() => getCurrentDateTimeInput(), []);
   const minScheduleDate = currentSchedule.date;
   const handleBack = useCallback(() => {

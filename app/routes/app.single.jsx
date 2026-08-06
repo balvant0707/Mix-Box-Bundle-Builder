@@ -1542,7 +1542,7 @@ function useInfinitePickerPagination({
       pickerResource: resource,
     });
 
-    fetcher.load(`/app/simple?${params.toString()}`);
+    fetcher.load(`/app/single?${params.toString()}`);
   }, [fetcher, loadingMore, open, resource]);
 
   useEffect(() => {
@@ -1572,7 +1572,7 @@ function useInfinitePickerPagination({
       after,
     });
 
-    fetcher.load(`/app/simple?${params.toString()}`);
+    fetcher.load(`/app/single?${params.toString()}`);
   }, [fetcher, hasNextPage, loadingMore, open, pageInfo?.endCursor, resource]);
 
   return {
