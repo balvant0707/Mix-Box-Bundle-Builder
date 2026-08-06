@@ -720,7 +720,7 @@ export default function ManageBoxesPage() {
               <BlockStack gap="200" align="center" inlineAlign="center">
                 <AdminIcon type="search" size="large" style={{ color: "#d1d5db" }} />
                 <Text as="p" tone="subdued">
-                  No boxes match &ldquo;<strong>{search}</strong>&rdquo;
+                  No boxes match<strong>{search}</strong>;
                 </Text>
               </BlockStack>
             </Box>
