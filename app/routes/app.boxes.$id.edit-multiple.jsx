@@ -221,10 +221,10 @@ function createQuantityPack(index, overrides = {}) {
       (overrides.discountType && overrides.discountType !== 'fixed_bundle_price'
         ? 'flat_discount'
         : 'fixed_amount'),
-    discountType:
-      overrides.discountType && overrides.discountType !== 'fixed_bundle_price'
-        ? overrides.discountType
-        : 'percentage',
+    discountType: (() => {
+      const normalized = normalizeDiscountTypeForUi(overrides.discountType);
+      return normalized && normalized !== 'fixed_bundle_price' ? normalized : 'percentage';
+    })(),
     discountValue: overrides.discountValue || '',
     selectedGiftProductIds: overrides.selectedGiftProductIds || [],
     productConfiguration: overrides.productConfiguration || 'whole_store',
@@ -372,6 +372,18 @@ const DISCOUNT_MODE_OPTIONS = [
   { label: 'Flat Discount', value: 'flat_discount' },
   { label: 'Free Gift Product', value: 'free_gift_product' },
 ];
+
+// getDiscountSubmissionFields() saves discountType in Shopify's short form
+// ("percent"/"fixed") since that's what the server-side discount sync
+// expects. This reverses it back to the long form ("percentage"/
+// "fixed_amount") the Select/prefix-suffix UI here actually renders against —
+// without it, a saved percentage discount silently displayed as a $ amount
+// (and vice versa) on reopening the edit page.
+function normalizeDiscountTypeForUi(rawType) {
+  if (rawType === 'percent') return 'percentage';
+  if (rawType === 'fixed') return 'fixed_amount';
+  return rawType;
+}
 
 function getDiscountSubmissionFields(form, source = form) {
   const selectedGiftProductIds = source?.selectedGiftProductIds || [];
@@ -2787,10 +2799,10 @@ export default function EditMultipleMixMatchBundlePage() {
       (initialData?.discountType && initialData.discountType !== 'fixed_bundle_price'
         ? 'flat_discount'
         : 'fixed_amount'),
-    discountType:
-      initialData?.discountType && initialData.discountType !== 'fixed_bundle_price'
-        ? initialData.discountType
-        : 'percentage',
+    discountType: (() => {
+      const normalized = normalizeDiscountTypeForUi(initialData?.discountType);
+      return normalized && normalized !== 'fixed_bundle_price' ? normalized : 'percentage';
+    })(),
     discountValue: initialData?.discountValue || '',
     selectedGiftProductIds: initialData?.selectedGiftProductIds || [],
     productConfiguration:

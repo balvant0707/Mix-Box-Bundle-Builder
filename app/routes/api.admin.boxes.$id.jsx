@@ -120,14 +120,27 @@ export const action = async ({ request, params }) => {
   if (request.method === "PUT" || request.method === "PATCH") {
     const body = await request.json();
     try {
-      const updated = await updateBox(id, session.shop, body, admin);
-      const pagePayload = buildPagePayload(body);
-      const persistedBox = Array.isArray(body?.pageConfig?.quantityPacks) && body.pageConfig.quantityPacks.length > 0
+      // updateBox() reads its fields off the top level (data.discountMode,
+      // data.bannerImage, data.selectedGiftProductIds, ...), matching how
+      // createBox() is called below via `dataForCreate`. The frontend nests
+      // all of that under `pageConfig`, so without flattening it here,
+      // updateBox() only ever sees boxName/displayTitle/itemCount/bundlePrice
+      // (the few fields actually sent at the top level) and silently ignores
+      // every discount/gift-product/banner-image/toggle change on edit.
+      const dataForUpdate = {
+        ...body.pageConfig,
+        ...body,
+      };
+      delete dataForUpdate.pageConfig;
+
+      const updated = await updateBox(id, session.shop, dataForUpdate, admin);
+      const pagePayload = buildPagePayload(dataForUpdate);
+      const persistedBox = Array.isArray(dataForUpdate.quantityPacks) && dataForUpdate.quantityPacks.length > 0
         ? await saveMultipleBox(session.shop, {
             id,
             comboBoxData: {
-              boxName: updated?.boxName || body?.boxName,
-              displayTitle: updated?.displayTitle || body?.displayTitle,
+              boxName: updated?.boxName || dataForUpdate.boxName,
+              displayTitle: updated?.displayTitle || dataForUpdate.displayTitle,
               isActive: updated?.isActive ?? true,
             },
             multipleBoxPageData: pagePayload,
@@ -135,8 +148,8 @@ export const action = async ({ request, params }) => {
         : await saveSimpleBox(session.shop, {
             id,
             comboBoxData: {
-              boxName: updated?.boxName || body?.boxName,
-              displayTitle: updated?.displayTitle || body?.displayTitle,
+              boxName: updated?.boxName || dataForUpdate.boxName,
+              displayTitle: updated?.displayTitle || dataForUpdate.displayTitle,
               isActive: updated?.isActive ?? true,
             },
             simpleBoxPageData: pagePayload,

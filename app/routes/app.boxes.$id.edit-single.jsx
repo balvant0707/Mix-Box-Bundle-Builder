@@ -53,31 +53,12 @@ import { resolveImageField } from '../utils/image-upload';
 import { getBox } from '../models/boxes.server';
 
 const PICKER_PAGE_SIZE = 10;
-const BOX_CODE_MIN_LENGTH = 3;
-const BOX_CODE_MAX_LENGTH = 10;
-const BOX_CODE_PATTERN = /^\d+$/;
 
 const EMPTY_PAGE_INFO = {
   hasNextPage: false,
   endCursor: null,
 };
 const EMPTY_ITEMS = [];
-
-function normalizeBoxCode(value) {
-  return String(value || '').trim();
-}
-
-function getBoxCodeValidationError(value) {
-  const code = normalizeBoxCode(value);
-  if (!code) return '';
-  if (code.length < BOX_CODE_MIN_LENGTH || code.length > BOX_CODE_MAX_LENGTH) {
-    return `Code must be ${BOX_CODE_MIN_LENGTH}-${BOX_CODE_MAX_LENGTH} digits.`;
-  }
-  if (!BOX_CODE_PATTERN.test(code)) {
-    return 'Code can only contain numbers.';
-  }
-  return '';
-}
 
 const PRODUCTS_QUERY = `#graphql
   query SimpleBundleProducts($first: Int!, $after: String) {
@@ -332,6 +313,18 @@ const DISCOUNT_MODE_OPTIONS = [
   { label: 'Flat Discount', value: 'flat_discount' },
   { label: 'Free Gift Product', value: 'free_gift_product' },
 ];
+
+// getDiscountSubmissionFields() saves discountType in Shopify's short form
+// ("percent"/"fixed") since that's what the server-side discount sync
+// expects. This reverses it back to the long form ("percentage"/
+// "fixed_amount") the Select/prefix-suffix UI here actually renders against —
+// without it, a saved percentage discount silently displayed as a $ amount
+// (and vice versa) on reopening the edit page.
+function normalizeDiscountTypeForUi(rawType) {
+  if (rawType === 'percent') return 'percentage';
+  if (rawType === 'fixed') return 'fixed_amount';
+  return rawType;
+}
 
 function getDiscountSubmissionFields(form, selectedGiftProductIds = []) {
   if (form.discountMode === 'free_gift_product') {
@@ -991,7 +984,7 @@ function CustomerEligibilitySection({
   );
 }
 
-function BundleInformationSection({ form, onChange, boxCodeError }) {
+function BundleInformationSection({ form, onChange }) {
   return (
     <BlockStack gap="400">
       <TextField
@@ -1000,16 +993,6 @@ function BundleInformationSection({ form, onChange, boxCodeError }) {
         value={form.title}
         onChange={(value) => onChange('title', value)}
         placeholder="Build your perfect bundle"
-        autoComplete="off"
-      />
-
-      <TextField
-        label="Code"
-        value={form.boxCode}
-        onChange={(value) => onChange('boxCode', value)}
-        placeholder="Auto-generated if blank"
-        helpText="Use 3-10 digits. This code is saved with the box and must be unique."
-        error={boxCodeError || undefined}
         autoComplete="off"
       />
 
@@ -2130,7 +2113,6 @@ export default function EditSingleMixMatchBundlePage() {
 
   const [form, setForm] = useState({
     status: initialData?.status || 'active',
-    boxCode: initialData?.boxCode || '',
     title: initialData?.title || '',
     description: initialData?.description || '',
     bundleImage: initialData?.bundleImage || null,
@@ -2146,10 +2128,10 @@ export default function EditSingleMixMatchBundlePage() {
       (initialData?.discountType && initialData.discountType !== 'fixed_bundle_price'
         ? 'flat_discount'
         : 'fixed_amount'),
-    discountType:
-      initialData?.discountType && initialData.discountType !== 'fixed_bundle_price'
-        ? initialData.discountType
-        : 'percentage',
+    discountType: (() => {
+      const normalized = normalizeDiscountTypeForUi(initialData?.discountType);
+      return normalized && normalized !== 'fixed_bundle_price' ? normalized : 'percentage';
+    })(),
     discountValue: initialData?.discountValue || '',
     productConfiguration:
       initialData?.productConfiguration || 'whole_store',
@@ -2227,8 +2209,6 @@ export default function EditSingleMixMatchBundlePage() {
       getCustomerSelectionLabel(csvToList(form.customers), customerOptions),
     [customerOptions, form.customers],
   );
-  const boxCodeError = getBoxCodeValidationError(form.boxCode);
-
   const setField = useCallback((field, value) => {
     setForm((current) => {
       if (field === 'scheduleType' && value === 'scheduled') {
@@ -2349,13 +2329,6 @@ export default function EditSingleMixMatchBundlePage() {
   ]);
 
   const handleSubmit = useCallback(async () => {
-    const codeError = getBoxCodeValidationError(form.boxCode);
-    if (codeError) {
-      setSubmitError(codeError);
-      setOpenSections((current) => ({ ...current, bundleInformation: true }));
-      return;
-    }
-
     try {
       setSaving(true);
       setSubmitError('');
@@ -2365,7 +2338,6 @@ export default function EditSingleMixMatchBundlePage() {
       ]);
       const submission = {
         ...form,
-        boxCode: normalizeBoxCode(form.boxCode),
         ...getDiscountSubmissionFields(form, selectedGiftProductIds),
         ...designSettings,
         bundleImage,
@@ -2444,7 +2416,6 @@ export default function EditSingleMixMatchBundlePage() {
                       <BundleInformationSection
                         form={form}
                         onChange={setField}
-                        boxCodeError={boxCodeError}
                       />
                     </AccordionSection>
                     <AccordionSection
