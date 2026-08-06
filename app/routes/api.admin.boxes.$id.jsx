@@ -49,6 +49,59 @@ function applyImageField(payload, source, key) {
   }
 }
 
+/**
+ * Converts a client-side quantity pack (raw form state: string temp `id`,
+ * array fields like `selectedProductIds`, long-form `discountType`) into the
+ * shape Prisma's nested `MultipleBoxQuantityPack` create actually accepts.
+ * Without this, the pack objects were passed straight through — a string
+ * `id` where an autoincrement Int is required, array fields where the
+ * schema has `*Json` string columns, and no `packKey` at all (required,
+ * no default) — which throws on save the moment a box has any pack.
+ */
+function normalizeQuantityPack(pack, index) {
+  if (!pack || typeof pack !== "object") return null;
+
+  const discountMode = pack.discountMode || "fixed_amount";
+  let discountType = pack.discountType;
+  if (discountMode === "fixed_amount") discountType = "fixed";
+  else if (discountMode === "free_gift_product") discountType = "buy_x_get_y";
+  else if (discountType === "percentage") discountType = "percent";
+  else if (discountType === "fixed_amount") discountType = "fixed";
+  if (!["fixed", "percent", "buy_x_get_y"].includes(discountType)) discountType = "fixed";
+
+  const bundlePriceType = discountMode === "fixed_amount" ? "manual" : "dynamic";
+  const discountValue = discountMode === "free_gift_product" ? "100" : (pack.discountValue || "0");
+  const selectedGiftProductIds = discountMode === "free_gift_product" && Array.isArray(pack.selectedGiftProductIds)
+    ? pack.selectedGiftProductIds
+    : [];
+
+  return {
+    packKey: String(pack.id || pack.packKey || `pack-${index + 1}`),
+    sortOrder: index,
+    title: pack.title ? String(pack.title) : `Pack ${index + 1}`,
+    stepTitle: pack.stepTitle ? String(pack.stepTitle) : "Choose your products",
+    stepDescription: pack.stepDescription != null ? String(pack.stepDescription) : null,
+    productItems: Number.parseInt(String(pack.productItems), 10) || 3,
+    buttonLabel: pack.buttonLabel ? String(pack.buttonLabel) : "Add bundle to cart",
+    bundlePriceType,
+    discountMode,
+    discountType,
+    discountValue,
+    buyQuantity: Number.parseInt(String(pack.buyQuantity), 10) || 1,
+    getQuantity: Number.parseInt(String(pack.getQuantity), 10) || 1,
+    selectedGiftProductIdsJson: selectedGiftProductIds.length ? JSON.stringify(selectedGiftProductIds) : null,
+    productConfiguration: pack.productConfiguration || "whole_store",
+    selectedProductIdsJson: Array.isArray(pack.selectedProductIds) ? JSON.stringify(pack.selectedProductIds) : null,
+    selectedCollectionIdsJson: Array.isArray(pack.selectedCollectionIds) ? JSON.stringify(pack.selectedCollectionIds) : null,
+    scheduleType: pack.scheduleType || "immediately",
+    startDate: pack.startDate || null,
+    startTime: pack.startTime || null,
+    hasEndDate: Boolean(pack.hasEndDate),
+    endDate: pack.endDate || null,
+    endTime: pack.endTime || null,
+  };
+}
+
 function buildPagePayload(body) {
   const pageConfig = body?.pageConfig || {};
   const source = { ...pageConfig, ...body };
@@ -66,7 +119,11 @@ function buildPagePayload(body) {
   if (source.discountValue != null) payload.discountValue = source.discountValue;
   if (source.buyQuantity != null) payload.buyQuantity = Number.parseInt(String(source.buyQuantity), 10) || 1;
   if (source.getQuantity != null) payload.getQuantity = Number.parseInt(String(source.getQuantity), 10) || 1;
-  if (Array.isArray(source.quantityPacks)) payload.quantityPacks = source.quantityPacks;
+  if (Array.isArray(source.quantityPacks)) {
+    payload.quantityPacks = source.quantityPacks
+      .map((pack, index) => normalizeQuantityPack(pack, index))
+      .filter(Boolean);
+  }
   if (Array.isArray(source.selectedProductIds)) payload.selectedProductIdsJson = JSON.stringify(source.selectedProductIds);
   if (Array.isArray(source.selectedCollectionIds)) payload.selectedCollectionIdsJson = JSON.stringify(source.selectedCollectionIds);
   if (Array.isArray(source.selectedGiftProductIds)) payload.selectedGiftProductIdsJson = JSON.stringify(source.selectedGiftProductIds);
