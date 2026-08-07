@@ -587,7 +587,7 @@ export default function DashboardPage() {
         },
       ]}
     >
-      <BlockStack gap="500">
+      <BlockStack gap="200">
         {/* ── Banners ── */}
         {justSubscribed && (
           <Banner tone="success" title={`Plan activated: ${currentPlanName || "Plan"}`}>
