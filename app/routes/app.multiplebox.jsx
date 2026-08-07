@@ -2258,12 +2258,20 @@ function PickerModal({
   const [draftSelected, setDraftSelected] = useState(selectedIds);
   const initialLoading = loadingMore && !items.length;
 
+  // Read the latest `selectedIds` via a ref instead of depending on it directly:
+  // `selectedIds` is often a fresh `[]` literal from the parent (`pack.selectedProductIds || []`),
+  // so a naive dependency re-fires this effect on every unrelated parent re-render (e.g. the
+  // infinite-scroll "load more" fetcher) and wipes out clicks the user already made this session.
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
+
   useEffect(() => {
     if (open) {
-      setDraftSelected(selectedIds);
+      setDraftSelected(selectedIdsRef.current);
       setQuery('');
     }
-  }, [open, selectedIds]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const filteredItems = useMemo(() => {
     const search = query.trim().toLowerCase();
