@@ -1121,6 +1121,10 @@ function QuantityPackSection({
 }) {
   const hasPacks = packs.length > 0;
   const currentPack = activePack || packs[0];
+  const currentPackNumber = Math.max(
+    0,
+    packs.findIndex((pack) => pack.id === currentPack?.id),
+  ) + 1;
 
   const handleAddPack = useCallback(() => {
     const packId = onAddPack();
@@ -1154,7 +1158,7 @@ function QuantityPackSection({
         {hasPacks ? (
           <BlockStack gap="500">
             <InlineStack gap="400" wrap>
-              {packs.map((pack) => (
+              {packs.map((pack, index) => (
                 <button
                   type="button"
                   key={pack.id}
@@ -1172,10 +1176,10 @@ function QuantityPackSection({
                     color: pack.id === activePackId
                       ? '#ffffff'
                       : 'var(--p-color-text)',
-                    padding: 0,
+                    padding: '0 12px 0 0',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 0,
+                    gap: 6,
                     fontWeight: 700,
                     cursor: 'pointer',
                   }}
@@ -1194,12 +1198,32 @@ function QuantityPackSection({
                   >
                     <Icon source={PackageIcon} />
                   </span>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minWidth: 20,
+                      height: 20,
+                      borderRadius: '50%',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      background: pack.id === activePackId ? '#ffffff' : 'var(--p-color-bg-surface-secondary)',
+                      color: pack.id === activePackId ? '#202223' : 'var(--p-color-text)',
+                    }}
+                  >
+                    {index + 1}
+                  </span>
                   <Text as="span" fontWeight="bold">
                     {pack.title}
                   </Text>
                 </button>
               ))}
             </InlineStack>
+
+            <Text as="h4" variant="headingSm">
+              {`Pack ${currentPackNumber} settings`}
+            </Text>
 
             <QuantityPackConfigurationList
               key={activePackId}
