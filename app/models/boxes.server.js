@@ -1066,7 +1066,19 @@ export async function listBoxes(shop, activeOnly = false, includeBannerBinary = 
       pageHandle: true,
       boxCode: true,
       simpleBoxPage: { select: { id: true, title: true, status: true, productConfiguration: true } },
-      multipleBoxPage: { select: { id: true, title: true, status: true, productConfiguration: true } },
+      multipleBoxPage: {
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          description: true,
+          productConfiguration: true,
+          discountType: true,
+          discountValue: true,
+          buyQuantity: true,
+          getQuantity: true,
+        },
+      },
       _count: { select: { orders: true } },
     },
     orderBy: { sortOrder: "asc" },
@@ -1082,10 +1094,6 @@ export async function listBoxes(shop, activeOnly = false, includeBannerBinary = 
         b.boxCode = code;
       })
     );
-  }
-
-  if (includeBannerBinary) {
-    return boxes.map((box) => ({ ...box, bundlePrice: toPlainNumber(box.bundlePrice) }));
   }
 
   return boxes.map((box) => ({
@@ -1247,6 +1255,8 @@ export async function getBox(id, shop) {
 
   if (!box) return null;
 
+  // Multiple Box page fields and quantity packs come exclusively from the
+  // multipleBoxPage/quantityPacks relations — never from comboStepsConfig.
   const pageConfig = box.simpleBoxPage
     ? buildPageConfigFromSimpleBoxPage(box.simpleBoxPage)
     : buildPageConfigFromMultipleBoxPage(box.multipleBoxPage);
@@ -1315,6 +1325,13 @@ export async function createBox(shop, data, admin) {
 
   const hasUploadedBanner = Boolean(data.bannerImage?.bytes);
 
+  // Multiple Box page fields (discount config, product selection, packs, etc.)
+  // belong exclusively to multiple_box_page/multiple_box_quantity_pack — see
+  // saveMultipleBox(). ComboBox.comboStepsConfig is legacy storage still used
+  // by Simple Box and old "Specific Combo" records; a Multiple Box save must
+  // never write its page data there.
+  const isMultipleBoxSave = Array.isArray(data.quantityPacks) && data.quantityPacks.length > 0;
+
   const box = await db.comboBox.create({
     data: {
       shop,
@@ -1339,7 +1356,7 @@ export async function createBox(shop, data, admin) {
       bundlePriceType: discountConfig.bundlePriceType,
       shopifyProductId,
       shopifyVariantId,
-      comboStepsConfig: JSON.stringify({
+      comboStepsConfig: isMultipleBoxSave ? null : JSON.stringify({
         bundlePriceType: discountConfig.bundlePriceType,
         discountType: discountConfig.discountType,
         discountValue: discountConfig.discountValue,
@@ -1347,7 +1364,6 @@ export async function createBox(shop, data, admin) {
         getQuantity: discountConfig.getQuantity,
         selectedGiftProductIds: discountConfig.selectedGiftProductIds,
         discountMode: data.discountMode || null,
-        ...(Array.isArray(data.quantityPacks) ? { quantityPacks: data.quantityPacks } : {}),
         ...(Array.isArray(data.selectedProductIds) ? { selectedProductIds: data.selectedProductIds } : {}),
         ...(Array.isArray(data.selectedCollectionIds) ? { selectedCollectionIds: data.selectedCollectionIds } : {}),
         ...(data.productConfiguration ? { productConfiguration: data.productConfiguration } : {}),
@@ -1603,14 +1619,28 @@ export async function updateBox(id, shop, data, admin = null) {
     }
   }
 
-  // Persist discount settings into comboStepsConfig (merge, preserve existing steps/config)
-  if (
+  // Multiple Box page fields (discount config, product selection, packs, etc.)
+  // belong exclusively to multiple_box_page/multiple_box_quantity_pack — see
+  // saveMultipleBox(). A Multiple Box update must never write its page data
+  // into ComboBox.comboStepsConfig; instead, clear out any legacy JSON a box
+  // may still be carrying from before that separation was enforced.
+  const isMultipleBoxSave = Array.isArray(data.quantityPacks) && data.quantityPacks.length > 0;
+
+  if (isMultipleBoxSave) {
+    if (existing.comboStepsConfig !== null) {
+      await db.comboBox.update({
+        where: { id: parseInt(id) },
+        data: { comboStepsConfig: null },
+      });
+    }
+  } else if (
+    // Persist discount settings into comboStepsConfig (merge, preserve existing steps/config).
+    // This path is legacy storage for Simple Box and old "Specific Combo" records only.
     data.bundlePriceType !== undefined ||
     data.discountType !== undefined ||
     data.discountValue !== undefined ||
     data.discountMode !== undefined ||
     data.selectedGiftProductIds !== undefined ||
-    data.quantityPacks !== undefined ||
     data.selectedProductIds !== undefined ||
     data.selectedCollectionIds !== undefined ||
     data.productConfiguration !== undefined ||
@@ -1632,9 +1662,6 @@ export async function updateBox(id, shop, data, admin = null) {
     rawConfig.selectedGiftProductIds = discountConfig.selectedGiftProductIds;
     if (data.discountMode !== undefined) {
       rawConfig.discountMode = data.discountMode;
-    }
-    if (Array.isArray(data.quantityPacks)) {
-      rawConfig.quantityPacks = data.quantityPacks;
     }
     if (Array.isArray(data.selectedProductIds)) {
       rawConfig.selectedProductIds = data.selectedProductIds;

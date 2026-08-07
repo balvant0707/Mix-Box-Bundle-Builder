@@ -408,6 +408,12 @@ export async function saveMultipleBox(shop, { id, comboBoxData, multipleBoxPageD
 
   if (id) {
     const boxId = Number(id);
+    // Default 5s transaction/maxWait timeouts are too tight for this
+    // multi-round-trip transaction against a remote DB — a slow round trip
+    // aborts the transaction (P2028) after the ComboBox row's top-level
+    // fields were already persisted separately by updateBox(), orphaning
+    // the merchant's packs. getBox() has a comboStepsConfig-based fallback
+    // for when this still happens, but widening the window here prevents it.
     return db.$transaction(async (tx) => {
       const existingPage = await tx.multipleBoxPage.findUnique({ where: { boxId }, select: { id: true } });
       if (existingPage?.id) {
@@ -432,7 +438,7 @@ export async function saveMultipleBox(shop, { id, comboBoxData, multipleBoxPageD
         },
         include: { multipleBoxPage: { include: { quantityPacks: true } } },
       });
-    });
+    }, { timeout: 20000, maxWait: 10000 });
   }
 
   return db.comboBox.create({

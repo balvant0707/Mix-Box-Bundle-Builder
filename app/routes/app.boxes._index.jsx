@@ -166,7 +166,20 @@ function buildBundlePreviewUrl(shopDomain, previewToken, fallbackBaseUrl) {
 }
 
 function getDiscountSummary(box) {
-  // Always read from comboStepsConfig JSON — works for both regular and specific combo boxes
+  // Multiple Box discount config lives exclusively in multiple_box_page —
+  // never in ComboBox.comboStepsConfig.
+  if (box.multipleBoxPage) {
+    const type = box.multipleBoxPage.discountType;
+    const value = box.multipleBoxPage.discountValue;
+    if (!type || type === "none") return null;
+    if (type !== "buy_x_get_y" && value == null) return null;
+    const buyQuantity = Math.max(1, parseInt(String(box.multipleBoxPage.buyQuantity ?? 1), 10) || 1);
+    const getQuantity = Math.max(1, parseInt(String(box.multipleBoxPage.getQuantity ?? 1), 10) || 1);
+    return { discountType: type, discountValue: String(value), buyQuantity, getQuantity };
+  }
+
+  // Simple Box and legacy "Specific Combo" boxes still keep their discount
+  // config in comboStepsConfig JSON.
   const src = box.comboStepsConfig;
   if (!src) return null;
   try {

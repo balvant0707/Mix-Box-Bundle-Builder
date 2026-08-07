@@ -94,7 +94,12 @@ export const loader = async ({ request }) => {
       boxCode: box.boxCode || null,
       boxName: box.boxName,
       displayTitle: box.displayTitle,
-      boxSubtitle: typeof rawComboConfig?.boxSubtitle === "string" ? rawComboConfig.boxSubtitle : null,
+      // Multiple Box's subtitle lives exclusively in multiple_box_page.description —
+      // never in ComboBox.comboStepsConfig. Simple Box / legacy Specific Combo
+      // boxes (no multipleBoxPage relation) still read it from the JSON blob.
+      boxSubtitle: box.multipleBoxPage
+        ? (box.multipleBoxPage.description || null)
+        : (typeof rawComboConfig?.boxSubtitle === "string" ? rawComboConfig.boxSubtitle : null),
       ctaButtonLabel,
       addToCartLabel,
       productButtonTitle: addToCartLabel,
