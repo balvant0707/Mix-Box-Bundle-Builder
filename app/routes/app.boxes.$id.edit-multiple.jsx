@@ -212,8 +212,9 @@ function createQuantityPack(index, overrides = {}) {
     title: overrides.title || `Pack ${index + 1}`,
     stepTitle: overrides.stepTitle || 'Choose your products',
     stepDescription:
-      overrides.stepDescription ||
-      'Select products to create your custom bundle.',
+      overrides.stepDescription != null
+        ? overrides.stepDescription
+        : 'Select products to create your custom bundle.',
     productItems: overrides.productItems || '3',
     buttonLabel: overrides.buttonLabel || 'Add bundle to cart',
     discountMode:
@@ -225,7 +226,8 @@ function createQuantityPack(index, overrides = {}) {
       const normalized = normalizeDiscountTypeForUi(overrides.discountType);
       return normalized && normalized !== 'fixed_bundle_price' ? normalized : 'percentage';
     })(),
-    discountValue: overrides.discountValue || '',
+    discountValue:
+      overrides.discountValue != null ? overrides.discountValue : '',
     selectedGiftProductIds: overrides.selectedGiftProductIds || [],
     productConfiguration: overrides.productConfiguration || 'whole_store',
     scheduleType: overrides.scheduleType || 'immediately',

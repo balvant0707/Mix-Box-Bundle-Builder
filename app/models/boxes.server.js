@@ -1240,7 +1240,7 @@ export async function getBox(id, shop) {
       boxCode: true,
       simpleBoxPage: true,
       multipleBoxPage: {
-        include: { quantityPacks: true },
+        include: { quantityPacks: { orderBy: { sortOrder: 'asc' } } },
       },
     },
   });
