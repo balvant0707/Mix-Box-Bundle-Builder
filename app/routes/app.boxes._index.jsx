@@ -13,6 +13,7 @@ import { AdminIcon } from "../components/admin-icons";
 import { withEmbeddedAppParams } from "../utils/embedded-app";
 import { formatCurrencyAmount, getCurrencySymbol } from "../utils/currency";
 import {
+  ActionList,
   Avatar,
   Badge,
   BlockStack,
@@ -42,9 +43,9 @@ import {
   ClipboardIcon,
   GiftCardIcon,
   HideIcon,
+  MenuHorizontalIcon,
   OrderIcon,
   PackageIcon,
-  ViewIcon,
 } from "@shopify/polaris-icons";
 import { StatCard } from "../components/stat-card";
 function formatDate(value) {
@@ -55,6 +56,19 @@ function formatDate(value) {
     day: "2-digit",
     month: "short",
     year: "numeric",
+  }).format(date);
+}
+
+function formatDateTime(value) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
   }).format(date);
 }
 
@@ -225,6 +239,7 @@ export const loader = async ({ request }) => {
       isActive: b.isActive,
       sortOrder: b.sortOrder,
       createdAt: b.createdAt ? new Date(b.createdAt).toISOString() : null,
+      updatedAt: b.updatedAt ? new Date(b.updatedAt).toISOString() : null,
       orderCount: b._count?.orders ?? 0,
       comboConfig: getComboConfigSummary(b),
       discount: getDiscountSummary(b),
@@ -313,6 +328,7 @@ export default function ManageBoxesPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [manualPageLoading, setManualPageLoading] = useState(false);
+  const [openActionMenuId, setOpenActionMenuId] = useState(null);
   const isDeleteSubmitting =
     fetcher.state !== "idle" &&
     fetcher.formData?.get("_action") === "delete";
@@ -747,7 +763,8 @@ export default function ManageBoxesPage() {
                   { title: "Type" },
                   { title: "Orders" },
                   { title: "Status" },
-                  { title: "Actions" },
+                  { title: "Last Edited" },
+                  { title: "More" },
                 ]}
                 selectable
                 selectedItemsCount={
@@ -841,60 +858,82 @@ export default function ManageBoxesPage() {
                         )}
                       </IndexTable.Cell>
 
-                      {/* Enabled toggle */}
+                      {/* Status */}
                       <IndexTable.Cell>
-                        <Tooltip content={box.isActive ? "Disable on storefront" : "Enable on storefront"}>
-                          <Button
-                            size="slim"
-                            pressed={box.isActive}
-                            tone={box.isActive ? "success" : undefined}
-                            disabled={isToggleSubmitting}
-                            accessibilityLabel={box.isActive ? "Disable box" : "Enable box"}
-                            onClick={() => toggleStatus(box.id, !box.isActive)}
-                          >
-                            {box.isActive ? "Active" : "Inactive"}
-                          </Button>
-                        </Tooltip>
+                        <Badge tone={box.isActive ? "success" : undefined}>
+                          {box.isActive ? "Active" : "Inactive"}
+                        </Badge>
                       </IndexTable.Cell>
 
-                      {/* Actions */}
+                      {/* Last Edited */}
                       <IndexTable.Cell>
-                        <InlineStack gap="100" align="center" blockAlign="center">
-                          <Tooltip content={box.previewUrl ? "Preview on storefront" : "Preview unavailable"}>
+                        <Text as="span" variant="bodySm" tone="subdued">
+                          {formatDateTime(box.updatedAt || box.createdAt)}
+                        </Text>
+                      </IndexTable.Cell>
+
+                      {/* More */}
+                      <IndexTable.Cell>
+                        <Popover
+                          active={openActionMenuId === box.id}
+                          onClose={() => setOpenActionMenuId(null)}
+                          preferredAlignment="right"
+                          activator={
                             <Button
                               size="slim"
-                              url={box.previewUrl || undefined}
-                              target="_blank"
-                              disabled={!box.previewUrl}
-                              icon={ViewIcon}
-                              accessibilityLabel="Preview on storefront"
-                            >
-                            </Button>
-                          </Tooltip>
-                          <Tooltip content="Edit box">
-                            <Button size="slim" onClick={() => {
-                              const editUrl = box.boxType === "single" || box.boxType === "simple"
-                                ? `/app/boxes/${box.id}/edit-single`
-                                : box.boxType === "multiple"
-                                  ? `/app/boxes/${box.id}/edit-multiple`
-                                  : box.comboConfig
-                                    ? `/app/boxes/${box.id}/combo`
-                                    : `/app/boxes/${box.id}`;
-                              navigateTo(editUrl);
-                            }} icon={<AdminIcon type="edit" size="small" />} />
-                          </Tooltip>
-                          {box.orderCount === 0 && (
-                            <Tooltip content="Delete box">
-                              <Button
-                                size="slim"
-                                tone="critical"
-                                onClick={() => handleDelete(box.id, box.boxName)}
-                                icon={<AdminIcon type="delete" size="small" />}
-                              >
-                              </Button>
-                            </Tooltip>
-                          )}
-                        </InlineStack>
+                              icon={MenuHorizontalIcon}
+                              accessibilityLabel="More actions"
+                              onClick={() =>
+                                setOpenActionMenuId((current) => (current === box.id ? null : box.id))
+                              }
+                            />
+                          }
+                        >
+                          <ActionList
+                            items={[
+                              {
+                                content: box.isActive ? "Deactivate" : "Activate",
+                                disabled: isToggleSubmitting,
+                                onAction: () => {
+                                  setOpenActionMenuId(null);
+                                  toggleStatus(box.id, !box.isActive);
+                                },
+                              },
+                              {
+                                content: "Edit Bundle",
+                                onAction: () => {
+                                  setOpenActionMenuId(null);
+                                  const editUrl = box.boxType === "single" || box.boxType === "simple"
+                                    ? `/app/boxes/${box.id}/edit-single`
+                                    : box.boxType === "multiple"
+                                      ? `/app/boxes/${box.id}/edit-multiple`
+                                      : box.comboConfig
+                                        ? `/app/boxes/${box.id}/combo`
+                                        : `/app/boxes/${box.id}`;
+                                  navigateTo(editUrl);
+                                },
+                              },
+                              {
+                                content: "Live Preview",
+                                disabled: !box.previewUrl,
+                                onAction: () => {
+                                  setOpenActionMenuId(null);
+                                  if (box.previewUrl) window.open(box.previewUrl, "_blank", "noopener,noreferrer");
+                                },
+                              },
+                              ...(box.orderCount === 0
+                                ? [{
+                                    content: "Delete Bundle",
+                                    destructive: true,
+                                    onAction: () => {
+                                      setOpenActionMenuId(null);
+                                      handleDelete(box.id, box.boxName);
+                                    },
+                                  }]
+                                : []),
+                            ]}
+                          />
+                        </Popover>
                       </IndexTable.Cell>
                     </IndexTable.Row>
                   );
