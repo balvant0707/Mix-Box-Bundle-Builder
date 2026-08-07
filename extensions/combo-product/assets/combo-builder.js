@@ -38,6 +38,80 @@
     return String((box && box.bundlePriceType) || 'manual') === 'dynamic';
   }
 
+  // Single/Multiple Box discount config (page- or pack-level, sourced from
+  // simple_box_page/multiple_box_page/multiple_box_quantity_pack) takes
+  // priority over the legacy per-box comboConfig JSON, which only real
+  // "Specific Combo" boxes still populate. Both shapes are identical
+  // ({discountType, discountValue, buyQuantity, getQuantity, ...}) so every
+  // existing discount-math/badge function keeps working unchanged.
+  function getBoxDiscountConfig(box) {
+    if (!box) return null;
+    if (box.comboConfig) return box.comboConfig;
+    // A Multiple Box with packs has no single page-level discount to show —
+    // each pack carries its own (fed in via comboConfig once a pack is chosen,
+    // see renderPackPicker) — so pageDiscount only applies to boxes without packs.
+    if (Array.isArray(box.quantityPacks) && box.quantityPacks.length > 0) return null;
+    return box.pageDiscount || null;
+  }
+
+  var DESIGN_FONT_WEIGHT_MAP = {
+    'Light': 300,
+    'Regular': 400,
+    'Medium': 500,
+    'Semi Bold': 600,
+    'SemiBold': 600,
+    'Bold': 700
+  };
+
+  function resolveFontWeight(styleLabel, fallback) {
+    if (styleLabel == null) return fallback;
+    var mapped = DESIGN_FONT_WEIGHT_MAP[String(styleLabel).trim()];
+    return mapped != null ? mapped : fallback;
+  }
+
+  // Builds an inline `style="--cb-box-x: ...; ..."` string from a box's
+  // admin-configured designSettings so each box/pack can render with its own
+  // colors/sizes without needing a per-box <style> tag (see combo-builder.css
+  // for the --cb-box-* variables and their :root fallbacks).
+  function buildBoxDesignStyle(designSettings) {
+    if (!designSettings) return '';
+
+    var decls = [];
+    function set(name, value) {
+      if (value == null || value === '') return;
+      decls.push(name + ':' + value);
+    }
+
+    set('--cb-box-bg', normalizeHexColor(designSettings.backgroundColor, null));
+    set('--cb-box-border-color', normalizeHexColor(designSettings.cardBorderColor, null));
+    set('--cb-box-border-width', designSettings.borderWidth != null ? designSettings.borderWidth + 'px' : null);
+    set('--cb-box-border-radius', designSettings.borderRadius != null ? designSettings.borderRadius + 'px' : null);
+    set('--cb-box-image-height', designSettings.imageHeight != null ? designSettings.imageHeight + 'px' : null);
+    set('--cb-box-image-height-mobile', designSettings.imageHeightMobile != null ? designSettings.imageHeightMobile + 'px' : null);
+
+    set('--cb-box-title-color', normalizeHexColor(designSettings.titleTextColor, null));
+    set('--cb-box-title-size', designSettings.titleSize != null ? designSettings.titleSize + 'px' : null);
+    set('--cb-box-title-weight', resolveFontWeight(designSettings.titleStyle, null));
+
+    set('--cb-box-price-color', normalizeHexColor(designSettings.productPriceColor, null));
+    set('--cb-box-price-size', designSettings.productPriceSize != null ? designSettings.productPriceSize + 'px' : null);
+    set('--cb-box-price-weight', resolveFontWeight(designSettings.productPriceStyle, null));
+
+    set('--cb-box-cta-bg', normalizeHexColor(designSettings.ctaBackgroundColor, null));
+    set('--cb-box-cta-color', normalizeHexColor(designSettings.ctaTextColor, null));
+    set('--cb-box-cta-size', designSettings.ctaSize != null ? designSettings.ctaSize + 'px' : null);
+    set('--cb-box-cta-weight', resolveFontWeight(designSettings.ctaStyle, null));
+
+    set('--cb-box-variant-color', normalizeHexColor(designSettings.variantSelectorColor, null));
+    set('--cb-box-variant-size', designSettings.variantSelectorSize != null ? designSettings.variantSelectorSize + 'px' : null);
+    set('--cb-box-variant-weight', resolveFontWeight(designSettings.variantSelectorStyle, null));
+
+    set('--cb-box-popup-bg', normalizeHexColor(designSettings.imagePopupBackgroundColor, null));
+    set('--cb-box-popup-color', normalizeHexColor(designSettings.imagePopupTextColor, null));
+
+    return decls.join(';');
+  }
+
   function normalizeProductCardsPerRow(value) {
     var parsed = parseInt(value, 10);
     return [3, 4, 5, 6].indexOf(parsed) !== -1 ? parsed : 4;
@@ -234,6 +308,8 @@
     var label = '';
     if (box && box.productButtonTitle != null) label = String(box.productButtonTitle).trim();
     if (box && box.addToCartLabel != null) label = String(box.addToCartLabel).trim();
+    // Single/Multiple Box page (or, once a pack is chosen, pack-level) button label
+    if (!label && box && box.buttonLabel) label = String(box.buttonLabel).trim();
     if (!label && box && box.comboConfig && box.comboConfig.productButtonTitle != null) {
       label = String(box.comboConfig.productButtonTitle).trim();
     }
@@ -534,13 +610,19 @@
     }
   }
 
-  function openProductDescriptionModal(product, triggerEl, rootEl) {
+  function openProductDescriptionModal(product, triggerEl, rootEl, designStyle) {
     if (!product || !product.productHandle) return;
 
     var modal = ensureProductDescriptionModal();
     var blockId = rootEl &&
       (rootEl.getAttribute('data-cb-instance') || rootEl.getAttribute('data-block-id'));
     var requestToken = ++_productDescriptionModalRequestToken;
+
+    // Popup bg/text color are per-box design settings — the modal is a single
+    // shared DOM node appended to <body>, so it needs its own inline style
+    // scoped to whichever box's product was clicked, same idea as data-cb-instance.
+    var dialogEl = modal.querySelector('.cb-product-modal-dialog');
+    if (dialogEl) dialogEl.setAttribute('style', designStyle || '');
 
     _productDescriptionModalLastFocus = triggerEl || document.activeElement;
     _productDescriptionModalBodyOverflow = document.body.style.overflow;
@@ -1276,8 +1358,10 @@
     fetchPage(1);
   }
 
-  function fetchProducts(boxId, shop, apiBase, scopeType, ctx, cb) {
+  function fetchProducts(boxId, shop, apiBase, scopeType, packKey, ctx, cb) {
     if (scopeType === 'wholestore') {
+      // Whole-store scope has no per-box/per-pack product list to speak of —
+      // it's every storefront product, resolved the same way regardless of packKey.
       fetchWholeStoreProducts(function (err, products) {
         if (err) {
           cb(err, null);
@@ -1287,7 +1371,9 @@
       });
       return;
     }
-    fetch(apiBase + '/api/storefront/boxes/' + boxId + '/products?shop=' + encodeURIComponent(shop), { cache: 'no-store' })
+    var url = apiBase + '/api/storefront/boxes/' + boxId + '/products?shop=' + encodeURIComponent(shop);
+    if (packKey) url += '&packKey=' + encodeURIComponent(packKey);
+    fetch(url, { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (data) { cb(null, filterInternalComboProducts(data, ctx)); })
       .catch(function (e) { cb(e, null); });
@@ -1456,27 +1542,32 @@
 
   function createBoxCard(box, ctx) {
     var card = document.createElement('div');
-    card.className = 'cb-box-card';
+    card.className = 'cb-box-card' + (box.productImageAutoHeight ? ' cb-box-card--auto-height' : '');
     card.setAttribute('role', 'button');
     card.setAttribute('tabindex', '0');
     card.setAttribute('data-box-id', String(box.id));
 
+    var designStyle = buildBoxDesignStyle(box.designSettings);
+    if (designStyle) card.setAttribute('style', designStyle);
+
     // Banner image (no overlay title)
-    var banner = document.createElement('div');
-    banner.className = 'cb-box-banner';
-    var bannerSrc = getBoxCardBannerSrc(box, ctx);
-    if (bannerSrc) {
-      banner.style.backgroundImage = 'url("' + bannerSrc + '")';
-      banner.style.backgroundSize = 'cover';
-      banner.style.backgroundPosition = 'center';
+    if (!box.hideBannerImage) {
+      var banner = document.createElement('div');
+      banner.className = 'cb-box-banner';
+      var bannerSrc = getBoxCardBannerSrc(box, ctx);
+      if (bannerSrc) {
+        banner.style.backgroundImage = 'url("' + bannerSrc + '")';
+        banner.style.backgroundSize = 'cover';
+        banner.style.backgroundPosition = 'center';
+      }
+
+      // Subtle dark scrim (no text)
+      var overlay = document.createElement('div');
+      overlay.className = 'cb-box-banner-overlay';
+      banner.appendChild(overlay);
+
+      card.appendChild(banner);
     }
-
-    // Subtle dark scrim (no text)
-    var overlay = document.createElement('div');
-    overlay.className = 'cb-box-banner-overlay';
-    banner.appendChild(overlay);
-
-    card.appendChild(banner);
 
     // Gift badge — top-left corner of card
     if (box.isGiftBox) {
@@ -1487,7 +1578,7 @@
     }
 
     // Discount badge — top-right corner of card banner
-    var _discountCfg = box.comboConfig || {};
+    var _discountCfg = getBoxDiscountConfig(box) || {};
     var _discountType = _discountCfg.discountType || 'none';
     var _discountValue = parseFloat(_discountCfg.discountValue) || 0;
     var _hasDiscount = isDynamicBundlePrice(box) && (_discountType === 'buy_x_get_y' || (_discountType !== 'none' && _discountValue > 0));
@@ -1649,8 +1740,16 @@
 
     ctx._openBoxId = box.id;
 
-    builderArea.style.display = 'block';
     builderArea.innerHTML = '';
+
+    // Per-box design settings apply to the whole opened builder area too (not
+    // just the box card) — packs share their page's designSettings, there's
+    // no separate per-pack design config. Set before `display` so the inline
+    // style attribute isn't clobbered.
+    var designStyle = buildBoxDesignStyle(box.designSettings);
+    if (designStyle) builderArea.setAttribute('style', designStyle);
+    builderArea.classList.toggle('cb-builder-area--auto-height', !!box.productImageAutoHeight);
+    builderArea.style.display = 'block';
 
     if (box.comboConfig && Array.isArray(box.comboConfig.steps) && box.comboConfig.steps.length > 0) {
       // Inline grid spinner shown by loadAndRenderGrid inside renderSpecificComboBuilder
@@ -1658,9 +1757,13 @@
         renderSpecificComboBuilder(builderArea, box, ctx);
         builderArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 0);
+    } else if (Array.isArray(box.quantityPacks) && box.quantityPacks.length > 0) {
+      // Mix n Match: customer picks ONE pack, fills it, adds ONE bundle to cart.
+      renderPackPicker(builderArea, box, ctx);
+      builderArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } else {
       showPageLoader('Loading products…');
-      fetchProducts(box.id, ctx.shop, ctx.apiBase, box.scopeType, ctx, function (err, products) {
+      fetchProducts(box.id, ctx.shop, ctx.apiBase, box.scopeType, null, ctx, function (err, products) {
         hidePageLoader(true);
         if (ctx._openBoxId !== box.id) return;
         if (err || !products || products.length === 0) {
@@ -1673,21 +1776,182 @@
     }
   }
 
+  // ─── Mix n Match: Pack Picker ─────────────────────────────────────────────────
+  // Customer picks ONE quantity pack, fills it, and the resulting single
+  // bundle is added to cart at that pack's own price/discount — the same
+  // one-box-one-cart-line architecture as a plain Single/Multiple Box, just
+  // parameterized by whichever pack was chosen (see buildPackOverrideBox).
+
+  function renderPackPicker(container, box, ctx) {
+    container.innerHTML = '';
+
+    if (!box.hideBundleHeader) {
+      var heading = document.createElement('h2');
+      heading.className = 'cb-step-heading';
+      heading.textContent = box.stepTitle || ctx.step2Heading || 'Choose your pack';
+      container.appendChild(heading);
+
+      if (box.stepDescription) {
+        var desc = document.createElement('p');
+        desc.className = 'cb-step-description';
+        desc.textContent = box.stepDescription;
+        container.appendChild(desc);
+      }
+    }
+
+    var packGrid = document.createElement('div');
+    packGrid.className = 'cb-pack-grid';
+    container.appendChild(packGrid);
+
+    box.quantityPacks.forEach(function (pack) {
+      packGrid.appendChild(createPackCard(pack, box, ctx));
+    });
+  }
+
+  function createPackCard(pack, box, ctx) {
+    var card = document.createElement('div');
+    card.className = 'cb-pack-card';
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+
+    var title = document.createElement('div');
+    title.className = 'cb-pack-title';
+    title.textContent = pack.title || ('Pack of ' + pack.productItems);
+    card.appendChild(title);
+
+    var itemsLine = document.createElement('div');
+    itemsLine.className = 'cb-pack-items';
+    itemsLine.textContent = pack.productItems + ' item' + (pack.productItems === 1 ? '' : 's');
+    card.appendChild(itemsLine);
+
+    // Price/discount teaser — same badge convention as the top-level box card.
+    var isManual = String(pack.bundlePriceType || 'manual') === 'manual';
+    if (isManual) {
+      var priceEl = document.createElement('div');
+      priceEl.className = 'cb-pack-price';
+      priceEl.textContent = formatPrice(parseFloat(pack.discountValue) || 0, ctx.currencySymbol, ctx.currencyCode);
+      card.appendChild(priceEl);
+    } else {
+      var discountType = pack.discountType || 'none';
+      var discountValue = parseFloat(pack.discountValue) || 0;
+      var hasDiscount = discountType === 'buy_x_get_y' || (discountType !== 'none' && discountValue > 0);
+      if (hasDiscount) {
+        var badge = document.createElement('div');
+        badge.className = 'cb-pack-discount-badge';
+        if (discountType === 'buy_x_get_y') {
+          var buyQty = Math.max(1, parseInt(String(pack.buyQuantity || 1), 10) || 1);
+          var getQty = Math.max(1, parseInt(String(pack.getQuantity || 1), 10) || 1);
+          badge.textContent = 'BUY ' + buyQty + ' GET ' + getQty;
+        } else {
+          badge.textContent = discountType === 'percent'
+            ? discountValue + '% OFF'
+            : ctx.currencySymbol + discountValue + ' OFF';
+        }
+        card.appendChild(badge);
+      }
+    }
+
+    var buttonLabel = document.createElement('button');
+    buttonLabel.type = 'button';
+    buttonLabel.className = 'cb-pack-select-btn';
+    buttonLabel.textContent = pack.buttonLabel || 'Choose this pack';
+    card.appendChild(buttonLabel);
+
+    function onSelect() { openPack(pack, box, ctx); }
+    card.addEventListener('click', onSelect);
+    card.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); }
+    });
+
+    return card;
+  }
+
+  // Merges the chosen pack's own fields on top of the real box object. Fields
+  // like shopifyVariantId/shopifyProductId/id/allowDuplicates/isGiftBox are
+  // intentionally left untouched (packs share ONE Shopify bundle product with
+  // their box) — only presentational/pricing/product-selection fields are
+  // overridden, so renderBuilder/addToCart need zero pack-specific branching.
+  function buildPackOverrideBox(box, pack) {
+    var isManual = String(pack.bundlePriceType || 'manual') === 'manual';
+    return Object.assign({}, box, {
+      itemCount: pack.productItems,
+      stepTitle: pack.stepTitle || box.stepTitle,
+      stepDescription: pack.stepDescription || box.stepDescription,
+      buttonLabel: pack.buttonLabel || box.buttonLabel,
+      productButtonTitle: pack.buttonLabel || box.productButtonTitle,
+      scopeType: pack.productConfiguration === 'whole_store' ? 'wholestore' : 'specific',
+      bundlePriceType: pack.bundlePriceType || 'manual',
+      bundlePrice: isManual ? (pack.discountValue != null ? pack.discountValue : 0) : 0,
+      comboConfig: !isManual
+        ? {
+            discountType: pack.discountType,
+            discountValue: pack.discountValue,
+            buyQuantity: pack.buyQuantity,
+            getQuantity: pack.getQuantity
+          }
+        : null
+    });
+  }
+
+  function openPack(pack, box, ctx) {
+    var wrapper = document.querySelector('.cb-wrapper');
+    if (!wrapper) return;
+    var builderArea = wrapper.querySelector('.cb-builder-area');
+    if (!builderArea) return;
+
+    var packBox = buildPackOverrideBox(box, pack);
+
+    showPageLoader('Loading products…');
+    fetchProducts(box.id, ctx.shop, ctx.apiBase, packBox.scopeType, pack.packKey, ctx, function (err, products) {
+      hidePageLoader(true);
+      if (ctx._openBoxId !== box.id) return;
+      if (err || !products || products.length === 0) {
+        builderArea.innerHTML = '<p class="cb-error">Failed to load products. Please reload and try again.</p>';
+        return;
+      }
+      renderBuilder(builderArea, packBox, products, ctx);
+      addBackToPacksControl(builderArea, box, ctx);
+      builderArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  function addBackToPacksControl(builderArea, box, ctx) {
+    var backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.className = 'cb-back-to-packs-btn';
+    backBtn.innerHTML = '&#8592; Choose a different pack';
+    backBtn.addEventListener('click', function () {
+      renderPackPicker(builderArea, box, ctx);
+    });
+    builderArea.insertBefore(backBtn, builderArea.firstChild);
+  }
+
   // ─── Render Builder ───────────────────────────────────────────────────────────
 
   function renderBuilder(container, box, products, ctx) {
     container.innerHTML = '';
 
+    var searchTerm = '';
     var sessionId = generateSessionId();
     var slots = [];
     for (var s = 0; s < box.itemCount; s++) { slots.push(null); }
     var activeSlotIndex = 0;
 
-    // ── Step 2 Heading ──
-    var step2Head = document.createElement('h2');
-    step2Head.className = 'cb-step-heading';
-    step2Head.textContent = ctx.step2Heading || 'Step 2: Select your products';
-    container.appendChild(step2Head);
+    // ── Step 2 Heading ── box/pack stepTitle (admin-configured) wins over the
+    // widget-level ctx.step2Heading default; hideBundleHeader hides it entirely.
+    if (!box.hideBundleHeader) {
+      var step2Head = document.createElement('h2');
+      step2Head.className = 'cb-step-heading';
+      step2Head.textContent = box.stepTitle || ctx.step2Heading || 'Step 2: Select your products';
+      container.appendChild(step2Head);
+
+      if (box.stepDescription) {
+        var step2Desc = document.createElement('p');
+        step2Desc.className = 'cb-step-description';
+        step2Desc.textContent = box.stepDescription;
+        container.appendChild(step2Desc);
+      }
+    }
 
     // ── Slot Steps Row ──
     var slotWrapper = document.createElement('div');
@@ -1919,6 +2183,18 @@
     productLabel.className = 'cb-product-label';
     productSection.appendChild(productLabel);
 
+    if (box.showProductSearch) {
+      var searchInput = document.createElement('input');
+      searchInput.type = 'search';
+      searchInput.className = 'cb-product-search';
+      searchInput.placeholder = 'Search products…';
+      searchInput.addEventListener('input', function () {
+        searchTerm = String(searchInput.value || '').trim().toLowerCase();
+        renderProductGrid();
+      });
+      productSection.appendChild(searchInput);
+    }
+
     var productGrid = document.createElement('div');
     productGrid.className = ctx.layout === 'list' ? 'cb-product-list' : 'cb-product-grid';
     productSection.appendChild(productGrid);
@@ -1978,7 +2254,7 @@
       var totalMrp = getSelectedProductsTotal(slots);
       var isDynamic = isDynamicBundlePrice(box);
       var dynamicBreakdown = isDynamic
-        ? getComboDiscountBreakdown(totalMrp, box.comboConfig, slots)
+        ? getComboDiscountBreakdown(totalMrp, getBoxDiscountConfig(box), slots)
         : { discountedTotal: 0, discountAmount: 0, freeUnits: 0 };
       var dynamicEffectivePrice = isDynamic ? dynamicBreakdown.discountedTotal : 0;
 
@@ -2007,8 +2283,9 @@
             var dynSavingsBadge = (ctx.settings && ctx.settings.showSavingsBadge)
               ? '<span class="cb-sticky-save">Save ' + formatPrice(dynSavings, ctx.currencySymbol, ctx.currencyCode) + '</span>'
               : '';
+            var _dgc = getBoxDiscountConfig(box);
             var dynFreeUnitsBadge =
-              box && box.comboConfig && box.comboConfig.discountType === 'buy_x_get_y' && dynamicBreakdown.freeUnits > 0
+              _dgc && _dgc.discountType === 'buy_x_get_y' && dynamicBreakdown.freeUnits > 0
                 ? '<span class="cb-sticky-save">Free items: ' + dynamicBreakdown.freeUnits + '</span>'
                 : '';
             _stickySavingsEl.innerHTML =
@@ -2104,7 +2381,18 @@
         });
       }
 
-      products.forEach(function (product) {
+      var visibleProducts = searchTerm
+        ? products.filter(function (p) { return String(p && p.productTitle || '').toLowerCase().indexOf(searchTerm) !== -1; })
+        : products;
+
+      if (searchTerm && visibleProducts.length === 0) {
+        var noResults = document.createElement('p');
+        noResults.className = 'cb-product-search-empty';
+        noResults.textContent = 'No products match "' + searchInput.value + '".';
+        productGrid.appendChild(noResults);
+      }
+
+      visibleProducts.forEach(function (product) {
         var isCurrentSlot = slots[activeSlotIndex] && slots[activeSlotIndex].productId === product.productId;
         var variantCapable = !product.isCollection && !!product.productHandle;
         var productVariantIds = Array.isArray(product.variantIds)
@@ -2174,7 +2462,7 @@
         titleEl.textContent = product.productTitle || product.productId;
         titleRow.appendChild(titleEl);
 
-        if (product.productHandle && !product.isCollection) {
+        if (product.productHandle && !product.isCollection && !box.hideProductInfoModal) {
           var learnBtn = document.createElement('button');
           learnBtn.type = 'button';
           learnBtn.className = 'cb-product-learn-link';
@@ -2182,7 +2470,7 @@
           learnBtn.addEventListener('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
-            openProductDescriptionModal(product, learnBtn, ctx.rootEl);
+            openProductDescriptionModal(product, learnBtn, ctx.rootEl, buildBoxDesignStyle(box.designSettings));
           });
           titleRow.appendChild(learnBtn);
         }
@@ -2206,7 +2494,7 @@
             pEl.className = 'cb-product-price';
             pEl.textContent = formatPrice(sp, ctx.currencySymbol, ctx.currencyCode);
             priceWrap.appendChild(pEl);
-            if (cp && cp > sp) {
+            if (box.displayCompareAtPrice && cp && cp > sp) {
               var cEl = document.createElement('span');
               cEl.className = 'cb-product-compare-price';
               cEl.textContent = formatPrice(cp, ctx.currencySymbol, ctx.currencyCode);
@@ -2494,6 +2782,11 @@
         });
       });
 
+      // Admin-configured post-add behavior: redirect straight to checkout or
+      // cart instead of staying on the page. redirectToCheckout wins if both
+      // are somehow set. Undefined preserves today's default (stay + drawer).
+      var addToCartRedirectUrl = box.redirectToCheckout ? '/checkout' : (box.redirectToCart ? '/cart' : undefined);
+
       Promise.all(resolvePromises).then(function () {
         addToCart(
           box,
@@ -2506,7 +2799,8 @@
           ctx.currencySymbol,
           ctx.apiBase,
           ctx.shop,
-          resetBuilderSelection
+          resetBuilderSelection,
+          addToCartRedirectUrl
         );
       });
     }
@@ -4006,7 +4300,7 @@
 
       // For dynamic mode, effective cart price = sum of selected products minus any discount.
       // For manual mode, it is the fixed bundlePrice set by the merchant.
-      var dynamicBreakdown = getComboDiscountBreakdown(totalMrp, box.comboConfig, slots);
+      var dynamicBreakdown = getComboDiscountBreakdown(totalMrp, getBoxDiscountConfig(box), slots);
       var effectivePrice = isDynamic ? dynamicBreakdown.discountedTotal : (parseFloat(box.bundlePrice) || 0);
 
       var bundleProps = {};

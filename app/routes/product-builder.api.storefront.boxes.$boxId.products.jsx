@@ -28,6 +28,8 @@ export const loader = async ({ request, params }) => {
     return Response.json({ error: "Invalid box ID" }, { status: 400, headers: CORS_HEADERS });
   }
 
+  const packKey = url.searchParams.get("packKey") || null;
+
   // Verify box belongs to shop and is active, and pull whichever page config
   // (Simple or Multiple box) actually drives its product selection.
   const box = await db.comboBox.findFirst({
@@ -38,7 +40,15 @@ export const loader = async ({ request, params }) => {
         select: { productConfiguration: true, selectedProductIdsJson: true, selectedCollectionIdsJson: true, hideOutOfStockProducts: true },
       },
       multipleBoxPage: {
-        select: { productConfiguration: true, selectedProductIdsJson: true, selectedCollectionIdsJson: true, hideOutOfStockProducts: true },
+        select: {
+          productConfiguration: true,
+          selectedProductIdsJson: true,
+          selectedCollectionIdsJson: true,
+          hideOutOfStockProducts: true,
+          quantityPacks: packKey
+            ? { where: { packKey }, select: { productConfiguration: true, selectedProductIdsJson: true, selectedCollectionIdsJson: true } }
+            : false,
+        },
       },
     },
   });
@@ -47,10 +57,16 @@ export const loader = async ({ request, params }) => {
     return Response.json({ error: "Box not found" }, { status: 404, headers: CORS_HEADERS });
   }
 
+  // A chosen pack's own product selection wins over the page-level one — each
+  // pack is an independent bundle tier with its own product configuration.
+  // Packs have no hideOutOfStockProducts column of their own, so that toggle
+  // always comes from the page.
+  const pack = packKey ? box.multipleBoxPage?.quantityPacks?.[0] : null;
   const pageConfig = box.simpleBoxPage || box.multipleBoxPage;
   if (!pageConfig) {
     return Response.json([], { headers: CORS_HEADERS });
   }
+  const productSourceConfig = pack || pageConfig;
 
   function parseJsonArray(value) {
     if (!value) return [];
@@ -65,9 +81,9 @@ export const loader = async ({ request, params }) => {
   try {
     const { admin } = await unauthenticated.admin(shop);
     const publicProducts = await resolveSelectableProducts(admin, {
-      productConfiguration: pageConfig.productConfiguration,
-      selectedProductIds: parseJsonArray(pageConfig.selectedProductIdsJson),
-      selectedCollectionIds: parseJsonArray(pageConfig.selectedCollectionIdsJson),
+      productConfiguration: productSourceConfig.productConfiguration,
+      selectedProductIds: parseJsonArray(productSourceConfig.selectedProductIdsJson),
+      selectedCollectionIds: parseJsonArray(productSourceConfig.selectedCollectionIdsJson),
       hideOutOfStockProducts: !!pageConfig.hideOutOfStockProducts,
     });
 

@@ -43,6 +43,32 @@
   --cb-shadow:       0 1px 4px rgba(0,0,0,0.06);
   --cb-shadow-hover: 0 6px 20px rgba(0,0,0,0.10);
   --cb-transition:   0.15s ease;
+
+  /* ── Per-box design settings ──────────────────────────────
+     Defaults here match the widget's previous hardcoded look.
+     combo-builder.js overrides these inline, per box card and per
+     opened builder area, from that box's admin-configured designSettings. */
+  --cb-box-bg:            var(--cb-bg);
+  --cb-box-border-color:  var(--cb-border);
+  --cb-box-border-width:  1.5px;
+  --cb-box-border-radius: var(--cb-radius);
+  --cb-box-image-height:        190px;
+  --cb-box-image-height-mobile: 160px;
+  --cb-box-title-color:  var(--cb-text);
+  --cb-box-title-size:   15px;
+  --cb-box-title-weight: 700;
+  --cb-box-price-color:  var(--cb-text);
+  --cb-box-price-size:   22px;
+  --cb-box-price-weight: 800;
+  --cb-box-cta-bg:     var(--cb-product-btn-bg, var(--cb-primary));
+  --cb-box-cta-color:  var(--cb-product-btn-text, #fff);
+  --cb-box-cta-size:   11px;
+  --cb-box-cta-weight: 700;
+  --cb-box-variant-color:  var(--cb-text);
+  --cb-box-variant-size:   12px;
+  --cb-box-variant-weight: 600;
+  --cb-box-popup-bg:    var(--cb-bg);
+  --cb-box-popup-color: var(--cb-text);
 }
 
 /* ── Widget root: isolate from theme grid / flex layouts ── */
@@ -181,6 +207,14 @@
   line-height: 1.2;
 }
 
+.cb-step-description {
+  font-size: 14px;
+  color: var(--cb-heading-muted-color, var(--cb-text-muted));
+  text-align: center;
+  margin: -20px 0 24px;
+  line-height: 1.5;
+}
+
 /* ── Box Card Grid ────────────────────────────────────── */
 .cb-box-grid {
   display: flex;
@@ -194,8 +228,9 @@
   width: 260px;
   display: flex;
   flex-direction: column;
-  background: var(--cb-bg);
-  border: 1.5px solid var(--cb-border);
+  background: var(--cb-box-bg);
+  border: var(--cb-box-border-width) solid var(--cb-box-border-color);
+  border-radius: var(--cb-box-border-radius);
   overflow: hidden;
   cursor: pointer;
   transition:
@@ -223,12 +258,20 @@
 
 .cb-box-banner {
   width: 100%;
-  height: 190px;
+  height: var(--cb-box-image-height);
   background: var(--cb-primary-light);
   background-size: cover;
   background-position: center;
   position: relative;
   overflow: hidden;
+}
+
+/* productImageAutoHeight admin toggle: let the banner size to its image
+   instead of the fixed --cb-box-image-height crop. */
+.cb-box-card--auto-height .cb-box-banner,
+.cb-builder-area--auto-height .cb-product-img-wrap {
+  height: auto;
+  aspect-ratio: auto;
 }
 
 .cb-box-banner-overlay {
@@ -262,7 +305,7 @@
   flex-direction: column;
   flex: 1 1 auto;
   text-align: center;
-  background: var(--cb-bg);
+  background: var(--cb-box-bg);
 }
 
 .cb-box-buy-text {
@@ -273,18 +316,18 @@
 }
 
 .cb-box-price-text {
-  font-size: 22px;
-  font-weight: 800;
-  color: var(--cb-text);
+  font-size: var(--cb-box-price-size);
+  font-weight: var(--cb-box-price-weight);
+  color: var(--cb-box-price-color);
   letter-spacing: -0.5px;
   min-height: 1.25em;
   margin-bottom: 4px;
 }
 
 .cb-box-display-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--cb-text);
+  font-size: var(--cb-box-title-size);
+  font-weight: var(--cb-box-title-weight);
+  color: var(--cb-box-title-color);
   line-height: 1.3;
   min-height: 2.6em;
   margin-bottom: 4px;
@@ -372,10 +415,10 @@
   padding: 11px 0;
   margin-top: auto;
   border: none;
-  background: var(--cb-product-btn-bg, var(--cb-primary));
-  color: var(--cb-product-btn-text, #fff);
-  font-size: 11px;
-  font-weight: 700;
+  background: var(--cb-box-cta-bg);
+  color: var(--cb-box-cta-color);
+  font-size: var(--cb-box-cta-size);
+  font-weight: var(--cb-box-cta-weight);
   letter-spacing: 1.2px;
   text-transform: uppercase;
   cursor: pointer;
@@ -383,18 +426,18 @@
 }
 
 .cb-box-cta-btn:hover {
-  background: var(--cb-product-btn-bg, var(--cb-primary));
-  color: var(--cb-product-btn-text, #fff);
+  background: var(--cb-box-cta-bg);
+  color: var(--cb-box-cta-color);
 }
 
 .cb-box-card--active .cb-box-cta-btn {
-  background: var(--cb-product-btn-bg, var(--cb-primary));
-  color: var(--cb-product-btn-text, #fff);
+  background: var(--cb-box-cta-bg);
+  color: var(--cb-box-cta-color);
 }
 
 .cb-box-cta-btn:disabled {
-  background: var(--cb-product-btn-bg, var(--cb-primary));
-  color: var(--cb-product-btn-text, #fff);
+  background: var(--cb-box-cta-bg);
+  color: var(--cb-box-cta-color);
   opacity: 1;
   cursor: not-allowed;
 }
@@ -408,6 +451,97 @@
   letter-spacing: 0.04em;
   text-align: center;
   user-select: all;
+}
+
+/* ── Mix n Match: Pack Picker ──────────────────────────── */
+.cb-pack-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 20px;
+  margin-bottom: 40px;
+}
+
+.cb-pack-card {
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 20px 16px;
+  background: var(--cb-box-bg);
+  border: var(--cb-box-border-width) solid var(--cb-box-border-color);
+  border-radius: var(--cb-box-border-radius);
+  cursor: pointer;
+  transition: border-color var(--cb-transition), box-shadow var(--cb-transition), transform var(--cb-transition);
+}
+
+.cb-pack-card:hover,
+.cb-pack-card:focus-visible {
+  border-color: var(--cb-primary);
+  box-shadow: var(--cb-shadow-hover);
+  transform: translateY(-3px);
+  outline: none;
+}
+
+.cb-pack-title {
+  font-size: var(--cb-box-title-size);
+  font-weight: var(--cb-box-title-weight);
+  color: var(--cb-box-title-color);
+}
+
+.cb-pack-items {
+  font-size: 12px;
+  color: var(--cb-text-muted);
+}
+
+.cb-pack-price {
+  font-size: var(--cb-box-price-size);
+  font-weight: var(--cb-box-price-weight);
+  color: var(--cb-box-price-color);
+  margin: 4px 0;
+}
+
+.cb-pack-discount-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 800;
+  color: #fff;
+  background: #e53e3e;
+  padding: 4px 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  border-radius: 3px;
+  margin: 4px 0;
+}
+
+.cb-pack-select-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 0;
+  border: none;
+  background: var(--cb-box-cta-bg);
+  color: var(--cb-box-cta-color);
+  font-size: var(--cb-box-cta-size);
+  font-weight: var(--cb-box-cta-weight);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background var(--cb-transition);
+}
+
+.cb-back-to-packs-btn {
+  display: inline-block;
+  margin-bottom: 16px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--cb-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
 }
 
 /* ── Builder Area ─────────────────────────────────────── */
@@ -767,6 +901,33 @@
 .cb-product-label-text {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.cb-product-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border: 1.5px solid var(--cb-border);
+  background: var(--cb-bg);
+  color: var(--cb-text);
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color var(--cb-transition);
+}
+
+.cb-product-search:focus {
+  outline: none;
+  border-color: var(--cb-primary);
+  box-shadow: 0 0 0 3px var(--cb-primary-glow);
+}
+
+.cb-product-search-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--cb-text-muted);
+  font-size: 13px;
+  padding: 24px 0;
 }
 
 .cb-product-label-content {
@@ -1312,9 +1473,9 @@
   padding: 5px 12px;
   border: 1.5px solid var(--cb-border);
   background: #fff;
-  color: var(--cb-text);
-  font-size: 11px;
-  font-weight: 600;
+  color: var(--cb-box-variant-color);
+  font-size: var(--cb-box-variant-size);
+  font-weight: var(--cb-box-variant-weight);
   cursor: pointer;
   transition: all var(--cb-transition);
   white-space: nowrap;
@@ -1370,9 +1531,9 @@
   padding: 6px 26px 6px 10px;
   border: 1.5px solid var(--cb-border);
   background: var(--cb-bg);
-  color: var(--cb-text);
-  font-size: 12px;
-  font-weight: 600;
+  color: var(--cb-box-variant-color);
+  font-size: var(--cb-box-variant-size);
+  font-weight: var(--cb-box-variant-weight);
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
@@ -1410,8 +1571,8 @@
   max-height: min(78vh, 720px);
   display: flex;
   flex-direction: column;
-  background: var(--cb-product-card-bg, var(--cb-bg));
-  color: var(--cb-product-font-color, var(--cb-text));
+  background: var(--cb-box-popup-bg);
+  color: var(--cb-box-popup-color);
   border: 1px solid var(--cb-border);
   box-shadow: 0 24px 60px rgba(0,0,0,0.22);
   overflow: hidden;
@@ -1431,15 +1592,15 @@
   font-size: 17px;
   font-weight: 700;
   line-height: 1.3;
-  color: var(--cb-product-font-color, var(--cb-text));
+  color: var(--cb-box-popup-color);
 }
 
 .cb-product-modal-close {
   width: 32px;
   height: 32px;
   border: 1px solid var(--cb-border);
-  background: var(--cb-product-card-bg, var(--cb-bg));
-  color: var(--cb-product-font-color, var(--cb-text));
+  background: var(--cb-box-popup-bg);
+  color: var(--cb-box-popup-color);
   font-size: 22px;
   line-height: 1;
   cursor: pointer;
@@ -1463,7 +1624,7 @@
   overflow: auto;
   font-size: 14px;
   line-height: 1.6;
-  color: var(--cb-product-font-color, var(--cb-text));
+  color: var(--cb-box-popup-color);
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -1528,7 +1689,7 @@
     flex-shrink: unset;
   }
 
-  .cb-box-banner { height: 160px; }
+  .cb-box-banner { height: var(--cb-box-image-height-mobile); }
 
   /* Product grid: 2 cols */
   .cb-product-grid {
@@ -1591,7 +1752,7 @@
     gap: 12px;
   }
 
-  .cb-box-banner { height: 180px; }
+  .cb-box-banner { height: var(--cb-box-image-height-mobile); }
 
   /* Step heading */
   .cb-step-heading {

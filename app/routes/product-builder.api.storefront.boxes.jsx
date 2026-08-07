@@ -1,4 +1,4 @@
-import { listBoxes } from "../models/boxes.server";
+import { getStorefrontBoxes } from "../models/boxes.server";
 import { unauthenticated } from "../shopify.server"; // Keep this import
 import { getOrderCreditStatus } from "../models/order-credit.server";
 
@@ -36,6 +36,27 @@ async function getActiveBillingCycleForShop(shop) {
   }
 }
 
+// Discount config is only meaningful for dynamically-priced boxes/packs — for
+// "manual" pricing, `discountValue` doubles as the flat bundle price itself
+// (set via the "fixed_amount" discountMode), not an amount to subtract from a
+// computed total, so it must never be handed to the widget's discount-math
+// functions. bundlePriceType is included so the widget can tell which case it
+// is and either apply `getComboDiscountBreakdown` (dynamic) or just use the
+// price directly (manual) — the exact same rule already applied to box-level
+// pricing via `isDynamicBundlePrice(box)` + `box.bundlePrice`.
+function buildDiscountConfig(pageConfig) {
+  if (!pageConfig) return null;
+  return {
+    bundlePriceType: pageConfig.bundlePriceType || "manual",
+    discountMode: pageConfig.discountMode || "fixed_amount",
+    discountType: pageConfig.discountType || "fixed",
+    discountValue: pageConfig.discountValue != null ? pageConfig.discountValue : 0,
+    buyQuantity: pageConfig.buyQuantity || 1,
+    getQuantity: pageConfig.getQuantity || 1,
+    selectedGiftProductIds: Array.isArray(pageConfig.selectedGiftProductIds) ? pageConfig.selectedGiftProductIds : [],
+  };
+}
+
 export const loader = async ({ request }) => {
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -48,7 +69,7 @@ export const loader = async ({ request }) => {
     return Response.json({ error: "shop parameter required" }, { status: 400, headers: CORS_HEADERS });
   }
 
-  const boxes = await listBoxes(shop, true, false);
+  const boxes = await getStorefrontBoxes(shop);
 
   // Check order limits by billing cycle:
   // monthly plans => count current month, yearly plans => count current year.
@@ -64,6 +85,7 @@ export const loader = async ({ request }) => {
   const orderLimitReached = orderCredit.orderLimitReached;
 
   const publicBoxes = boxes.map((box) => {
+    const pageConfig = box.pageConfig || null;
     const bannerImageUrl = box.bannerImageUrl || null;
     // Flag so the widget can build the URL via the app proxy (avoids cross-origin issues)
     const hasUploadedBanner = !bannerImageUrl && !!box.bannerImageMimeType;
@@ -89,16 +111,18 @@ export const loader = async ({ request }) => {
         : null;
     const ctaButtonLabel = ctaButtonLabelFromBox || ctaButtonLabelFromConfig || null;
     const addToCartLabel = addToCartLabelFromBox || addToCartLabelFromConfig || null;
+
     return {
       id: box.id,
       boxCode: box.boxCode || null,
       boxName: box.boxName,
       displayTitle: box.displayTitle,
-      // Multiple Box's subtitle lives exclusively in multiple_box_page.description —
-      // never in ComboBox.comboStepsConfig. Simple Box / legacy Specific Combo
-      // boxes (no multipleBoxPage relation) still read it from the JSON blob.
-      boxSubtitle: box.multipleBoxPage
-        ? (box.multipleBoxPage.description || null)
+      // Multiple/Single Box's subtitle and page fields live exclusively in
+      // simple_box_page/multiple_box_page — never in ComboBox.comboStepsConfig.
+      // Legacy "Specific Combo" boxes (no simpleBoxPage/multipleBoxPage relation)
+      // still read boxSubtitle from the JSON blob.
+      boxSubtitle: pageConfig
+        ? (pageConfig.description || null)
         : (typeof rawComboConfig?.boxSubtitle === "string" ? rawComboConfig.boxSubtitle : null),
       ctaButtonLabel,
       addToCartLabel,
@@ -106,6 +130,7 @@ export const loader = async ({ request }) => {
       itemCount: box.itemCount,
       bundlePrice: parseFloat(box.bundlePrice),
       isGiftBox: box.isGiftBox,
+      isActive: true,
       allowDuplicates: box.allowDuplicates,
       bannerImageUrl,
       hasUploadedBanner,
@@ -120,9 +145,45 @@ export const loader = async ({ request }) => {
       // The widget only distinguishes "wholestore" (resolved client-side via
       // /products.json) from everything else (resolved by the server from the
       // box's Simple/Multiple Box Page product configuration).
-      scopeType: (box.simpleBoxPage || box.multipleBoxPage)?.productConfiguration === "whole_store"
-        ? "wholestore"
-        : "specific",
+      scopeType: pageConfig?.productConfiguration === "whole_store" ? "wholestore" : "specific",
+
+      // ── Fields sourced from simple_box_page / multiple_box_page (never from
+      // ComboBox JSON) — every admin-configured Single/Multiple Box field the
+      // storefront widget needs to render without hardcoded stand-ins. ──
+      stepTitle: pageConfig?.stepTitle || null,
+      stepDescription: pageConfig?.stepDescription || null,
+      buttonLabel: pageConfig?.buttonLabel || null,
+      designSettings: pageConfig?.designSettings || null,
+      // hideOutOfStockProducts is enforced server-side only, via
+      // resolveSelectableProducts() in the per-box products endpoint — the
+      // widget never needs to see or re-apply this toggle itself.
+      showProductSearch: !!pageConfig?.showProductSearch,
+      hideBundleHeader: !!pageConfig?.hideBundleHeader,
+      hideBannerImage: !!pageConfig?.hideBannerImage,
+      hideProductInfoModal: !!pageConfig?.hideProductInfoModal,
+      productImageAutoHeight: !!pageConfig?.productImageAutoHeight,
+      displayCompareAtPrice: !!pageConfig?.displayCompareAtPrice,
+      redirectToCheckout: !!pageConfig?.redirectToCheckout,
+      redirectToCart: !!pageConfig?.redirectToCart,
+      // Only present when the box/page is dynamically priced — see
+      // buildDiscountConfig() for why manual pricing must never reach here.
+      pageDiscount: pageConfig?.bundlePriceType === "dynamic" ? buildDiscountConfig(pageConfig) : null,
+      // Multiple Box only: the customer picks ONE pack, fills it, and the
+      // resulting single bundle is added to cart at that pack's own price/
+      // discount — see quantityPacks handling in combo-builder.js.
+      quantityPacks: Array.isArray(pageConfig?.quantityPacks)
+        ? pageConfig.quantityPacks.map((pack) => ({
+            packKey: pack.packKey,
+            title: pack.title,
+            stepTitle: pack.stepTitle || null,
+            stepDescription: pack.stepDescription || null,
+            productItems: pack.productItems,
+            buttonLabel: pack.buttonLabel || null,
+            productConfiguration: pack.productConfiguration || "whole_store",
+            ...buildDiscountConfig(pack),
+          }))
+        : [],
+
       comboConfig: (() => {
         if (box.comboStepsConfig) {
           try {

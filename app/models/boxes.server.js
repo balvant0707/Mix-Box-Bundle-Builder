@@ -1,5 +1,8 @@
 import db, { ensureAppTables } from "../db.server";
 import { Buffer } from "node:buffer";
+import { isWithinSchedule } from "./box-schedule.js";
+
+export { isWithinSchedule };
 
 // Generate a 5-digit unique box code
 const BOX_CODE_CHARS = "0123456789";
@@ -1174,7 +1177,7 @@ function toPlainNumber(value) {
   return Number.isFinite(numeric) ? numeric : value;
 }
 
-function buildPageConfigFromSimpleBoxPage(page) {
+export function buildPageConfigFromSimpleBoxPage(page) {
   if (!page) return null;
 
   const { bundleImageData, bannerImageData, ...rest } = page;
@@ -1191,7 +1194,7 @@ function buildPageConfigFromSimpleBoxPage(page) {
   };
 }
 
-function buildPageConfigFromMultipleBoxPage(page) {
+export function buildPageConfigFromMultipleBoxPage(page) {
   if (!page) return null;
 
   const { bundleImageData, bannerImageData, ...rest } = page;
@@ -1266,6 +1269,67 @@ export async function getBox(id, shop) {
     bundlePrice: toPlainNumber(box.bundlePrice),
     pageConfig,
   };
+}
+
+// Storefront-facing box listing: unlike listBoxes() (a lightweight admin
+// index projection), this pulls the FULL simpleBoxPage/multipleBoxPage
+// config — design settings, step text, discount config, toggles, and
+// quantity packs — via the same builders getBox() uses for the admin edit
+// page, so the storefront widget can render every admin-configured field
+// instead of ComboBox-level defaults. Boxes/packs outside their configured
+// schedule window are excluded here so they never reach the browser.
+export async function getStorefrontBoxes(shop, now) {
+  await ensureAppTables();
+
+  const boxes = await db.comboBox.findMany({
+    where: { shop, deletedAt: null, isActive: true },
+    select: {
+      id: true,
+      boxCode: true,
+      boxName: true,
+      displayTitle: true,
+      comboProductButtonTitle: true,
+      productButtonTitle: true,
+      itemCount: true,
+      bundlePrice: true,
+      bundlePriceType: true,
+      isGiftBox: true,
+      allowDuplicates: true,
+      bannerImageUrl: true,
+      bannerImageMimeType: true,
+      giftMessageEnabled: true,
+      shopifyProductId: true,
+      shopifyVariantId: true,
+      sortOrder: true,
+      pageHandle: true,
+      comboStepsConfig: true,
+      simpleBoxPage: true,
+      multipleBoxPage: {
+        include: { quantityPacks: { orderBy: { sortOrder: 'asc' } } },
+      },
+    },
+    orderBy: { sortOrder: 'asc' },
+  });
+
+  const referenceTime = now instanceof Date && !isNaN(now) ? now : new Date();
+
+  return boxes
+    .map((box) => {
+      const pageConfig = box.simpleBoxPage
+        ? buildPageConfigFromSimpleBoxPage(box.simpleBoxPage)
+        : buildPageConfigFromMultipleBoxPage(box.multipleBoxPage);
+
+      if (pageConfig?.quantityPacks) {
+        pageConfig.quantityPacks = pageConfig.quantityPacks.filter((pack) => isWithinSchedule(pack, referenceTime));
+      }
+
+      return {
+        ...box,
+        bundlePrice: toPlainNumber(box.bundlePrice),
+        pageConfig,
+      };
+    })
+    .filter((box) => isWithinSchedule(box.pageConfig, referenceTime));
 }
 
 export async function createBox(shop, data, admin) {

@@ -1234,22 +1234,6 @@ function QuantityPackSection({
                   >
                     <Icon source={PackageIcon} />
                   </span>
-                  <span
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      minWidth: 20,
-                      height: 20,
-                      borderRadius: '50%',
-                      fontSize: 12,
-                      fontWeight: 700,
-                      background: pack.id === activePackId ? '#ffffff' : 'var(--p-color-bg-surface-secondary)',
-                      color: pack.id === activePackId ? '#202223' : 'var(--p-color-text)',
-                    }}
-                  >
-                    {index + 1}
-                  </span>
                   <Text as="span" fontWeight="bold">
                     {pack.title}
                   </Text>
