@@ -585,7 +585,11 @@ export default function ManageBoxesPage() {
                     year={year}
                     onChange={handleDateSelection}
                     onMonthChange={handleMonthChange}
-                    selected={selectedDates}
+                    selected={
+                      selectedDates.start && selectedDates.end
+                        ? selectedDates
+                        : { start: new Date(), end: new Date() }
+                    }
                     allowRange
                   />
                   {(selectedDates.start || selectedDates.end) && (
