@@ -23,7 +23,6 @@ import {
   DatePicker,
   EmptyState,
   IndexTable,
-  InlineGrid,
   InlineStack,
   Modal,
   Page,
@@ -39,15 +38,10 @@ import {
 } from "@shopify/polaris";
 import {
   CalendarIcon,
-  CheckIcon,
   ClipboardIcon,
   GiftCardIcon,
-  HideIcon,
   MenuHorizontalIcon,
-  OrderIcon,
-  PackageIcon,
 } from "@shopify/polaris-icons";
-import { StatCard } from "../components/stat-card";
 function formatDate(value) {
   if (!value) return "";
   const date = value instanceof Date ? value : new Date(value);
@@ -494,7 +488,6 @@ export default function ManageBoxesPage() {
   // Reset to page 1 when filter/search changes
   useEffect(() => { setCurrentPage(1); }, [statusFilter, search, boxTypeFilter, selectedDates]);
 
-  const totalOrders = baseBoxes.reduce((s, b) => s + b.orderCount, 0);
   const activeCount = boxesWithPendingToggle.filter((b) => b.isActive).length;
   const inactiveCount = boxesWithPendingToggle.length - activeCount;
 
@@ -517,11 +510,10 @@ export default function ManageBoxesPage() {
       }));
   }, [filteredBoxes]);
 
-  const statCards = [
-    { label: "Total Boxes", value: baseBoxes.length, icon: PackageIcon, iconTone: "info" },
-    { label: "Active Boxes", value: activeCount, icon: CheckIcon, iconTone: "success" },
-    { label: "Inactive Boxes", value: inactiveCount, icon: HideIcon, iconTone: "tertiary" },
-    { label: "Total Orders", value: totalOrders, icon: OrderIcon, iconTone: "magic" },
+  const statusTabs = [
+    { key: "all", label: `All (${baseBoxes.length})` },
+    { key: "active", label: `Active (${activeCount})` },
+    { key: "inactive", label: `Inactive (${inactiveCount})` },
   ];
 
   return (
@@ -536,117 +528,119 @@ export default function ManageBoxesPage() {
       </ui-title-bar> */}
 
       <BlockStack gap="400">
-        {/* Stats row */}
-        <InlineGrid columns={{ xs: 2, md: 4 }} gap="400">
-          {statCards.map((s) => (
-            <StatCard key={s.label} label={s.label} value={s.value} icon={s.icon} iconTone={s.iconTone} />
-          ))}
-        </InlineGrid>
-
         {/* Main content card */}
         <Card padding="0">
           {/* Toolbar */}
           <Box padding="300" borderBlockEndWidth="025" borderColor="border-secondary">
-            <InlineStack gap="300" blockAlign="center" wrap>
-              <Box minWidth="200px" flexGrow="1">
-                <TextField
-                  label=""
-                  labelHidden
-                  placeholder="Search box by name..."
-                  value={search}
-                  onChange={(val) => setSearch(val)}
-                  clearButton
-                  onClearButtonClick={() => setSearch("")}
-                  prefix={(
-                    <span style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
-                      <AdminIcon type="search" size="small" style={{ color: "#9ca3af" }} />
-                    </span>
-                  )}
-                  autoComplete="off"
-                />
-              </Box>
-              <Box minWidth="180px">
-                <Select
-                  label="Box type"
-                  labelHidden
-                  options={[
-                    { label: "All Types", value: "all" },
-                    { label: "Single Product", value: "single" },
-                    { label: "Multi Product", value: "multiple" },
-                    { label: "Specific Combo", value: "specific" },
-                  ]}
-                  value={boxTypeFilter}
-                  onChange={setBoxTypeFilter}
-                />
-              </Box>
-              <Box>
-                <Popover
-                  active={datePickerActive}
-                  activator={
-                    <Button
-                      onClick={() => setDatePickerActive(!datePickerActive)}
-                      icon={CalendarIcon}
-                      disclosure
-                    >
-                      {selectedDates.start && selectedDates.end
-                        ? `${formatDate(selectedDates.start)} - ${formatDate(selectedDates.end)}`
-                        : "Select Date Range"}
-                    </Button>
-                  }
-                  onClose={() => setDatePickerActive(false)}
-                  preferredAlignment="right"
-                >
-                  <DatePicker
-                    month={month}
-                    year={year}
-                    onChange={handleDateSelection}
-                    onMonthChange={handleMonthChange}
-                    selected={
-                      selectedDates.start && selectedDates.end
-                        ? selectedDates
-                        : { start: new Date(), end: new Date() }
-                    }
-                    allowRange
+            <InlineStack align="space-between" blockAlign="center" gap="300" wrap>
+              <div
+                style={{
+                  display: "inline-flex",
+                  gap: "4px",
+                  background: "var(--p-color-bg-surface-secondary, #F1F2F4)",
+                  borderRadius: "8px",
+                  padding: "4px",
+                }}
+              >
+                {statusTabs.map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setStatusFilter(tab.key)}
+                    style={{
+                      border: "none",
+                      borderRadius: "6px",
+                      padding: "6px 14px",
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      background: statusFilter === tab.key ? "var(--p-color-bg-surface, #FFFFFF)" : "transparent",
+                      boxShadow: statusFilter === tab.key ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
+                      color: statusFilter === tab.key ? "var(--p-color-text, #1a1a1a)" : "var(--p-color-text-secondary, #6b6f76)",
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <InlineStack gap="200" blockAlign="center" wrap>
+                <Box minWidth="200px">
+                  <TextField
+                    label=""
+                    labelHidden
+                    placeholder="Search box by name..."
+                    value={search}
+                    onChange={(val) => setSearch(val)}
+                    clearButton
+                    onClearButtonClick={() => setSearch("")}
+                    prefix={(
+                      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
+                        <AdminIcon type="search" size="small" style={{ color: "#9ca3af" }} />
+                      </span>
+                    )}
+                    autoComplete="off"
                   />
-                  {(selectedDates.start || selectedDates.end) && (
-                    <Box padding="400">
-                      <InlineStack align="end">
-                        <Button
-                          onClick={() => {
-                            setSelectedDates({ start: null, end: null });
-                            setDatePickerActive(false);
-                          }}
-                        >
-                          Clear Dates
-                        </Button>
-                      </InlineStack>
-                    </Box>
-                  )}
-                </Popover>
-              </Box>
-              <InlineStack gap="150" blockAlign="center">
-                <Button
-                  variant={statusFilter === "all" ? "primary" : "secondary"}
-                  onClick={() => setStatusFilter("all")}
-                  size="slim"
-                >
-                  All ({baseBoxes.length})
-                </Button>
-                <Button
-                  variant={statusFilter === "active" ? "primary" : "secondary"}
-                  tone={statusFilter === "active" ? "success" : undefined}
-                  onClick={() => setStatusFilter("active")}
-                  size="slim"
-                >
-                  Active ({activeCount})
-                </Button>
-                <Button
-                  variant={statusFilter === "inactive" ? "primary" : "secondary"}
-                  onClick={() => setStatusFilter("inactive")}
-                  size="slim"
-                >
-                  Inactive ({inactiveCount})
-                </Button>
+                </Box>
+                <Box minWidth="160px">
+                  <Select
+                    label="Box type"
+                    labelHidden
+                    options={[
+                      { label: "All Types", value: "all" },
+                      { label: "Single Product", value: "single" },
+                      { label: "Multi Product", value: "multiple" },
+                      { label: "Specific Combo", value: "specific" },
+                    ]}
+                    value={boxTypeFilter}
+                    onChange={setBoxTypeFilter}
+                  />
+                </Box>
+                <Box>
+                  <Popover
+                    active={datePickerActive}
+                    activator={
+                      <Button
+                        onClick={() => setDatePickerActive(!datePickerActive)}
+                        icon={CalendarIcon}
+                        disclosure
+                      >
+                        {selectedDates.start && selectedDates.end
+                          ? `${formatDate(selectedDates.start)} - ${formatDate(selectedDates.end)}`
+                          : "Select Date Range"}
+                      </Button>
+                    }
+                    onClose={() => setDatePickerActive(false)}
+                    preferredAlignment="right"
+                  >
+                    <DatePicker
+                      month={month}
+                      year={year}
+                      onChange={handleDateSelection}
+                      onMonthChange={handleMonthChange}
+                      selected={
+                        selectedDates.start && selectedDates.end
+                          ? selectedDates
+                          : { start: new Date(), end: new Date() }
+                      }
+                      allowRange
+                    />
+                    {(selectedDates.start || selectedDates.end) && (
+                      <Box padding="400">
+                        <InlineStack align="end">
+                          <Button
+                            onClick={() => {
+                              setSelectedDates({ start: null, end: null });
+                              setDatePickerActive(false);
+                            }}
+                          >
+                            Clear Dates
+                          </Button>
+                        </InlineStack>
+                      </Box>
+                    )}
+                  </Popover>
+                </Box>
               </InlineStack>
             </InlineStack>
           </Box>
