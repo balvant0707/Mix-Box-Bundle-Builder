@@ -1114,6 +1114,12 @@
       false
     );
     var currentProductId = normalizeShopifyProductId(root.dataset.productId || config.productId || null);
+    if (productBoxOnly && !currentProductId) {
+      root.innerHTML = '';
+      root.style.display = 'none';
+      root.setAttribute('data-cb-no-product-context', '1');
+      return;
+    }
     if (autoProductBox && hasManualComboBuilderRoot(root)) {
       root.innerHTML = '';
       root.style.display = 'none';
