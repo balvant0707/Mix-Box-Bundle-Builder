@@ -1113,6 +1113,10 @@
       root.dataset.productBoxOnly != null ? root.dataset.productBoxOnly : config.productBoxOnly,
       false
     );
+    var showAllBoxes = parseBooleanSetting(
+      root.dataset.showAllBoxes != null ? root.dataset.showAllBoxes : config.showAllBoxes,
+      false
+    );
     var currentProductId = normalizeShopifyProductId(root.dataset.productId || config.productId || null);
     if (productBoxOnly && !currentProductId) {
       root.innerHTML = '';
@@ -1268,7 +1272,7 @@
         });
       }
       // Filter by page assignment: show box if pageHandle is null (all pages) or matches current page
-      if (currentPageHandle && !productBoxOnly) {
+      if (currentPageHandle && !productBoxOnly && !showAllBoxes) {
         boxes = boxes.filter(function (b) {
           if (!b.pageHandle) return true; // null = show on all pages
           var ph = String(b.pageHandle).trim();
