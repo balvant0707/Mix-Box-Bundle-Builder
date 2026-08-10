@@ -117,6 +117,11 @@
     return [3, 4, 5, 6].indexOf(parsed) !== -1 ? parsed : 4;
   }
 
+  function normalizeProductGridControlPerRow(value) {
+    var parsed = parseInt(value, 10);
+    return [3, 4, 5].indexOf(parsed) !== -1 ? parsed : 4;
+  }
+
   function parseBooleanSetting(value, fallback) {
     if (value == null || value === '') return !!fallback;
     if (typeof value === 'boolean') return value;
@@ -1965,6 +1970,7 @@
       var isActive = card.getAttribute('data-pack-key') === packKey;
       card.classList.toggle('cb-pack-card--active', isActive);
       card.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      card.setAttribute('aria-selected', isActive ? 'true' : 'false');
     }
   }
 
@@ -1976,7 +1982,6 @@
     var nextPackKey = getPackKey(pack);
     if (
       ctx &&
-      ctx.autoProductBox &&
       ctx._activePackKey &&
       ctx._activePackKey !== nextPackKey &&
       hasActivePackSelections(ctx)
@@ -1989,9 +1994,8 @@
 
   function renderPackPicker(container, box, ctx) {
     container.innerHTML = '';
-    var isProductBundlePage = !!(ctx && (ctx.autoProductBox || ctx.productBoxOnly));
 
-    if (!box.hideBundleHeader && !isProductBundlePage) {
+    if (!box.hideBundleHeader) {
       var heading = document.createElement('h2');
       heading.className = 'cb-step-heading';
       heading.textContent = box.stepTitle || ctx.step2Heading || 'Choose your pack';
@@ -2007,42 +2011,34 @@
 
     var packGrid = document.createElement('div');
     packGrid.className = 'cb-pack-grid';
-    if (isProductBundlePage) {
-      packGrid.style.display = 'none';
-    }
+    packGrid.setAttribute('role', 'tablist');
     container.appendChild(packGrid);
 
     box.quantityPacks.forEach(function (pack) {
       packGrid.appendChild(createPackCard(pack, box, ctx));
     });
 
-    if (isProductBundlePage) {
-      var packBuilder = document.createElement('div');
-      packBuilder.className = 'cb-pack-builder-panel';
-      container.appendChild(packBuilder);
+    var packBuilder = document.createElement('div');
+    packBuilder.className = 'cb-pack-builder-panel';
+    container.appendChild(packBuilder);
 
-      ctx._packPickerArea = packGrid;
-      ctx._packBuilderArea = packBuilder;
-      ctx._activePackKey = null;
-      ctx._activePackHasSelections = null;
+    ctx._packPickerArea = packGrid;
+    ctx._packBuilderArea = packBuilder;
+    ctx._activePackKey = null;
+    ctx._activePackHasSelections = null;
 
-      if (box.quantityPacks[0]) {
-        setTimeout(function () { openPack(box.quantityPacks[0], box, ctx); }, 0);
-      }
-    } else {
-      ctx._packPickerArea = null;
-      ctx._packBuilderArea = null;
-      ctx._activePackKey = null;
-      ctx._activePackHasSelections = null;
+    if (box.quantityPacks[0]) {
+      setTimeout(function () { openPack(box.quantityPacks[0], box, ctx); }, 0);
     }
   }
 
   function createPackCard(pack, box, ctx) {
     var card = document.createElement('div');
     card.className = 'cb-pack-card';
-    card.setAttribute('role', 'button');
+    card.setAttribute('role', 'tab');
     card.setAttribute('tabindex', '0');
     card.setAttribute('aria-pressed', 'false');
+    card.setAttribute('aria-selected', 'false');
     card.setAttribute('data-pack-key', getPackKey(pack));
 
     var title = document.createElement('div');
@@ -2085,7 +2081,7 @@
     var buttonLabel = document.createElement('button');
     buttonLabel.type = 'button';
     buttonLabel.className = 'cb-pack-select-btn';
-    buttonLabel.textContent = pack.buttonLabel || 'Choose this pack';
+    buttonLabel.textContent = 'View pack';
     card.appendChild(buttonLabel);
 
     function onSelect() { requestOpenPack(pack, box, ctx); }
@@ -2146,9 +2142,6 @@
         return;
       }
       renderBuilder(builderArea, packBox, products, ctx);
-      if (!ctx.autoProductBox && !ctx.productBoxOnly) {
-        addBackToPacksControl(builderArea, box, ctx);
-      }
       builderArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   }
@@ -2170,6 +2163,7 @@
     container.innerHTML = '';
 
     var searchTerm = '';
+    var selectedProductsPerRow = normalizeProductGridControlPerRow(ctx.settings && ctx.settings.productCardsPerRow);
     var sessionId = generateSessionId();
     var slots = [];
     for (var s = 0; s < box.itemCount; s++) { slots.push(null); }
@@ -2427,8 +2421,15 @@
     productLabel.className = 'cb-product-label';
     productSection.appendChild(productLabel);
 
+    var productToolbar = document.createElement('div');
+    productToolbar.className = 'cb-product-toolbar';
+    productSection.appendChild(productToolbar);
+
+    var searchInput = null;
     if (box.showProductSearch) {
-      var searchInput = document.createElement('input');
+      var searchWrap = document.createElement('div');
+      searchWrap.className = 'cb-product-search-wrap';
+      searchInput = document.createElement('input');
       searchInput.type = 'search';
       searchInput.className = 'cb-product-search';
       searchInput.placeholder = 'Search products…';
@@ -2436,11 +2437,50 @@
         searchTerm = String(searchInput.value || '').trim().toLowerCase();
         renderProductGrid();
       });
-      productSection.appendChild(searchInput);
+      searchWrap.appendChild(searchInput);
+      productToolbar.appendChild(searchWrap);
     }
+
+    var rowControl = document.createElement('div');
+    rowControl.className = 'cb-products-per-row-control';
+    rowControl.setAttribute('aria-label', 'Products per row');
+
+    var rowIcon = document.createElement('span');
+    rowIcon.className = 'cb-products-per-row-icon';
+    rowIcon.setAttribute('aria-hidden', 'true');
+    rowIcon.innerHTML = '<span></span><span></span><span></span><span></span>';
+    rowControl.appendChild(rowIcon);
+
+    var rowButtons = [];
+    function applyProductsPerRow(value) {
+      selectedProductsPerRow = normalizeProductGridControlPerRow(value);
+      if (!productGrid) return;
+      productGrid.style.setProperty('--cb-products-per-row', String(selectedProductsPerRow));
+      productGrid.style.setProperty('--cb-products-per-row-tablet', String(Math.min(selectedProductsPerRow, 3)));
+      productGrid.style.setProperty('--cb-products-per-row-mobile', String(Math.min(selectedProductsPerRow, 2)));
+      rowButtons.forEach(function (btn) {
+        var isActive = String(btn.getAttribute('data-row-count')) === String(selectedProductsPerRow);
+        btn.classList.toggle('cb-products-per-row-btn--active', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      });
+    }
+    [3, 4, 5].forEach(function (count) {
+      var rowBtn = document.createElement('button');
+      rowBtn.type = 'button';
+      rowBtn.className = 'cb-products-per-row-btn';
+      rowBtn.textContent = String(count);
+      rowBtn.setAttribute('data-row-count', String(count));
+      rowBtn.setAttribute('aria-label', 'Show ' + count + ' products per row');
+      rowBtn.setAttribute('aria-pressed', 'false');
+      rowBtn.addEventListener('click', function () { applyProductsPerRow(count); });
+      rowButtons.push(rowBtn);
+      rowControl.appendChild(rowBtn);
+    });
+    productToolbar.appendChild(rowControl);
 
     var productGrid = document.createElement('div');
     productGrid.className = ctx.layout === 'list' ? 'cb-product-list' : 'cb-product-grid';
+    applyProductsPerRow(selectedProductsPerRow);
     productSection.appendChild(productGrid);
     container.appendChild(productSection);
     ctx._productSection = productSection;
