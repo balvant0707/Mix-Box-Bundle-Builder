@@ -2,7 +2,7 @@
   #shopify-section-{{ section.id }} .page-width { padding: 0 0.5rem !important; }
 </style>
 
-{% unless template.name == 'product' %}
+{% if template.name == 'product' %}
 <div
   id="combo-builder-widget-{{ block.id }}"
   class="combo-builder-root"
@@ -74,7 +74,7 @@
     visibleBoxes:   '{{ block.settings.box_names | escape }}'{% endif %}
   });
 </script>
-{% endunless %}
+{% endif %}
 
 {% schema %}
 {

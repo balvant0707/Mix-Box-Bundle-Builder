@@ -838,6 +838,7 @@
       for (var j = 0; j < nodes.length; j++) {
         var el = nodes[j];
         if (!el || el.contains(root) || root.contains(el)) continue;
+        if (el.closest && el.closest('header, footer, .shopify-section-group-header-group, .shopify-section-group-footer-group, [id*="shopify-section-header"], [id*="shopify-section-footer"]')) continue;
         if (el.closest && el.closest('.combo-builder-root')) continue;
         if (el.getAttribute('data-cb-preview-hidden') === '1') continue;
         el.setAttribute('data-cb-preview-hidden', '1');
@@ -850,10 +851,29 @@
     for (var pi = 0; pi < productContainers.length; pi++) {
       var pc = productContainers[pi];
       if (!pc || !pc.contains(root)) continue;
+      if (pc.closest && pc.closest('header, footer, .shopify-section-group-header-group, .shopify-section-group-footer-group, [id*="shopify-section-header"], [id*="shopify-section-footer"]')) continue;
       var infoSibling = pc.querySelector('.product__info-wrapper, .product__info-container, .product-main__info, .product-info');
       if (infoSibling && !infoSibling.contains(root)) {
         infoSibling.setAttribute('data-cb-preview-hidden', '1');
         infoSibling.style.setProperty('display', 'none', 'important');
+      }
+    }
+
+    var visibleShellSelectors = [
+      'header',
+      'footer',
+      '.shopify-section-group-header-group',
+      '.shopify-section-group-footer-group',
+      '[id*="shopify-section-header"]',
+      '[id*="shopify-section-footer"]',
+      '.site-header',
+      '.site-footer'
+    ];
+    for (var si = 0; si < visibleShellSelectors.length; si++) {
+      var shellNodes = document.querySelectorAll(visibleShellSelectors[si]);
+      for (var sj = 0; sj < shellNodes.length; sj++) {
+        shellNodes[sj].removeAttribute('data-cb-preview-hidden');
+        shellNodes[sj].style.removeProperty('display');
       }
     }
   }
@@ -862,8 +882,20 @@
     if (!root || root.getAttribute('data-cb-auto-positioned') === '1') return;
 
     var blockedContainer = root.closest && root.closest('header, footer, .shopify-section-group-header-group, .shopify-section-group-footer-group, [id*="shopify-section-header"], [id*="shopify-section-footer"]');
+    var productArea = document.querySelector('.product, .main-product, [data-section-type="product"], [id*="MainProduct"], [id*="main-product"]');
     var main = document.querySelector('main, #MainContent, [role="main"], .main-content, .content-for-layout');
     var footer = document.querySelector('footer, .shopify-section-group-footer-group, [id*="shopify-section-footer"], .site-footer');
+
+    if (productArea && productArea.contains(root) && !blockedContainer) {
+      root.setAttribute('data-cb-auto-positioned', '1');
+      return;
+    }
+
+    if (productArea && productArea !== root && !root.contains(productArea)) {
+      productArea.appendChild(root);
+      root.setAttribute('data-cb-auto-positioned', '1');
+      return;
+    }
 
     if (main && main.contains(root) && !blockedContainer) {
       root.setAttribute('data-cb-auto-positioned', '1');

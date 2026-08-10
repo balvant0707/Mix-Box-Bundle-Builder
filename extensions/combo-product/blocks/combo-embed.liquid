@@ -9,12 +9,60 @@
     apiBase:        '/apps/product-builder'
   };
 
+  {% if template.name == 'product' and product %}
+  window.__COMBO_BUILDER__ = window.__COMBO_BUILDER__ || [];
+  window.__COMBO_BUILDER__.push({
+    mountId:        'combo-builder-auto-product-{{ product.id }}',
+    shop:           '{{ shop.permanent_domain }}',
+    currency:       '{{ cart.currency.iso_code }}',
+    currencySymbol: '{{ cart.currency.symbol }}',
+    apiBase:        '/apps/product-builder',
+    productId:      '{{ product.id }}',
+    productHandle:  '{{ product.handle }}',
+    autoProductBox: true{% if block.settings.box_filter == 'specific' and block.settings.box_names != blank %},
+    visibleBoxes:   '{{ block.settings.box_names | escape }}'{% endif %}
+  });
+  {% endif %}
 </script>
+
+{% if template.name == 'product' and product %}
+  <div
+    id="combo-builder-auto-product-{{ product.id }}"
+    class="combo-builder-root combo-builder-auto-product-root"
+    data-shop="{{ shop.permanent_domain }}"
+    data-currency="{{ cart.currency.iso_code }}"
+    data-currency-symbol="{{ cart.currency.symbol }}"
+    data-api-base="/apps/product-builder"
+    data-product-id="{{ product.id }}"
+    data-product-handle="{{ product.handle }}"
+    data-auto-product-box="true"
+    {% if block.settings.box_filter == 'specific' and block.settings.box_names != blank %}
+    data-visible-boxes="{{ block.settings.box_names }}"
+    {% endif %}
+  ></div>
+{% endif %}
 
 {% schema %}
 {
   "name": "Combo Builder",
   "target": "body",
-  "settings": []
+  "settings": [
+    {
+      "type": "select",
+      "id": "box_filter",
+      "label": "Show boxes",
+      "options": [
+        { "value": "all", "label": "All product boxes" },
+        { "value": "specific", "label": "Specific box(es)" }
+      ],
+      "default": "all"
+    },
+    {
+      "type": "text",
+      "id": "box_names",
+      "label": "Specific box names, IDs, or codes",
+      "placeholder": "Example: 12345, Summer Box, ABC12"
+    }
+  ]
 }
 {% endschema %}
