@@ -997,7 +997,7 @@ function BundleInformationSection({ form, onChange, boxCodeError }) {
         value={form.boxCode}
         onChange={(value) => onChange('boxCode', value)}
         error={boxCodeError || undefined}
-        helpText="Optional. Use this code in the theme block Specific box(es) setting to show only this bundle."
+        helpText="Optional. Use this code to identify this bundle box."
         placeholder="Example: 12345"
         autoComplete="off"
       />

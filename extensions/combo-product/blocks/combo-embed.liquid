@@ -19,8 +19,7 @@
     apiBase:        '/apps/product-builder',
     productId:      '{{ product.id }}',
     productHandle:  '{{ product.handle }}',
-    autoProductBox: true{% if block.settings.box_filter == 'specific' and block.settings.box_names != blank %},
-    visibleBoxes:   '{{ block.settings.box_names | escape }}'{% endif %}
+    autoProductBox: true
   });
   {% endif %}
 </script>
@@ -36,9 +35,6 @@
     data-product-id="{{ product.id }}"
     data-product-handle="{{ product.handle }}"
     data-auto-product-box="true"
-    {% if block.settings.box_filter == 'specific' and block.settings.box_names != blank %}
-    data-visible-boxes="{{ block.settings.box_names }}"
-    {% endif %}
   ></div>
 {% endif %}
 
@@ -46,23 +42,6 @@
 {
   "name": "Build Your Box Auto",
   "target": "body",
-  "settings": [
-    {
-      "type": "select",
-      "id": "box_filter",
-      "label": "Show boxes",
-      "options": [
-        { "value": "all", "label": "All product boxes" },
-        { "value": "specific", "label": "Specific box(es)" }
-      ],
-      "default": "all"
-    },
-    {
-      "type": "text",
-      "id": "box_names",
-      "label": "Specific box names, IDs, or codes",
-      "placeholder": "Example: 12345, Summer Box, ABC12"
-    }
-  ]
+  "settings": []
 }
 {% endschema %}

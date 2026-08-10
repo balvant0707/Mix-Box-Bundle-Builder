@@ -52,7 +52,7 @@ export const loader = async ({ request }) => {
   const customFrom = url.searchParams.get("from") || null;
   const customTo = url.searchParams.get("to") || null;
   const comboTypeParam = String(url.searchParams.get("comboType") || "all").toLowerCase();
-  const comboType = comboTypeParam === "simple" || comboTypeParam === "specific" ? comboTypeParam : "all";
+  const comboType = comboTypeParam === "simple" ? comboTypeParam : "all";
 
   let fromDate, toDate;
   if (customFrom && customTo) {
@@ -330,7 +330,7 @@ function ComboTypeFilter({ value = "all" }) {
   const navigate = useNavigate();
 
   function handleChange(nextValue) {
-    const normalized = nextValue === "simple" || nextValue === "specific" ? nextValue : "all";
+    const normalized = nextValue === "simple" ? nextValue : "all";
     // Build params from current search to preserve date / period params
     const params = new URLSearchParams(location.search);
     if (normalized === "all") params.delete("comboType");
@@ -356,7 +356,6 @@ function ComboTypeFilter({ value = "all" }) {
         options={[
           { label: "All Box", value: "all" },
           { label: "Simple", value: "simple" },
-          { label: "Specific", value: "specific" },
         ]}
         value={value}
         onChange={handleChange}
@@ -1148,14 +1147,10 @@ export default function AnalyticsPage() {
 
   const analyticsScopeLabel = comboType === "simple"
     ? "Simple"
-    : comboType === "specific"
-      ? "Specific"
-      : "All";
+    : "All";
   const analyticsScopePluralLabel = comboType === "simple"
     ? "Simple"
-    : comboType === "specific"
-      ? "Specific"
-      : "All";
+    : "All";
 
   const revData = (dailyTrend || []).map((d) => ({ date: d.date, value: d.revenue }));
   const prevRevData = (prevDailyTrend || []).map((d) => ({ date: d.date, value: d.revenue }));
@@ -1409,5 +1404,3 @@ export default function AnalyticsPage() {
 export const headers = (headersArgs) => {
   return boundary.headers(headersArgs);
 };
-
-

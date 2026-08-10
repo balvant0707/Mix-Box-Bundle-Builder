@@ -127,6 +127,7 @@ export const loader = async ({ request }) => {
 
     return {
       id: box.id,
+      boxType: box.simpleBoxPage ? "single" : "multiple",
       boxCode: box.boxCode || null,
       boxName: box.boxName,
       displayTitle: box.displayTitle,

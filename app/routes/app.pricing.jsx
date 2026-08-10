@@ -209,8 +209,8 @@ const PLAN_UI = [
     paymentMethod: "No payment required",
     highlight: false,
     features: [
-      "Unlimited Simple Box",
-      "Unlimited Specific Box",
+      "Unlimited Single Box",
+      "Unlimited Multiple Box",
       "Basic email support",
     ],
     cta: "Start free",
@@ -225,8 +225,8 @@ const PLAN_UI = [
     paymentMethod: "Merchant billing through Shopify",
     highlight: false,
     features: [
-      "Unlimited Simple Box",
-      "Unlimited Specific Box",
+      "Unlimited Single Box",
+      "Unlimited Multiple Box",
       "Email & live support",
     ],
     cta: "Subscribe Basic",
@@ -241,8 +241,8 @@ const PLAN_UI = [
     paymentMethod: "Merchant billing through Shopify",
     highlight: true,
     features: [
-      "Unlimited Simple Box",
-      "Unlimited Specific Box",
+      "Unlimited Single Box",
+      "Unlimited Multiple Box",
       "Priority & developer support",
     ],
     cta: "Subscribe Advance",
@@ -257,8 +257,8 @@ const PLAN_UI = [
     paymentMethod: "Merchant billing through Shopify",
     highlight: false,
     features: [
-      "Unlimited Simple Box",
-      "Unlimited Specific Box",
+      "Unlimited Single Box",
+      "Unlimited Multiple Box",
       "Setup support",
       "Highest priority support",
     ],
@@ -647,11 +647,11 @@ export default function PricingPage() {
                       ],
                     },
                     {
-                      label: "Simple Box",
+                      label: "Single Box",
                       values: ["✓", "✓", "✓", "✓"],
                     },
                     {
-                      label: "Specific Box",
+                      label: "Multiple Box",
                       values: ["✓", "✓", "✓", "✓"],
                     },
                     {

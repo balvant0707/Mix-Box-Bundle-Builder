@@ -859,6 +859,21 @@
       }
     }
 
+    // Generated bundle products should behave like a dedicated builder page:
+    // keep header, footer, and the section containing the builder; hide other
+    // theme sections in the main content area.
+    var sectionNodes = document.querySelectorAll('.shopify-section, section[id^="shopify-section-"], main > *, #MainContent > *, .content-for-layout > *');
+    for (var hi = 0; hi < sectionNodes.length; hi++) {
+      var sectionEl = sectionNodes[hi];
+      if (!sectionEl || sectionEl === root || sectionEl.contains(root) || root.contains(sectionEl)) continue;
+      if (sectionEl.closest && sectionEl.closest('header, footer, .shopify-section-group-header-group, .shopify-section-group-footer-group, [id*="shopify-section-header"], [id*="shopify-section-footer"], .site-header, .site-footer')) continue;
+      if (sectionEl.matches && sectionEl.matches('header, footer, .shopify-section-group-header-group, .shopify-section-group-footer-group, [id*="shopify-section-header"], [id*="shopify-section-footer"], .site-header, .site-footer')) continue;
+      if (sectionEl.closest && sectionEl.closest('.combo-builder-root')) continue;
+      if (sectionEl.getAttribute('data-cb-preview-hidden') === '1') continue;
+      sectionEl.setAttribute('data-cb-preview-hidden', '1');
+      sectionEl.style.setProperty('display', 'none', 'important');
+    }
+
     var visibleShellSelectors = [
       'header',
       'footer',
@@ -1117,6 +1132,8 @@
       root.dataset.showAllBoxes != null ? root.dataset.showAllBoxes : config.showAllBoxes,
       false
     );
+    var boxTypeFilter = String(root.dataset.boxTypeFilter || config.boxTypeFilter || 'all').toLowerCase();
+    if (boxTypeFilter !== 'single' && boxTypeFilter !== 'multiple') boxTypeFilter = 'all';
     var currentProductId = normalizeShopifyProductId(root.dataset.productId || config.productId || null);
     if (productBoxOnly && !currentProductId) {
       root.innerHTML = '';
@@ -1249,10 +1266,26 @@
       }
 
       if (err || !boxes || boxes.length === 0) { return; }
+      var productMatchedBoxes = [];
+      if (currentProductId) {
+        productMatchedBoxes = boxes.filter(function (b) {
+          return normalizeShopifyProductId(b && b.shopifyProductId) === currentProductId;
+        });
+      }
+      if (!productBoxOnly && productMatchedBoxes.length > 0) {
+        productBoxOnly = true;
+      }
       if (productBoxOnly) {
         if (!currentProductId) { return; }
+        boxes = productMatchedBoxes.length > 0
+          ? productMatchedBoxes
+          : boxes.filter(function (b) {
+            return normalizeShopifyProductId(b && b.shopifyProductId) === currentProductId;
+          });
+      }
+      if (!productBoxOnly && boxTypeFilter !== 'all') {
         boxes = boxes.filter(function (b) {
-          return normalizeShopifyProductId(b && b.shopifyProductId) === currentProductId;
+          return String(b && b.boxType || '').toLowerCase() === boxTypeFilter;
         });
       }
       if (boxIdsFilter && boxIdsFilter.length > 0) {
@@ -1349,7 +1382,7 @@
       var step2Heading = root.dataset.step2Heading || config.step2Heading || 'Step 2: Select your products';
       var step3Heading = root.dataset.step3Heading || config.step3Heading || 'Step 3: Complete your order';
       var step3Buttons = root.dataset.step3Buttons || config.step3Buttons || 'both';
-      renderWidget(root, { shop: shop, boxes: boxes, currencySymbol: currencySymbol, currencyCode: currencyCode, layout: layout, layoutMode: layoutMode, enableStickyCart: enableStickyCart, heading: resolvedHeading, apiBase: apiBase, settings: settings || {}, rootEl: root, step1Label: step1Label, step2Label: step2Label, step3Label: step3Label, cartBtnLabel: cartBtnLabel, checkoutBtnLabel: checkoutBtnLabel, step1Heading: step1Heading, step2Heading: step2Heading, step3Heading: step3Heading, step3Buttons: step3Buttons, previewBoxId: previewBoxId, isPreviewMode: isPreviewMode, autoProductBox: autoProductBox, productBoxOnly: productBoxOnly, productId: currentProductId });
+      renderWidget(root, { shop: shop, boxes: boxes, currencySymbol: currencySymbol, currencyCode: currencyCode, layout: layout, layoutMode: layoutMode, enableStickyCart: enableStickyCart, heading: resolvedHeading, apiBase: apiBase, settings: settings || {}, rootEl: root, step1Label: step1Label, step2Label: step2Label, step3Label: step3Label, cartBtnLabel: cartBtnLabel, checkoutBtnLabel: checkoutBtnLabel, step1Heading: step1Heading, step2Heading: step2Heading, step3Heading: step3Heading, step3Buttons: step3Buttons, previewBoxId: previewBoxId, isPreviewMode: isPreviewMode, autoProductBox: autoProductBox, productBoxOnly: productBoxOnly, productId: currentProductId, boxTypeFilter: boxTypeFilter });
     }, productBoxOnly ? currentProductId : null);
   }
 
@@ -1367,6 +1400,7 @@
       boxIds: el.dataset.boxIds || null,
       productId: el.dataset.productId || null,
       autoProductBox: el.dataset.autoProductBox || false,
+      boxTypeFilter: el.dataset.boxTypeFilter || 'all',
     });
   }
 

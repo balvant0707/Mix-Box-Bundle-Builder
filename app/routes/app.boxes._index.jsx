@@ -225,6 +225,7 @@ export const loader = async ({ request }) => {
   // The previous analysis already removed the calls to these functions from the loader.
   // The imports are now being removed as they are no longer used in this file.
   let boxes = await listBoxes(session.shop, false, true); // listBoxes is still used
+  boxes = boxes.filter((box) => box.simpleBoxPage || box.multipleBoxPage);
   const currencyCode = await getShopCurrencyCode(session.shop);
   const previewUrlByProductId = await getBundlePreviewUrlByProductId(
     admin,
@@ -235,7 +236,7 @@ export const loader = async ({ request }) => {
     currencyCode,
     boxes: boxes.map((b) => ({
       id: b.id,
-      boxType: b.boxType || (getComboConfigSummary(b) ? "specific" : "simple"),
+      boxType: b.boxType || "single",
       boxCode: b.boxCode || null,
       boxName: b.boxName,
       displayTitle: b.displayTitle,
@@ -603,7 +604,6 @@ export default function ManageBoxesPage() {
                       { label: "All Types", value: "all" },
                       { label: "Single Product", value: "single" },
                       { label: "Multi Product", value: "multiple" },
-                      { label: "Specific Combo", value: "specific" },
                     ]}
                     value={boxTypeFilter}
                     onChange={setBoxTypeFilter}
@@ -735,7 +735,6 @@ export default function ManageBoxesPage() {
             <EmptyState
               heading="No Boxes yet"
               action={{ content: "Create Box", onAction: () => navigateTo("/app/create-bundle") }}
-              secondaryAction={{ content: "Create Specific", onAction: () => navigateTo("/app/boxes/specific-combo") }}
               image=""
             >
               <p>Create your first box to let customers build custom bundles on your storefront.</p>

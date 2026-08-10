@@ -304,15 +304,8 @@ const createBoxActions = [
   {
     key: "create-box",
     icon: "package",
-    label: "Create Simple Box",
-    sub: "Preconfigured Shopify product bundle to increase average order value faster.",
-    href: "#",
-  },
-  {
-    key: "create-specific-combo",
-    icon: "target",
-    label: "Create Specific Box",
-    sub: "Step-by-step bundle builder that lets shoppers create a personalized product box.",
+    label: "Create Bundle Box",
+    sub: "Create a single or multiple product bundle box for your storefront.",
     href: "#",
   },
 ];

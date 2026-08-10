@@ -1314,6 +1314,7 @@ export async function getStorefrontBoxes(shop, now) {
   const referenceTime = now instanceof Date && !isNaN(now) ? now : new Date();
 
   return boxes
+    .filter((box) => box.simpleBoxPage || box.multipleBoxPage)
     .map((box) => {
       const pageConfig = box.simpleBoxPage
         ? buildPageConfigFromSimpleBoxPage(box.simpleBoxPage)
