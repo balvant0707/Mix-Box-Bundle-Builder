@@ -858,6 +858,16 @@
     }
   }
 
+  function placeAutoProductRootBeforeFooter(root) {
+    if (!root || root.getAttribute('data-cb-auto-positioned') === '1') return;
+
+    var footer = document.querySelector('footer, .shopify-section-group-footer-group, [id*="shopify-section-footer"], .site-footer');
+    if (!footer || !footer.parentNode || footer === root || footer.contains(root)) return;
+
+    footer.parentNode.insertBefore(root, footer);
+    root.setAttribute('data-cb-auto-positioned', '1');
+  }
+
   function ensurePageLoader() {
     if (_pageLoaderEl) return _pageLoaderEl;
 
@@ -1032,6 +1042,10 @@
       root.innerHTML = '';
       return;
     }
+    if (autoProductBox) {
+      root.classList.add('combo-builder-auto-product-root');
+      placeAutoProductRootBeforeFooter(root);
+    }
     var enableStickyCart = parseBooleanSetting(
       root.dataset.enableStickyCart != null ? root.dataset.enableStickyCart : config.enableStickyCart,
       true
@@ -1181,6 +1195,9 @@
         });
       }
       if (boxes.length === 0) { root.innerHTML = ''; return; }
+      if (autoProductBox) {
+        applyProductPagePreviewMode(root);
+      }
       var previewBoxId = null;
       var previewBox = null;
       if (previewBoxToken) {
@@ -1405,7 +1422,7 @@
 
   function renderWidget(root, ctx) {
     root.innerHTML = '';
-    root.className = 'combo-builder-root cb-loaded';
+    root.className = 'combo-builder-root cb-loaded' + (ctx.autoProductBox ? ' combo-builder-auto-product-root' : '');
 
     var wrapper = document.createElement('div');
     wrapper.className = 'cb-wrapper';
@@ -1523,7 +1540,7 @@
 
     // Single box visible: skip Step 1 entirely — hide heading + grid and auto-select
     if (ctx.boxes.length === 1) {
-      if (ctx.isPreviewMode) {
+      if (ctx.isPreviewMode || ctx.autoProductBox) {
         step1Head.style.display = 'none';
         boxGrid.style.display = 'none';
       }
@@ -1804,6 +1821,40 @@
   // one-box-one-cart-line architecture as a plain Single/Multiple Box, just
   // parameterized by whichever pack was chosen (see buildPackOverrideBox).
 
+  function getPackKey(pack) {
+    return String(pack && (pack.packKey || pack.title || pack.productItems || '') || '');
+  }
+
+  function setActivePackCard(ctx, packKey) {
+    if (!ctx || !ctx._packPickerArea) return;
+    var cards = ctx._packPickerArea.querySelectorAll('.cb-pack-card');
+    for (var i = 0; i < cards.length; i++) {
+      var card = cards[i];
+      var isActive = card.getAttribute('data-pack-key') === packKey;
+      card.classList.toggle('cb-pack-card--active', isActive);
+      card.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    }
+  }
+
+  function hasActivePackSelections(ctx) {
+    return !!(ctx && typeof ctx._activePackHasSelections === 'function' && ctx._activePackHasSelections());
+  }
+
+  function requestOpenPack(pack, box, ctx) {
+    var nextPackKey = getPackKey(pack);
+    if (
+      ctx &&
+      ctx.autoProductBox &&
+      ctx._activePackKey &&
+      ctx._activePackKey !== nextPackKey &&
+      hasActivePackSelections(ctx)
+    ) {
+      var ok = window.confirm('Changing packs will clear the products selected in the current pack. Choose this pack?');
+      if (!ok) return;
+    }
+    openPack(pack, box, ctx);
+  }
+
   function renderPackPicker(container, box, ctx) {
     container.innerHTML = '';
 
@@ -1828,6 +1879,26 @@
     box.quantityPacks.forEach(function (pack) {
       packGrid.appendChild(createPackCard(pack, box, ctx));
     });
+
+    if (ctx.autoProductBox) {
+      var packBuilder = document.createElement('div');
+      packBuilder.className = 'cb-pack-builder-panel';
+      container.appendChild(packBuilder);
+
+      ctx._packPickerArea = packGrid;
+      ctx._packBuilderArea = packBuilder;
+      ctx._activePackKey = null;
+      ctx._activePackHasSelections = null;
+
+      if (box.quantityPacks[0]) {
+        setTimeout(function () { openPack(box.quantityPacks[0], box, ctx); }, 0);
+      }
+    } else {
+      ctx._packPickerArea = null;
+      ctx._packBuilderArea = null;
+      ctx._activePackKey = null;
+      ctx._activePackHasSelections = null;
+    }
   }
 
   function createPackCard(pack, box, ctx) {
@@ -1835,6 +1906,8 @@
     card.className = 'cb-pack-card';
     card.setAttribute('role', 'button');
     card.setAttribute('tabindex', '0');
+    card.setAttribute('aria-pressed', 'false');
+    card.setAttribute('data-pack-key', getPackKey(pack));
 
     var title = document.createElement('div');
     title.className = 'cb-pack-title';
@@ -1879,7 +1952,7 @@
     buttonLabel.textContent = pack.buttonLabel || 'Choose this pack';
     card.appendChild(buttonLabel);
 
-    function onSelect() { openPack(pack, box, ctx); }
+    function onSelect() { requestOpenPack(pack, box, ctx); }
     card.addEventListener('click', onSelect);
     card.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); }
@@ -1896,6 +1969,8 @@
   function buildPackOverrideBox(box, pack) {
     var isManual = String(pack.bundlePriceType || 'manual') === 'manual';
     return Object.assign({}, box, {
+      _packKey: getPackKey(pack),
+      _packTitle: pack.title || ('Pack of ' + pack.productItems),
       itemCount: pack.productItems,
       stepTitle: pack.stepTitle || box.stepTitle,
       stepDescription: pack.stepDescription || box.stepDescription,
@@ -1918,10 +1993,13 @@
   function openPack(pack, box, ctx) {
     var wrapper = document.querySelector('.cb-wrapper');
     if (!wrapper) return;
-    var builderArea = wrapper.querySelector('.cb-builder-area');
+    var builderArea = ctx.autoProductBox && ctx._packBuilderArea ? ctx._packBuilderArea : wrapper.querySelector('.cb-builder-area');
     if (!builderArea) return;
 
     var packBox = buildPackOverrideBox(box, pack);
+    ctx._activePackKey = packBox._packKey;
+    ctx._activePackHasSelections = null;
+    setActivePackCard(ctx, packBox._packKey);
 
     showPageLoader('Loading products…');
     fetchProducts(box.id, ctx.shop, ctx.apiBase, packBox.scopeType, pack.packKey, ctx, function (err, products) {
@@ -1932,7 +2010,9 @@
         return;
       }
       renderBuilder(builderArea, packBox, products, ctx);
-      addBackToPacksControl(builderArea, box, ctx);
+      if (!ctx.autoProductBox) {
+        addBackToPacksControl(builderArea, box, ctx);
+      }
       builderArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   }
@@ -1958,6 +2038,12 @@
     var slots = [];
     for (var s = 0; s < box.itemCount; s++) { slots.push(null); }
     var activeSlotIndex = 0;
+    if (box._packKey) {
+      ctx._activePackKey = String(box._packKey);
+      ctx._activePackHasSelections = function () {
+        return slots.some(function (slot) { return !!slot; });
+      };
+    }
 
     // ── Step 2 Heading ── box/pack stepTitle (admin-configured) wins over the
     // widget-level ctx.step2Heading default; hideBundleHeader hides it entirely.

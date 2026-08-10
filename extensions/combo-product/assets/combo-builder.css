@@ -485,6 +485,35 @@
   outline: none;
 }
 
+.cb-pack-card--active {
+  background: #f0fdf4;
+  border-color: var(--cb-box-cta-bg);
+  box-shadow: var(--cb-shadow-hover);
+  transform: translateY(-2px);
+}
+
+.cb-pack-card--active .cb-pack-select-btn {
+  background: var(--cb-primary);
+  color: #fff;
+}
+
+.cb-pack-builder-panel {
+  margin-top: 24px;
+  padding: 24px;
+  background: #f8fafc;
+  border: 1px solid var(--cb-border);
+  border-radius: var(--cb-radius);
+}
+
+.combo-builder-auto-product-root .cb-wrapper {
+  padding-top: 32px;
+  padding-bottom: 32px;
+}
+
+.combo-builder-auto-product-root .cb-pack-grid {
+  margin-bottom: 20px;
+}
+
 .cb-pack-title {
   font-size: var(--cb-box-title-size);
   font-weight: var(--cb-box-title-weight);
