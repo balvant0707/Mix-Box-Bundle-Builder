@@ -1023,6 +1023,15 @@
     var currencyCode = root.dataset.currency || config.currency || "USD";
     var layout = root.dataset.layout || config.layout || 'grid';
     var layoutMode = root.dataset.layoutMode || config.layoutMode || 'grid';
+    var autoProductBox = parseBooleanSetting(
+      root.dataset.autoProductBox != null ? root.dataset.autoProductBox : config.autoProductBox,
+      false
+    );
+    var currentProductId = normalizeShopifyProductId(root.dataset.productId || config.productId || null);
+    if (autoProductBox && document.querySelector('.combo-builder-root:not(.combo-builder-auto-product-root)')) {
+      root.innerHTML = '';
+      return;
+    }
     var enableStickyCart = parseBooleanSetting(
       root.dataset.enableStickyCart != null ? root.dataset.enableStickyCart : config.enableStickyCart,
       true
@@ -1137,6 +1146,12 @@
       }
 
       if (err || !boxes || boxes.length === 0) { return; }
+      if (autoProductBox) {
+        if (!currentProductId) { return; }
+        boxes = boxes.filter(function (b) {
+          return normalizeShopifyProductId(b && b.shopifyProductId) === currentProductId;
+        });
+      }
       if (boxIdsFilter && boxIdsFilter.length > 0) {
         boxes = boxes.filter(function (b) { return boxIdsFilter.indexOf(b.id) !== -1; });
       }
@@ -1154,7 +1169,7 @@
         });
       }
       // Filter by page assignment: show box if pageHandle is null (all pages) or matches current page
-      if (currentPageHandle) {
+      if (currentPageHandle && !autoProductBox) {
         boxes = boxes.filter(function (b) {
           if (!b.pageHandle) return true; // null = show on all pages
           var ph = String(b.pageHandle).trim();
@@ -1225,8 +1240,8 @@
       var step2Heading = root.dataset.step2Heading || config.step2Heading || 'Step 2: Select your products';
       var step3Heading = root.dataset.step3Heading || config.step3Heading || 'Step 3: Complete your order';
       var step3Buttons = root.dataset.step3Buttons || config.step3Buttons || 'both';
-      renderWidget(root, { shop: shop, boxes: boxes, currencySymbol: currencySymbol, currencyCode: currencyCode, layout: layout, layoutMode: layoutMode, enableStickyCart: enableStickyCart, heading: resolvedHeading, apiBase: apiBase, settings: settings || {}, rootEl: root, step1Label: step1Label, step2Label: step2Label, step3Label: step3Label, cartBtnLabel: cartBtnLabel, checkoutBtnLabel: checkoutBtnLabel, step1Heading: step1Heading, step2Heading: step2Heading, step3Heading: step3Heading, step3Buttons: step3Buttons, previewBoxId: previewBoxId, isPreviewMode: isPreviewMode });
-    });
+      renderWidget(root, { shop: shop, boxes: boxes, currencySymbol: currencySymbol, currencyCode: currencyCode, layout: layout, layoutMode: layoutMode, enableStickyCart: enableStickyCart, heading: resolvedHeading, apiBase: apiBase, settings: settings || {}, rootEl: root, step1Label: step1Label, step2Label: step2Label, step3Label: step3Label, cartBtnLabel: cartBtnLabel, checkoutBtnLabel: checkoutBtnLabel, step1Heading: step1Heading, step2Heading: step2Heading, step3Heading: step3Heading, step3Buttons: step3Buttons, previewBoxId: previewBoxId, isPreviewMode: isPreviewMode, autoProductBox: autoProductBox, productId: currentProductId });
+    }, autoProductBox ? currentProductId : null);
   }
 
   function initLegacyWidget(el) {
@@ -1241,13 +1256,20 @@
       layoutMode: el.dataset.layoutMode || 'grid',
       heading: el.dataset.heading || 'Build Your Own Box!',
       boxIds: el.dataset.boxIds || null,
+      productId: el.dataset.productId || null,
+      autoProductBox: el.dataset.autoProductBox || false,
     });
   }
 
   // ─── API ──────────────────────────────────────────────────────────────────────
 
-  function fetchBoxes(shop, apiBase, cb) {
-    fetch(apiBase + '/api/storefront/boxes?shop=' + encodeURIComponent(shop), { cache: 'no-store' })
+  function fetchBoxes(shop, apiBase, cb, productId) {
+    var url = apiBase + '/api/storefront/boxes?shop=' + encodeURIComponent(shop);
+    var normalizedProductId = normalizeShopifyProductId(productId);
+    if (normalizedProductId) {
+      url += '&productId=' + encodeURIComponent(normalizedProductId);
+    }
+    fetch(url, { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (data) {
         if (data && Array.isArray(data.boxes)) {

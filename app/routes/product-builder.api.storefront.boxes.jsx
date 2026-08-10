@@ -36,6 +36,13 @@ async function getActiveBillingCycleForShop(admin) {
   }
 }
 
+function normalizeShopifyProductId(value) {
+  if (value == null) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  return raw.includes("/") ? raw.split("/").pop() : raw;
+}
+
 // Discount config is only meaningful for dynamically-priced boxes/packs — for
 // "manual" pricing, `discountValue` doubles as the flat bundle price itself
 // (set via the "fixed_amount" discountMode), not an amount to subtract from a
@@ -65,6 +72,7 @@ export const loader = async ({ request }) => {
   const url = new URL(request.url);
   const { session, admin } = await authenticate.public.appProxy(request);
   const shop = session?.shop || url.searchParams.get("shop");
+  const productId = normalizeShopifyProductId(url.searchParams.get("productId"));
 
   if (!shop || !admin) {
     return Response.json({ error: "shop parameter required" }, { status: 400, headers: CORS_HEADERS });
@@ -85,7 +93,11 @@ export const loader = async ({ request }) => {
   });
   const orderLimitReached = orderCredit.orderLimitReached;
 
-  const publicBoxes = boxes.map((box) => {
+  const mappedBoxes = productId
+    ? boxes.filter((box) => normalizeShopifyProductId(box.shopifyProductId) === productId)
+    : boxes;
+
+  const publicBoxes = mappedBoxes.map((box) => {
     const pageConfig = box.pageConfig || null;
     const bannerImageUrl = box.bannerImageUrl || null;
     // Flag so the widget can build the URL via the app proxy (avoids cross-origin issues)

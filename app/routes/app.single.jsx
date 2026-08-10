@@ -980,7 +980,7 @@ function CustomerEligibilitySection({
   );
 }
 
-function BundleInformationSection({ form, onChange }) {
+function BundleInformationSection({ form, onChange, boxCodeError }) {
   return (
     <BlockStack gap="400">
       <TextField
@@ -989,6 +989,16 @@ function BundleInformationSection({ form, onChange }) {
         value={form.title}
         onChange={(value) => onChange('title', value)}
         placeholder="Build your perfect bundle"
+        autoComplete="off"
+      />
+
+      <TextField
+        label="Box block code"
+        value={form.boxCode}
+        onChange={(value) => onChange('boxCode', value)}
+        error={boxCodeError || undefined}
+        helpText="Optional. Use this code in the theme block Specific box(es) setting to show only this bundle."
+        placeholder="Example: 12345"
         autoComplete="off"
       />
 
@@ -2090,6 +2100,7 @@ export default function CreateSingleMixMatchBundlePage() {
 
   const [form, setForm] = useState({
     status: 'active',
+    boxCode: '',
     title: '',
     description: '',
     bundleImage: null,
@@ -2169,6 +2180,7 @@ export default function CreateSingleMixMatchBundlePage() {
 
   const bannerPreview = useFilePreview(form.bannerImage);
   const bundlePreview = useFilePreview(form.bundleImage);
+  const boxCodeError = getBoxCodeValidationError(form.boxCode);
   const customerDisplayValue = useMemo(
     () =>
       getCustomerSelectionLabel(csvToList(form.customers), customerOptions),
@@ -2294,8 +2306,14 @@ export default function CreateSingleMixMatchBundlePage() {
   ]);
 
   const handleSubmit = useCallback(async () => {
+    const codeError = getBoxCodeValidationError(form.boxCode);
     if (!form.title.trim()) {
       setSubmitError('Bundle title is required.');
+      setOpenSections((current) => ({ ...current, bundleInformation: true }));
+      return;
+    }
+    if (codeError) {
+      setSubmitError(codeError);
       setOpenSections((current) => ({ ...current, bundleInformation: true }));
       return;
     }
@@ -2309,6 +2327,7 @@ export default function CreateSingleMixMatchBundlePage() {
       ]);
       const submission = {
         ...form,
+        boxCode: normalizeBoxCode(form.boxCode),
         ...getDiscountSubmissionFields(form, selectedGiftProductIds),
         ...designSettings,
         bundleImage,
@@ -2325,6 +2344,7 @@ export default function CreateSingleMixMatchBundlePage() {
         body: JSON.stringify({
           boxName: title,
           displayTitle: title,
+          boxCode: normalizeBoxCode(form.boxCode),
           itemCount: form.productItems || '1',
           bundlePrice: form.discountMode === 'fixed_amount' ? form.discountValue || '0' : '0',
           boxType: 'single',
@@ -2387,6 +2407,7 @@ export default function CreateSingleMixMatchBundlePage() {
                       <BundleInformationSection
                         form={form}
                         onChange={setField}
+                        boxCodeError={boxCodeError}
                       />
                     </AccordionSection>
                     <AccordionSection

@@ -1048,6 +1048,16 @@ function BundleInformationSection({
       />
 
       <TextField
+        label="Box block code"
+        value={form.boxCode}
+        onChange={(value) => onChange('boxCode', value)}
+        error={boxCodeError || undefined}
+        helpText="Optional. Use this code in the theme block Specific box(es) setting to show only this bundle."
+        placeholder="Example: 12345"
+        autoComplete="off"
+      />
+
+      <TextField
         label="Description"
         value={form.description}
         onChange={(value) => onChange('description', value)}
@@ -3091,6 +3101,7 @@ export default function CreateMultipleMixMatchBundlePage() {
         body: JSON.stringify({
           boxName: title,
           displayTitle: title,
+          boxCode: normalizeBoxCode(form.boxCode),
           itemCount: activePack?.productItems || form.productItems || '1',
           bundlePrice:
             (activePack || form).discountMode === 'fixed_amount'

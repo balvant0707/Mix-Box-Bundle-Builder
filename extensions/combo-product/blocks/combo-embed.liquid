@@ -8,7 +8,35 @@
     currencySymbol: '{{ cart.currency.symbol }}',
     apiBase:        '/apps/product-builder'
   };
+
+  {% if template.name == 'product' and product %}
+  window.__COMBO_BUILDER__ = window.__COMBO_BUILDER__ || [];
+  window.__COMBO_BUILDER__.push({
+    mountId:        'combo-builder-auto-product-{{ product.id }}',
+    shop:           '{{ shop.permanent_domain }}',
+    currency:       '{{ cart.currency.iso_code }}',
+    currencySymbol: '{{ cart.currency.symbol }}',
+    apiBase:        '/apps/product-builder',
+    productId:      '{{ product.id }}',
+    productHandle:  '{{ product.handle }}',
+    autoProductBox: true
+  });
+  {% endif %}
 </script>
+
+{% if template.name == 'product' and product %}
+  <div
+    id="combo-builder-auto-product-{{ product.id }}"
+    class="combo-builder-root combo-builder-auto-product-root"
+    data-shop="{{ shop.permanent_domain }}"
+    data-currency="{{ cart.currency.iso_code }}"
+    data-currency-symbol="{{ cart.currency.symbol }}"
+    data-api-base="/apps/product-builder"
+    data-product-id="{{ product.id }}"
+    data-product-handle="{{ product.handle }}"
+    data-auto-product-box="true"
+  ></div>
+{% endif %}
 
 {% schema %}
 {
