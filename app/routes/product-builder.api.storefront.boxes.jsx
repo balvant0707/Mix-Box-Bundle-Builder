@@ -1,5 +1,5 @@
 import { getStorefrontBoxes } from "../models/boxes.server";
-import { unauthenticated } from "../shopify.server"; // Keep this import
+import { authenticate } from "../shopify.server";
 import { getOrderCreditStatus } from "../models/order-credit.server";
 
 const CORS_HEADERS = {
@@ -11,9 +11,9 @@ const CORS_HEADERS = {
   Expires: "0",
 };
 
-async function getActiveBillingCycleForShop(shop) {
+async function getActiveBillingCycleForShop(admin) {
   try {
-    const { admin } = await unauthenticated.admin(shop);
+    if (!admin) return "monthly";
     const response = await admin.graphql(`#graphql
       query ActiveSubscriptions {
         currentAppInstallation {
@@ -63,9 +63,10 @@ export const loader = async ({ request }) => {
   }
 
   const url = new URL(request.url);
-  const shop = url.searchParams.get("shop");
+  const { session, admin } = await authenticate.public.appProxy(request);
+  const shop = session?.shop || url.searchParams.get("shop");
 
-  if (!shop) {
+  if (!shop || !admin) {
     return Response.json({ error: "shop parameter required" }, { status: 400, headers: CORS_HEADERS });
   }
 
@@ -75,7 +76,7 @@ export const loader = async ({ request }) => {
   // monthly plans => count current month, yearly plans => count current year.
   const { getSubscription } = await import("../models/subscription.server.js");
   const subscription = await getSubscription(shop);
-  const billingCycle = await getActiveBillingCycleForShop(shop);
+  const billingCycle = await getActiveBillingCycleForShop(admin);
   const orderCredit = await getOrderCreditStatus({
     shop,
     subscription,

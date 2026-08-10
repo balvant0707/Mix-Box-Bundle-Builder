@@ -1,5 +1,5 @@
 import db from "../db.server";
-import { unauthenticated } from "../shopify.server";
+import { authenticate } from "../shopify.server";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -100,9 +100,9 @@ export const action = async ({ request, params }) => {
     );
   }
 
-  const url = new URL(request.url);
-  const shop = url.searchParams.get("shop");
-  if (!shop) {
+  const { session, admin } = await authenticate.public.appProxy(request);
+  const shop = session?.shop;
+  if (!shop || !admin) {
     return Response.json(
       { error: "shop parameter required" },
       { status: 400, headers: CORS_HEADERS },
@@ -148,8 +148,6 @@ export const action = async ({ request, params }) => {
   }
 
   try {
-    const { admin } = await unauthenticated.admin(shop);
-
     // Ensure ACTIVE + published, then update price — all before responding so
     // the client can immediately call /cart/add.js and find the variant.
     await activateAndPublish(admin, box.shopifyProductId);

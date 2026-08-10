@@ -1,5 +1,5 @@
 import db from "../db.server";
-import { unauthenticated } from "../shopify.server";
+import { authenticate } from "../shopify.server";
 import { resolveSelectableProducts } from "../models/boxes.server";
 
 const CORS_HEADERS = {
@@ -17,9 +17,10 @@ export const loader = async ({ request, params }) => {
   }
 
   const url = new URL(request.url);
-  const shop = url.searchParams.get("shop");
+  const { session, admin } = await authenticate.public.appProxy(request);
+  const shop = session?.shop || url.searchParams.get("shop");
 
-  if (!shop) {
+  if (!shop || !admin) {
     return Response.json({ error: "shop parameter required" }, { status: 400, headers: CORS_HEADERS });
   }
 
@@ -79,7 +80,6 @@ export const loader = async ({ request, params }) => {
   }
 
   try {
-    const { admin } = await unauthenticated.admin(shop);
     const publicProducts = await resolveSelectableProducts(admin, {
       productConfiguration: productSourceConfig.productConfiguration,
       selectedProductIds: parseJsonArray(productSourceConfig.selectedProductIdsJson),

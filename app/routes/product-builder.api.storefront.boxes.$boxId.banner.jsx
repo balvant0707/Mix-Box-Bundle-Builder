@@ -1,4 +1,5 @@
 import db from "../db.server";
+import { authenticate } from "../shopify.server";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -11,18 +12,25 @@ export const loader = async ({ request, params }) => {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
 
+  const { session } = await authenticate.public.appProxy(request);
+  const shop = session?.shop;
+
+  if (!shop) {
+    return new Response("Unauthorized", { status: 401, headers: CORS_HEADERS });
+  }
+
   const boxId = parseInt(params.boxId);
   if (!boxId) {
-    return new Response("Not found", { status: 404 });
+    return new Response("Not found", { status: 404, headers: CORS_HEADERS });
   }
 
   const box = await db.comboBox.findFirst({
-    where: { id: boxId, deletedAt: null },
+    where: { id: boxId, shop, deletedAt: null },
     select: { bannerImageData: true, bannerImageMimeType: true },
   });
 
   if (!box?.bannerImageData || !box?.bannerImageMimeType) {
-    return new Response("Not found", { status: 404 });
+    return new Response("Not found", { status: 404, headers: CORS_HEADERS });
   }
 
   return new Response(box.bannerImageData, {

@@ -38,7 +38,7 @@ export const action = async ({ request }) => {
   });
 
   // Deliver data export to the merchant as required by GDPR / Shopify policy
-  const shopRecord = await db.shop.findUnique({ where: { shop }, select: { email: true, shopName: true } });
+  const shopRecord = await db.shop.findUnique({ where: { shop }, select: { email: true, name: true } });
   const merchantEmail = shopRecord?.email;
 
   if (merchantEmail) {

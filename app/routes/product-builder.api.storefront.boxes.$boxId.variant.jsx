@@ -1,5 +1,5 @@
 import db from "../db.server";
-import { unauthenticated } from "../shopify.server";
+import { authenticate } from "../shopify.server";
 import { createShopifyBundleProduct } from "../models/boxes.server";
 
 const CORS_HEADERS = {
@@ -94,9 +94,9 @@ export const loader = async ({ request, params }) => {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
 
-  const url = new URL(request.url);
-  const shop = url.searchParams.get("shop");
-  if (!shop) {
+  const { session, admin } = await authenticate.public.appProxy(request);
+  const shop = session?.shop;
+  if (!shop || !admin) {
     return Response.json(
       { error: "shop parameter required" },
       { status: 400, headers: CORS_HEADERS },
@@ -131,8 +131,6 @@ export const loader = async ({ request, params }) => {
   }
 
   try {
-    const { admin } = await unauthenticated.admin(shop);
-
     // Case 1: no Shopify product linked at all — create one
     if (!box.shopifyProductId) {
       const title = box.boxName || box.displayTitle;
