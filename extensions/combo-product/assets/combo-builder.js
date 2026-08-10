@@ -1989,8 +1989,9 @@
 
   function renderPackPicker(container, box, ctx) {
     container.innerHTML = '';
+    var isProductBundlePage = !!(ctx && (ctx.autoProductBox || ctx.productBoxOnly));
 
-    if (!box.hideBundleHeader) {
+    if (!box.hideBundleHeader && !isProductBundlePage) {
       var heading = document.createElement('h2');
       heading.className = 'cb-step-heading';
       heading.textContent = box.stepTitle || ctx.step2Heading || 'Choose your pack';
@@ -2006,13 +2007,16 @@
 
     var packGrid = document.createElement('div');
     packGrid.className = 'cb-pack-grid';
+    if (isProductBundlePage) {
+      packGrid.style.display = 'none';
+    }
     container.appendChild(packGrid);
 
     box.quantityPacks.forEach(function (pack) {
       packGrid.appendChild(createPackCard(pack, box, ctx));
     });
 
-    if (ctx.autoProductBox) {
+    if (isProductBundlePage) {
       var packBuilder = document.createElement('div');
       packBuilder.className = 'cb-pack-builder-panel';
       container.appendChild(packBuilder);
@@ -2125,7 +2129,7 @@
   function openPack(pack, box, ctx) {
     var wrapper = document.querySelector('.cb-wrapper');
     if (!wrapper) return;
-    var builderArea = ctx.autoProductBox && ctx._packBuilderArea ? ctx._packBuilderArea : wrapper.querySelector('.cb-builder-area');
+    var builderArea = ctx._packBuilderArea ? ctx._packBuilderArea : wrapper.querySelector('.cb-builder-area');
     if (!builderArea) return;
 
     var packBox = buildPackOverrideBox(box, pack);
@@ -2142,7 +2146,7 @@
         return;
       }
       renderBuilder(builderArea, packBox, products, ctx);
-      if (!ctx.autoProductBox) {
+      if (!ctx.autoProductBox && !ctx.productBoxOnly) {
         addBackToPacksControl(builderArea, box, ctx);
       }
       builderArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
