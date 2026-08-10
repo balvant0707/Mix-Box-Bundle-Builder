@@ -3,6 +3,9 @@
 </style>
 
 {% if template.name == 'product' %}
+{{- 'combo-builder.css' | asset_url | stylesheet_tag -}}
+<script defer src="{{ 'combo-builder.js' | asset_url }}"></script>
+
 <div
   id="combo-builder-widget-{{ block.id }}"
   class="combo-builder-root"

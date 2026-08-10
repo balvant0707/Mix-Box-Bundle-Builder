@@ -1097,6 +1097,8 @@
   function initWidget(config) {
     var root = document.getElementById(config.mountId);
     if (!root) return;
+    if (root.getAttribute('data-cb-initialized') === '1') return;
+    root.setAttribute('data-cb-initialized', '1');
 
     var shop = root.dataset.shop || config.shop;
     var currencySymbol = root.dataset.currencySymbol || config.currencySymbol || "$";
