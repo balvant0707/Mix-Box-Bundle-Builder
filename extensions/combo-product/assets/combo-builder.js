@@ -861,8 +861,28 @@
   function placeAutoProductRootBeforeFooter(root) {
     if (!root || root.getAttribute('data-cb-auto-positioned') === '1') return;
 
+    var blockedContainer = root.closest && root.closest('header, footer, .shopify-section-group-header-group, .shopify-section-group-footer-group, [id*="shopify-section-header"], [id*="shopify-section-footer"]');
+    var main = document.querySelector('main, #MainContent, [role="main"], .main-content, .content-for-layout');
     var footer = document.querySelector('footer, .shopify-section-group-footer-group, [id*="shopify-section-footer"], .site-footer');
-    if (!footer || !footer.parentNode || footer === root || footer.contains(root)) return;
+
+    if (main && main.contains(root) && !blockedContainer) {
+      root.setAttribute('data-cb-auto-positioned', '1');
+      return;
+    }
+
+    if (main && main !== root && !root.contains(main)) {
+      main.appendChild(root);
+      root.setAttribute('data-cb-auto-positioned', '1');
+      return;
+    }
+
+    if (!footer || !footer.parentNode || footer === root || footer.contains(root)) {
+      if (document.body && root.parentNode !== document.body) {
+        document.body.appendChild(root);
+        root.setAttribute('data-cb-auto-positioned', '1');
+      }
+      return;
+    }
 
     footer.parentNode.insertBefore(root, footer);
     root.setAttribute('data-cb-auto-positioned', '1');
@@ -1044,7 +1064,6 @@
     }
     if (autoProductBox) {
       root.classList.add('combo-builder-auto-product-root');
-      placeAutoProductRootBeforeFooter(root);
     }
     var enableStickyCart = parseBooleanSetting(
       root.dataset.enableStickyCart != null ? root.dataset.enableStickyCart : config.enableStickyCart,
@@ -1196,6 +1215,7 @@
       }
       if (boxes.length === 0) { root.innerHTML = ''; return; }
       if (autoProductBox) {
+        placeAutoProductRootBeforeFooter(root);
         applyProductPagePreviewMode(root);
       }
       var previewBoxId = null;
