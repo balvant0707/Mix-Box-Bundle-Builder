@@ -920,6 +920,24 @@
     root.setAttribute('data-cb-auto-positioned', '1');
   }
 
+  function hasManualComboBuilderRoot(currentRoot) {
+    var roots = document.querySelectorAll('.combo-builder-root:not(.combo-builder-auto-product-root)');
+    for (var i = 0; i < roots.length; i++) {
+      if (roots[i] !== currentRoot) return true;
+    }
+    return false;
+  }
+
+  function clearAutoProductComboRoots(currentRoot) {
+    var roots = document.querySelectorAll('.combo-builder-auto-product-root');
+    for (var i = 0; i < roots.length; i++) {
+      if (roots[i] === currentRoot) continue;
+      roots[i].innerHTML = '';
+      roots[i].style.display = 'none';
+      roots[i].setAttribute('data-cb-suppressed-by-manual-block', '1');
+    }
+  }
+
   function ensurePageLoader() {
     if (_pageLoaderEl) return _pageLoaderEl;
 
@@ -1089,13 +1107,21 @@
       root.dataset.autoProductBox != null ? root.dataset.autoProductBox : config.autoProductBox,
       false
     );
+    var productBoxOnly = autoProductBox || parseBooleanSetting(
+      root.dataset.productBoxOnly != null ? root.dataset.productBoxOnly : config.productBoxOnly,
+      false
+    );
     var currentProductId = normalizeShopifyProductId(root.dataset.productId || config.productId || null);
-    if (autoProductBox && document.querySelector('.combo-builder-root:not(.combo-builder-auto-product-root)')) {
+    if (autoProductBox && hasManualComboBuilderRoot(root)) {
       root.innerHTML = '';
+      root.style.display = 'none';
+      root.setAttribute('data-cb-suppressed-by-manual-block', '1');
       return;
     }
     if (autoProductBox) {
       root.classList.add('combo-builder-auto-product-root');
+    } else {
+      clearAutoProductComboRoots(root);
     }
     var enableStickyCart = parseBooleanSetting(
       root.dataset.enableStickyCart != null ? root.dataset.enableStickyCart : config.enableStickyCart,
@@ -1211,7 +1237,7 @@
       }
 
       if (err || !boxes || boxes.length === 0) { return; }
-      if (autoProductBox) {
+      if (productBoxOnly) {
         if (!currentProductId) { return; }
         boxes = boxes.filter(function (b) {
           return normalizeShopifyProductId(b && b.shopifyProductId) === currentProductId;
@@ -1234,7 +1260,7 @@
         });
       }
       // Filter by page assignment: show box if pageHandle is null (all pages) or matches current page
-      if (currentPageHandle && !autoProductBox) {
+      if (currentPageHandle && !productBoxOnly) {
         boxes = boxes.filter(function (b) {
           if (!b.pageHandle) return true; // null = show on all pages
           var ph = String(b.pageHandle).trim();
@@ -1246,8 +1272,10 @@
         });
       }
       if (boxes.length === 0) { root.innerHTML = ''; return; }
-      if (autoProductBox) {
-        placeAutoProductRootBeforeFooter(root);
+      if (productBoxOnly) {
+        if (autoProductBox) {
+          placeAutoProductRootBeforeFooter(root);
+        }
         applyProductPagePreviewMode(root);
       }
       var previewBoxId = null;
@@ -1309,8 +1337,8 @@
       var step2Heading = root.dataset.step2Heading || config.step2Heading || 'Step 2: Select your products';
       var step3Heading = root.dataset.step3Heading || config.step3Heading || 'Step 3: Complete your order';
       var step3Buttons = root.dataset.step3Buttons || config.step3Buttons || 'both';
-      renderWidget(root, { shop: shop, boxes: boxes, currencySymbol: currencySymbol, currencyCode: currencyCode, layout: layout, layoutMode: layoutMode, enableStickyCart: enableStickyCart, heading: resolvedHeading, apiBase: apiBase, settings: settings || {}, rootEl: root, step1Label: step1Label, step2Label: step2Label, step3Label: step3Label, cartBtnLabel: cartBtnLabel, checkoutBtnLabel: checkoutBtnLabel, step1Heading: step1Heading, step2Heading: step2Heading, step3Heading: step3Heading, step3Buttons: step3Buttons, previewBoxId: previewBoxId, isPreviewMode: isPreviewMode, autoProductBox: autoProductBox, productId: currentProductId });
-    }, autoProductBox ? currentProductId : null);
+      renderWidget(root, { shop: shop, boxes: boxes, currencySymbol: currencySymbol, currencyCode: currencyCode, layout: layout, layoutMode: layoutMode, enableStickyCart: enableStickyCart, heading: resolvedHeading, apiBase: apiBase, settings: settings || {}, rootEl: root, step1Label: step1Label, step2Label: step2Label, step3Label: step3Label, cartBtnLabel: cartBtnLabel, checkoutBtnLabel: checkoutBtnLabel, step1Heading: step1Heading, step2Heading: step2Heading, step3Heading: step3Heading, step3Buttons: step3Buttons, previewBoxId: previewBoxId, isPreviewMode: isPreviewMode, autoProductBox: autoProductBox, productBoxOnly: productBoxOnly, productId: currentProductId });
+    }, productBoxOnly ? currentProductId : null);
   }
 
   function initLegacyWidget(el) {
@@ -1473,6 +1501,12 @@
   // ─── Render Widget ────────────────────────────────────────────────────────────
 
   function renderWidget(root, ctx) {
+    if (ctx.autoProductBox && hasManualComboBuilderRoot(root)) {
+      root.innerHTML = '';
+      root.style.display = 'none';
+      root.setAttribute('data-cb-suppressed-by-manual-block', '1');
+      return;
+    }
     root.innerHTML = '';
     root.className = 'combo-builder-root cb-loaded' + (ctx.autoProductBox ? ' combo-builder-auto-product-root' : '');
 
@@ -1592,7 +1626,7 @@
 
     // Single box visible: skip Step 1 entirely — hide heading + grid and auto-select
     if (ctx.boxes.length === 1) {
-      if (ctx.isPreviewMode || ctx.autoProductBox) {
+      if (ctx.isPreviewMode || ctx.autoProductBox || ctx.productBoxOnly) {
         step1Head.style.display = 'none';
         boxGrid.style.display = 'none';
       }

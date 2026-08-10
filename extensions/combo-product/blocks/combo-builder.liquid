@@ -27,6 +27,8 @@
   data-visible-boxes="{{ block.settings.box_names }}"
   {% endif %}
   data-page-template="{{ template.name }}"
+  data-product-id="{{ product.id }}"
+  data-product-box-only="true"
   {% case template.name %}
     {% when 'page' %}
     data-page-handle="page:{{ page.handle }}"
@@ -59,6 +61,8 @@
     currency:       '{{ cart.currency.iso_code }}',
     currencySymbol: '{{ cart.currency.symbol }}',
     apiBase:        '/apps/product-builder',
+    productId:      '{{ product.id }}',
+    productBoxOnly: true,
     productHandle:  '{{ product.handle }}',
     layoutMode:        '{{ block.settings.layout_mode | default: "grid" }}',
     enableStickyCart:  {{ block.settings.enable_sticky_cart | default: true, allow_false: true | json }},
@@ -78,7 +82,7 @@
 
 {% schema %}
 {
-  "name": "Combo Builder",
+  "name": "Build Your Box",
   "target": "section",
   "settings": [
     {
