@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Form, useActionData, useLoaderData } from "react-router";
+import { Form, redirect, useActionData, useLoaderData } from "react-router";
 import { AppProvider as PolarisAppProvider } from "@shopify/polaris";
 import {
   Banner,
@@ -17,8 +17,31 @@ import "@shopify/polaris/build/esm/styles.css";
 import { login } from "../../shopify.server";
 import { loginErrorMessage } from "./error.server";
 
+function getShopFromAdminReferer(request) {
+  const referer = request.headers.get("referer") || "";
+  if (!referer) return "";
+
+  try {
+    const refererUrl = new URL(referer);
+    if (refererUrl.hostname !== "admin.shopify.com") return "";
+    const match = refererUrl.pathname.match(/\/store\/([^/]+)/i);
+    const storeHandle = match?.[1] ? decodeURIComponent(match[1]).trim() : "";
+    if (!/^[a-z0-9][a-z0-9-]*$/i.test(storeHandle)) return "";
+    return `${storeHandle.toLowerCase()}.myshopify.com`;
+  } catch {
+    return "";
+  }
+}
+
 export const loader = async ({ request }) => {
   const url = new URL(request.url);
+  if (!url.searchParams.get("shop")) {
+    const refererShop = getShopFromAdminReferer(request);
+    if (refererShop) {
+      throw redirect(`/auth?shop=${encodeURIComponent(refererShop)}`);
+    }
+  }
+
   const errors = loginErrorMessage(await login(request));
 
   return {

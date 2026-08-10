@@ -1,7 +1,7 @@
 export const EMBEDDED_APP_PARAM_KEYS = ["embedded", "host", "shop", "locale"];
 const SHOPIFY_ADMIN_HOST = "admin.shopify.com";
 const SHOPIFY_APP_HANDLE =
-  process.env.SHOPIFY_APP_HANDLE?.trim() || "mixbox-box-bundle-builder";
+  process.env.SHOPIFY_APP_HANDLE?.trim() || "mix-box-bundle-builder";
 
 export function withEmbeddedAppParams(target, currentSearch = "") {
   const baseUrl = new URL("https://app.local");

@@ -150,8 +150,12 @@ const RESOLVE_PRODUCTS_BY_ID_QUERY = `#graphql
         handle
         status
         featuredImage { url }
+        options {
+          name
+          values
+        }
         variants(first: 100) {
-          edges { node { id price availableForSale } }
+          edges { node { id price availableForSale selectedOptions { name value } } }
         }
       }
     }
@@ -169,8 +173,12 @@ const RESOLVE_PRODUCTS_BY_COLLECTION_QUERY = `#graphql
             handle
             status
             featuredImage { url }
+            options {
+              name
+              values
+            }
             variants(first: 100) {
-              edges { node { id price availableForSale } }
+              edges { node { id price availableForSale selectedOptions { name value } } }
             }
           }
         }
@@ -183,10 +191,18 @@ const RESOLVE_PRODUCTS_BY_COLLECTION_QUERY = `#graphql
 function mapGraphqlProductNode(node, { hideOutOfStockProducts = false } = {}) {
   if (!node || node.status !== "ACTIVE") return null;
   const variantEdges = node.variants?.edges || [];
+  const availableForSale = variantEdges.some((edge) => edge.node?.availableForSale);
   if (hideOutOfStockProducts && !variantEdges.some((edge) => edge.node?.availableForSale)) {
     return null;
   }
   const firstPrice = variantEdges[0]?.node?.price;
+  const productOptions = Array.isArray(node.options)
+    ? node.options.map((option) => ({
+        name: option?.name || "",
+        values: Array.isArray(option?.values) ? option.values.filter(Boolean) : [],
+      })).filter((option) => option.name && option.values.length > 0)
+    : [];
+  const colorOption = productOptions.find((option) => /^(color|colour)$/i.test(option.name));
   return {
     id: node.id,
     productId: node.id,
@@ -194,8 +210,17 @@ function mapGraphqlProductNode(node, { hideOutOfStockProducts = false } = {}) {
     productImageUrl: node.featuredImage?.url || null,
     productHandle: node.handle,
     productPrice: firstPrice != null ? parseFloat(firstPrice) : null,
+    productAvailable: availableForSale,
+    productOptions,
+    colorValues: colorOption?.values || [],
     isCollection: false,
     variantIds: variantEdges.map((edge) => String(edge.node.id).split("/").pop()),
+    variants: variantEdges.map((edge) => ({
+      id: String(edge.node.id).split("/").pop(),
+      price: edge.node.price != null ? parseFloat(edge.node.price) : null,
+      available: !!edge.node.availableForSale,
+      selectedOptions: Array.isArray(edge.node.selectedOptions) ? edge.node.selectedOptions : [],
+    })),
   };
 }
 

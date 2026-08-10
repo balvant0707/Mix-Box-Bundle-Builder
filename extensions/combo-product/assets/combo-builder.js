@@ -122,6 +122,59 @@
     return [3, 4, 5].indexOf(parsed) !== -1 ? parsed : 4;
   }
 
+  function normalizeOptionList(options) {
+    if (!Array.isArray(options)) return [];
+    return options.map(function (option) {
+      if (!option) return null;
+      var name = option.name || option;
+      var values = Array.isArray(option.values) ? option.values : [];
+      return {
+        name: String(name || '').trim(),
+        values: values.map(function (value) { return String(value || '').trim(); }).filter(Boolean)
+      };
+    }).filter(function (option) { return option && option.name && option.values.length > 0; });
+  }
+
+  function getProductColorValues(product) {
+    var values = [];
+    if (Array.isArray(product && product.colorValues)) values = values.concat(product.colorValues);
+    var options = normalizeOptionList(product && product.productOptions);
+    options.forEach(function (option) {
+      if (/^(color|colour)$/i.test(option.name)) values = values.concat(option.values);
+    });
+    if (Array.isArray(product && product.variants)) {
+      product.variants.forEach(function (variant) {
+        (variant.selectedOptions || []).forEach(function (option) {
+          if (option && /^(color|colour)$/i.test(option.name)) values.push(option.value);
+        });
+      });
+    }
+    var seen = {};
+    return values.map(function (value) { return String(value || '').trim(); })
+      .filter(function (value) {
+        var key = value.toLowerCase();
+        if (!value || seen[key]) return false;
+        seen[key] = true;
+        return true;
+      });
+  }
+
+  function productMatchesColor(product, color) {
+    if (!color) return true;
+    var wanted = String(color).toLowerCase();
+    return getProductColorValues(product).some(function (value) {
+      return String(value).toLowerCase() === wanted;
+    });
+  }
+
+  function isProductAvailable(product) {
+    if (product && product.productAvailable != null) return !!product.productAvailable;
+    if (Array.isArray(product && product.variants) && product.variants.length > 0) {
+      return product.variants.some(function (variant) { return !!variant.available; });
+    }
+    return true;
+  }
+
   function parseBooleanSetting(value, fallback) {
     if (value == null || value === '') return !!fallback;
     if (typeof value === 'boolean') return value;
@@ -1088,6 +1141,19 @@
               productHandle: p.handle,
               productImageUrl: p.images && p.images[0] ? p.images[0].src : null,
               productPrice: v0 ? parseFloat(v0.price) : 0,
+              productAvailable: (p.variants || []).some(function (v) { return !!v.available; }),
+              productOptions: normalizeOptionList(p.options || []),
+              colorValues: normalizeOptionList(p.options || []).filter(function (option) { return /^(color|colour)$/i.test(option.name); }).reduce(function (acc, option) { return acc.concat(option.values); }, []),
+              variants: (p.variants || []).map(function (v) {
+                return {
+                  id: String(v.id),
+                  price: v.price != null ? parseFloat(v.price) : null,
+                  available: !!v.available,
+                  selectedOptions: normalizeOptionList(p.options || []).map(function (option, index) {
+                    return { name: option.name, value: v['option' + (index + 1)] || '' };
+                  }).filter(function (option) { return option.value; })
+                };
+              }),
               variantIds: (p.variants || []).map(function (v) { return String(v.id); }),
             });
           });
@@ -1502,6 +1568,19 @@
               productHandle: p.handle || '',
               productImageUrl: p.images && p.images[0] ? p.images[0].src : null,
               productPrice: v0 ? parseFloat(v0.price) : 0,
+              productAvailable: (p.variants || []).some(function (v) { return !!v.available; }),
+              productOptions: normalizeOptionList(p.options || []),
+              colorValues: normalizeOptionList(p.options || []).filter(function (option) { return /^(color|colour)$/i.test(option.name); }).reduce(function (acc, option) { return acc.concat(option.values); }, []),
+              variants: (p.variants || []).map(function (v) {
+                return {
+                  id: String(v.id),
+                  price: v.price != null ? parseFloat(v.price) : null,
+                  available: !!v.available,
+                  selectedOptions: normalizeOptionList(p.options || []).map(function (option, index) {
+                    return { name: option.name, value: v['option' + (index + 1)] || '' };
+                  }).filter(function (option) { return option.value; })
+                };
+              }),
               variantIds: (p.variants || []).map(function (v) { return String(v.id); }),
               isCollection: false,
               vendor: p.vendor || '',
@@ -2163,6 +2242,7 @@
     container.innerHTML = '';
 
     var searchTerm = '';
+    var productFilters = { availability: 'all', color: '', minPrice: '', maxPrice: '' };
     var selectedProductsPerRow = normalizeProductGridControlPerRow(ctx.settings && ctx.settings.productCardsPerRow);
     var sessionId = generateSessionId();
     var slots = [];
@@ -2438,8 +2518,112 @@
         renderProductGrid();
       });
       searchWrap.appendChild(searchInput);
+      var productCountEl = document.createElement('span');
+      productCountEl.className = 'cb-product-search-count';
+      productCountEl.textContent = '0';
+      searchWrap.appendChild(productCountEl);
       productToolbar.appendChild(searchWrap);
     }
+
+    var filterWrap = document.createElement('div');
+    filterWrap.className = 'cb-product-filter-wrap';
+    var filterButton = document.createElement('button');
+    filterButton.type = 'button';
+    filterButton.className = 'cb-product-filter-btn';
+    filterButton.setAttribute('aria-expanded', 'false');
+    filterButton.setAttribute('aria-label', 'Filter products');
+    filterButton.innerHTML = '<span class="cb-filter-icon" aria-hidden="true"></span><span class="cb-filter-btn-text">Filter</span>';
+    filterWrap.appendChild(filterButton);
+
+    var filterPanel = document.createElement('div');
+    filterPanel.className = 'cb-product-filter-panel';
+    filterPanel.hidden = true;
+
+    function addFilterLabel(text) {
+      var label = document.createElement('label');
+      label.className = 'cb-product-filter-label';
+      label.textContent = text;
+      filterPanel.appendChild(label);
+      return label;
+    }
+
+    addFilterLabel('Availability');
+    var availabilitySelect = document.createElement('select');
+    availabilitySelect.className = 'cb-product-filter-select';
+    [
+      { label: 'All', value: 'all' },
+      { label: 'Available', value: 'available' },
+      { label: 'Unavailable', value: 'unavailable' }
+    ].forEach(function (option) {
+      var opt = document.createElement('option');
+      opt.value = option.value;
+      opt.textContent = option.label;
+      availabilitySelect.appendChild(opt);
+    });
+    availabilitySelect.addEventListener('change', function () {
+      productFilters.availability = availabilitySelect.value || 'all';
+      renderProductGrid();
+    });
+    filterPanel.appendChild(availabilitySelect);
+
+    addFilterLabel('Color');
+    var colorSelect = document.createElement('select');
+    colorSelect.className = 'cb-product-filter-select';
+    var allColorOption = document.createElement('option');
+    allColorOption.value = '';
+    allColorOption.textContent = 'All colors';
+    colorSelect.appendChild(allColorOption);
+    var colorMap = {};
+    products.forEach(function (product) {
+      getProductColorValues(product).forEach(function (color) {
+        colorMap[String(color).toLowerCase()] = color;
+      });
+    });
+    Object.keys(colorMap).sort().forEach(function (key) {
+      var opt = document.createElement('option');
+      opt.value = colorMap[key];
+      opt.textContent = colorMap[key];
+      colorSelect.appendChild(opt);
+    });
+    colorSelect.addEventListener('change', function () {
+      productFilters.color = colorSelect.value || '';
+      renderProductGrid();
+    });
+    filterPanel.appendChild(colorSelect);
+
+    addFilterLabel('Price');
+    var priceRow = document.createElement('div');
+    priceRow.className = 'cb-product-price-filter-row';
+    var minPriceInput = document.createElement('input');
+    minPriceInput.type = 'number';
+    minPriceInput.min = '0';
+    minPriceInput.step = '0.01';
+    minPriceInput.placeholder = 'Min';
+    minPriceInput.className = 'cb-product-price-filter-input';
+    var maxPriceInput = document.createElement('input');
+    maxPriceInput.type = 'number';
+    maxPriceInput.min = '0';
+    maxPriceInput.step = '0.01';
+    maxPriceInput.placeholder = 'Max';
+    maxPriceInput.className = 'cb-product-price-filter-input';
+    function onPriceFilterChange() {
+      productFilters.minPrice = minPriceInput.value;
+      productFilters.maxPrice = maxPriceInput.value;
+      renderProductGrid();
+    }
+    minPriceInput.addEventListener('input', onPriceFilterChange);
+    maxPriceInput.addEventListener('input', onPriceFilterChange);
+    priceRow.appendChild(minPriceInput);
+    priceRow.appendChild(maxPriceInput);
+    filterPanel.appendChild(priceRow);
+
+    filterButton.addEventListener('click', function () {
+      var nextOpen = !!filterPanel.hidden;
+      filterPanel.hidden = !nextOpen;
+      filterButton.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+    });
+    filterWrap.appendChild(filterPanel);
+    productToolbar.appendChild(filterWrap);
 
     var rowControl = document.createElement('div');
     rowControl.className = 'cb-products-per-row-control';
@@ -2468,7 +2652,7 @@
       var rowBtn = document.createElement('button');
       rowBtn.type = 'button';
       rowBtn.className = 'cb-products-per-row-btn';
-      rowBtn.textContent = String(count);
+      rowBtn.innerHTML = Array(count + 1).join('<span></span>');
       rowBtn.setAttribute('data-row-count', String(count));
       rowBtn.setAttribute('aria-label', 'Show ' + count + ' products per row');
       rowBtn.setAttribute('aria-pressed', 'false');
@@ -2669,11 +2853,47 @@
         ? products.filter(function (p) { return String(p && p.productTitle || '').toLowerCase().indexOf(searchTerm) !== -1; })
         : products;
 
+      if (productFilters.availability === 'available') {
+        visibleProducts = visibleProducts.filter(function (p) { return isProductAvailable(p); });
+      } else if (productFilters.availability === 'unavailable') {
+        visibleProducts = visibleProducts.filter(function (p) { return !isProductAvailable(p); });
+      }
+
+      if (productFilters.color) {
+        visibleProducts = visibleProducts.filter(function (p) {
+          return productMatchesColor(p, productFilters.color);
+        });
+      }
+
+      var minPrice = productFilters.minPrice !== '' ? parseFloat(productFilters.minPrice) : null;
+      var maxPrice = productFilters.maxPrice !== '' ? parseFloat(productFilters.maxPrice) : null;
+      if (minPrice != null && !isNaN(minPrice)) {
+        visibleProducts = visibleProducts.filter(function (p) {
+          var price = parseFloat(p && p.productPrice);
+          return !isNaN(price) && price >= minPrice;
+        });
+      }
+      if (maxPrice != null && !isNaN(maxPrice)) {
+        visibleProducts = visibleProducts.filter(function (p) {
+          var price = parseFloat(p && p.productPrice);
+          return !isNaN(price) && price <= maxPrice;
+        });
+      }
+
+      if (productCountEl) {
+        productCountEl.textContent = String(visibleProducts.length) + ' shown';
+      }
+
       if (searchTerm && visibleProducts.length === 0) {
         var noResults = document.createElement('p');
         noResults.className = 'cb-product-search-empty';
-        noResults.textContent = 'No products match "' + searchInput.value + '".';
+        noResults.textContent = 'No products match "' + (searchInput ? searchInput.value : '') + '".';
         productGrid.appendChild(noResults);
+      } else if (visibleProducts.length === 0) {
+        var noFilteredResults = document.createElement('p');
+        noFilteredResults.className = 'cb-product-search-empty';
+        noFilteredResults.textContent = 'No products match the selected filters.';
+        productGrid.appendChild(noFilteredResults);
       }
 
       visibleProducts.forEach(function (product) {

@@ -31,13 +31,36 @@ function getNextPlanLabel(planKey) {
   return null;
 }
 
+function getShopFromAdminReferer(request) {
+  const referer = request.headers.get("referer") || "";
+  if (!referer) return "";
+
+  try {
+    const refererUrl = new URL(referer);
+    if (refererUrl.hostname !== "admin.shopify.com") return "";
+    const match = refererUrl.pathname.match(/\/store\/([^/]+)/i);
+    const storeHandle = match?.[1] ? decodeURIComponent(match[1]).trim() : "";
+    if (!/^[a-z0-9][a-z0-9-]*$/i.test(storeHandle)) return "";
+    return `${storeHandle.toLowerCase()}.myshopify.com`;
+  } catch {
+    return "";
+  }
+}
+
 export const loader = async ({ request }) => {
   if (isbot(request.headers.get("User-Agent") || "")) {
     throw new Response(null, { status: 204 });
   }
 
-  const { session, admin, billing } = await authenticate.admin(request);
   const url = new URL(request.url);
+  if (!url.searchParams.get("shop") && !url.searchParams.get("host")) {
+    const refererShop = getShopFromAdminReferer(request);
+    if (refererShop) {
+      throw redirect(`/auth?shop=${encodeURIComponent(refererShop)}`);
+    }
+  }
+
+  const { session, admin, billing } = await authenticate.admin(request);
   const pathname = url.pathname;
   const subscribedCallback = url.searchParams.get("subscribed") === "1";
   // Routes that are always allowed regardless of subscription state
@@ -326,10 +349,10 @@ export default function App() {
         }
       `}</style>
       <s-app-nav>
-        <s-link href="/app/create-bundle">Create Bundle</s-link>
-        <s-link href="/app/boxes">Manage Boxes</s-link>
-        <s-link href="/app/analytics">Analytics</s-link>
-        <s-link href="/app/pricing">Price Plan</s-link>
+        <s-link href={withEmbeddedAppParams("/app/create-bundle", location.search)}>Create Bundle</s-link>
+        <s-link href={withEmbeddedAppParams("/app/boxes", location.search)}>Manage Boxes</s-link>
+        <s-link href={withEmbeddedAppParams("/app/analytics", location.search)}>Analytics</s-link>
+        <s-link href={withEmbeddedAppParams("/app/pricing", location.search)}>Price Plan</s-link>
       </s-app-nav>
       {!embedBlockEnabled && (
         <Page>
