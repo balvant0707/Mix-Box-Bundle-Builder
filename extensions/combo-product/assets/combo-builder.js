@@ -2047,6 +2047,22 @@
     return null;
   }
 
+  function appendActiveBoxBanner(container, box, ctx) {
+    if (!container || !box || box.hideBannerImage) return;
+    var bannerSrc = getBoxCardBannerSrc(box, ctx);
+    if (!bannerSrc) return;
+
+    var banner = document.createElement('div');
+    banner.className = 'cb-box-banner cb-box-banner--active';
+    var img = document.createElement('img');
+    img.className = 'cb-box-banner-img';
+    img.src = bannerSrc;
+    img.alt = box.displayTitle || box.boxName || 'Bundle banner';
+    img.loading = 'lazy';
+    banner.appendChild(img);
+    container.appendChild(banner);
+  }
+
   function createBoxCard(box, ctx) {
     var card = document.createElement('div');
     card.className = 'cb-box-card' + (box.productImageAutoHeight ? ' cb-box-card--auto-height' : '');
@@ -2056,26 +2072,6 @@
 
     var designStyle = buildBoxDesignStyle(box.designSettings);
     if (designStyle) card.setAttribute('style', designStyle);
-
-    // Banner image (no overlay title)
-    if (!box.hideBannerImage) {
-      var banner = document.createElement('div');
-      banner.className = 'cb-box-banner';
-      var bannerSrc = getBoxCardBannerSrc(box, ctx);
-      if (bannerSrc) {
-        banner.style.backgroundImage = 'url("' + bannerSrc + '")';
-        banner.style.backgroundSize = 'cover';
-        banner.style.backgroundPosition = 'center';
-        banner.style.backgroundRepeat = 'no-repeat';
-      }
-
-      // Subtle dark scrim (no text)
-      var overlay = document.createElement('div');
-      overlay.className = 'cb-box-banner-overlay';
-      banner.appendChild(overlay);
-
-      card.appendChild(banner);
-    }
 
     // Gift badge — top-left corner of card
     if (box.isGiftBox) {
@@ -2339,6 +2335,7 @@
 
   function renderPackPicker(container, box, ctx) {
     container.innerHTML = '';
+    appendActiveBoxBanner(container, box, ctx);
 
     if (!box.hideBundleHeader) {
       var heading = document.createElement('h2');
@@ -2506,6 +2503,7 @@
 
   function renderBuilder(container, box, products, ctx) {
     container.innerHTML = '';
+    if (!box._packKey) appendActiveBoxBanner(container, box, ctx);
 
     var searchTerm = '';
     var selectedProductsPerRow = normalizeProductGridControlPerRow(ctx.settings && ctx.settings.productCardsPerRow);
@@ -3546,6 +3544,7 @@
 
   function renderSpecificComboBuilder(container, box, ctx) {
     container.innerHTML = '';
+    appendActiveBoxBanner(container, box, ctx);
 
     var comboConfig = box.comboConfig;
     var numSteps = comboConfig.comboType || comboConfig.steps.length;

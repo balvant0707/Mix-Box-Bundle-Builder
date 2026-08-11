@@ -1151,7 +1151,11 @@ function parseJsonArray(value) {
   }
 }
 
-function buildImageDataUri(data, mimeType, url) {
+const SAVED_IMAGE_PLACEHOLDER =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='180' viewBox='0 0 320 180'%3E%3Crect width='320' height='180' fill='%23f6f6f7'/%3E%3Ctext x='160' y='92' text-anchor='middle' font-family='Arial,sans-serif' font-size='14' fill='%236d7175'%3ESaved image%3C/text%3E%3C/svg%3E";
+
+function buildImageDataUri(data, mimeType, url, includeImageData = true) {
+  if (!includeImageData && data) return url || SAVED_IMAGE_PLACEHOLDER;
   if (data) {
     const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
     return `data:${mimeType || "image/jpeg"};base64,${buffer.toString("base64")}`;
@@ -1208,15 +1212,16 @@ function toPlainNumber(value) {
   return Number.isFinite(numeric) ? numeric : value;
 }
 
-export function buildPageConfigFromSimpleBoxPage(page) {
+export function buildPageConfigFromSimpleBoxPage(page, options = {}) {
   if (!page) return null;
+  const includeImageData = options.includeImageData !== false;
 
   const { bundleImageData, bannerImageData, ...rest } = page;
   return {
     ...rest,
     discountValue: toPlainNumber(page.discountValue),
-    bundleImage: buildImageDataUri(bundleImageData, page.bundleImageMimeType, page.bundleImageUrl),
-    bannerImage: buildImageDataUri(bannerImageData, page.bannerImageMimeType, page.bannerImageUrl),
+    bundleImage: buildImageDataUri(bundleImageData, page.bundleImageMimeType, page.bundleImageUrl, includeImageData),
+    bannerImage: buildImageDataUri(bannerImageData, page.bannerImageMimeType, page.bannerImageUrl, includeImageData),
     designSettings: buildDesignSettingsForRead(page),
     selectedProductIds: parseJsonArray(page.selectedProductIdsJson),
     selectedCollectionIds: parseJsonArray(page.selectedCollectionIdsJson),
@@ -1225,15 +1230,16 @@ export function buildPageConfigFromSimpleBoxPage(page) {
   };
 }
 
-export function buildPageConfigFromMultipleBoxPage(page) {
+export function buildPageConfigFromMultipleBoxPage(page, options = {}) {
   if (!page) return null;
+  const includeImageData = options.includeImageData !== false;
 
   const { bundleImageData, bannerImageData, ...rest } = page;
   return {
     ...rest,
     discountValue: toPlainNumber(page.discountValue),
-    bundleImage: buildImageDataUri(bundleImageData, page.bundleImageMimeType, page.bundleImageUrl),
-    bannerImage: buildImageDataUri(bannerImageData, page.bannerImageMimeType, page.bannerImageUrl),
+    bundleImage: buildImageDataUri(bundleImageData, page.bundleImageMimeType, page.bundleImageUrl, includeImageData),
+    bannerImage: buildImageDataUri(bannerImageData, page.bannerImageMimeType, page.bannerImageUrl, includeImageData),
     designSettings: buildDesignSettingsForRead(page),
     selectedProductIds: parseJsonArray(page.selectedProductIdsJson),
     selectedCollectionIds: parseJsonArray(page.selectedCollectionIdsJson),
@@ -1250,7 +1256,7 @@ export function buildPageConfigFromMultipleBoxPage(page) {
   };
 }
 
-export async function getBox(id, shop) {
+export async function getBox(id, shop, options = {}) {
   const box = await db.comboBox.findFirst({
     where: { id: parseInt(id), shop, deletedAt: null },
     select: {
@@ -1292,8 +1298,8 @@ export async function getBox(id, shop) {
   // Multiple Box page fields and quantity packs come exclusively from the
   // multipleBoxPage/quantityPacks relations — never from comboStepsConfig.
   const pageConfig = box.simpleBoxPage
-    ? buildPageConfigFromSimpleBoxPage(box.simpleBoxPage)
-    : buildPageConfigFromMultipleBoxPage(box.multipleBoxPage);
+    ? buildPageConfigFromSimpleBoxPage(box.simpleBoxPage, options)
+    : buildPageConfigFromMultipleBoxPage(box.multipleBoxPage, options);
 
   return {
     ...box,

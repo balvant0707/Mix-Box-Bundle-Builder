@@ -252,21 +252,7 @@ export const loader = async ({ request, params }) => {
     }
   }
 
-  const [box, productsJson, collectionsJson] = await Promise.all([
-    getBox(params.id, session.shop),
-    loadJsonOrNull(
-      admin.graphql(PRODUCTS_QUERY, {
-        variables: { first: PICKER_PAGE_SIZE, after: null },
-      }),
-      'products',
-    ),
-    loadJsonOrNull(
-      admin.graphql(COLLECTIONS_QUERY, {
-        variables: { first: PICKER_PAGE_SIZE, after: null },
-      }),
-      'collections',
-    ),
-  ]);
+  const box = await getBox(params.id, session.shop, { includeImageData: false });
 
   if (!box) {
     const location = withEmbeddedAppParams("/app/boxes", new URL(request.url).search);
@@ -276,19 +262,6 @@ export const loader = async ({ request, params }) => {
     });
   }
 
-  if (
-    productsJson?.errors?.length ||
-    collectionsJson?.errors?.length
-  ) {
-    console.warn('[app.simple] GraphQL errors', {
-      products: productsJson?.errors,
-      collections: collectionsJson?.errors,
-    });
-  }
-
-  const products = mapProductEdges(productsJson?.data?.products?.edges);
-  const collections = mapCollectionEdges(collectionsJson?.data?.collections?.edges);
-
   return {
     initialData: {
       ...(box.pageConfig || {}),
@@ -296,10 +269,10 @@ export const loader = async ({ request, params }) => {
     },
     customers: [],
     customerTags: [],
-    products,
-    collections,
-    productsPageInfo: getPageInfo(productsJson?.data?.products),
-    collectionsPageInfo: getPageInfo(collectionsJson?.data?.collections),
+    products: [],
+    collections: [],
+    productsPageInfo: EMPTY_PAGE_INFO,
+    collectionsPageInfo: EMPTY_PAGE_INFO,
   };
 };
 
