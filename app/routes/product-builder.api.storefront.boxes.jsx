@@ -147,6 +147,8 @@ export const loader = async ({ request }) => {
       isActive: true,
       allowDuplicates: box.allowDuplicates,
       bannerImageUrl,
+      bannerImage: pageConfig?.bannerImage || null,
+      bundleImage: pageConfig?.bundleImage || null,
       hasUploadedBanner,
       giftMessageEnabled: giftMessageEnabledFromConfig !== null
         ? giftMessageEnabledFromConfig

@@ -2025,6 +2025,7 @@
   // ─── Box Card ─────────────────────────────────────────────────────────────────
 
   function getBoxCardBannerSrc(box, ctx) {
+    if (box.bannerImage) return box.bannerImage;
     if (box.bannerImageUrl) return box.bannerImageUrl;
     if (box.hasUploadedBanner) {
       return ctx.apiBase + '/api/storefront/boxes/' + box.id + '/banner';
@@ -2037,6 +2038,12 @@
       if (steps[i] && steps[i].stepImageUrl) return steps[i].stepImageUrl;
     }
 
+    return null;
+  }
+
+  function getBoxCardBundleImageSrc(box) {
+    if (box.bundleImage) return box.bundleImage;
+    if (box.bundleImageUrl) return box.bundleImageUrl;
     return null;
   }
 
@@ -2059,6 +2066,7 @@
         banner.style.backgroundImage = 'url("' + bannerSrc + '")';
         banner.style.backgroundSize = 'cover';
         banner.style.backgroundPosition = 'center';
+        banner.style.backgroundRepeat = 'no-repeat';
       }
 
       // Subtle dark scrim (no text)
@@ -2106,6 +2114,19 @@
     // Body text
     var body = document.createElement('div');
     body.className = 'cb-box-body';
+
+    var bundleImageSrc = getBoxCardBundleImageSrc(box);
+    if (bundleImageSrc) {
+      var bundleImageWrap = document.createElement('div');
+      bundleImageWrap.className = 'cb-box-bundle-image-wrap';
+      var bundleImage = document.createElement('img');
+      bundleImage.className = 'cb-box-bundle-image';
+      bundleImage.src = bundleImageSrc;
+      bundleImage.alt = box.displayTitle || box.boxName || 'Bundle image';
+      bundleImage.loading = 'lazy';
+      bundleImageWrap.appendChild(bundleImage);
+      body.appendChild(bundleImageWrap);
+    }
 
     // Display title moved from banner overlay to body
     var titleText = document.createElement('div');
@@ -2487,7 +2508,6 @@
     container.innerHTML = '';
 
     var searchTerm = '';
-    var productFilters = { availability: 'all', color: '', minPrice: '', maxPrice: '', vendor: '', productType: '' };
     var selectedProductsPerRow = normalizeProductGridControlPerRow(ctx.settings && ctx.settings.productCardsPerRow);
     var sessionId = generateSessionId();
     var slots = [];
@@ -2770,364 +2790,6 @@
       searchWrap.appendChild(productCountEl);
     }
 
-    var filterWrap = document.createElement('div');
-    filterWrap.className = 'cb-product-filter-wrap';
-    var filterButton = document.createElement('button');
-    filterButton.type = 'button';
-    filterButton.className = 'cb-product-filter-btn';
-    filterButton.setAttribute('aria-expanded', 'false');
-    filterButton.setAttribute('aria-label', 'Filter products');
-    filterButton.innerHTML = '<span class="cb-filter-icon" aria-hidden="true"></span><span class="cb-filter-btn-text">Filter</span>';
-    filterWrap.appendChild(filterButton);
-
-    var filterPanel = document.createElement('div');
-    filterPanel.className = 'cb-product-filter-drawer';
-    filterPanel.hidden = true;
-    var filterDesignStyle = buildBoxDesignStyle(box.designSettings);
-    if (filterDesignStyle) filterPanel.setAttribute('style', filterDesignStyle);
-
-    var filterOverlay = document.createElement('button');
-    filterOverlay.type = 'button';
-    filterOverlay.className = 'cb-product-filter-overlay';
-    filterOverlay.hidden = true;
-    filterOverlay.setAttribute('aria-label', 'Close filters');
-
-    var filterHeader = document.createElement('div');
-    filterHeader.className = 'cb-product-filter-header';
-    var filterTitle = document.createElement('h3');
-    filterTitle.className = 'cb-product-filter-title';
-    filterTitle.textContent = 'Filters';
-    var filterClose = document.createElement('button');
-    filterClose.type = 'button';
-    filterClose.className = 'cb-product-filter-close';
-    filterClose.setAttribute('aria-label', 'Close filters');
-    filterClose.innerHTML = '&times;';
-    filterHeader.appendChild(filterTitle);
-    filterHeader.appendChild(filterClose);
-    filterPanel.appendChild(filterHeader);
-
-    var filterBody = document.createElement('div');
-    filterBody.className = 'cb-product-filter-body';
-    filterPanel.appendChild(filterBody);
-
-    var filterFooter = document.createElement('div');
-    filterFooter.className = 'cb-product-filter-footer';
-    var filterClear = document.createElement('button');
-    filterClear.type = 'button';
-    filterClear.className = 'cb-product-filter-clear';
-    filterClear.textContent = 'Clear all';
-    filterFooter.appendChild(filterClear);
-    filterPanel.appendChild(filterFooter);
-
-    function getUniqueProductValues(key) {
-      var seen = {};
-      var values = [];
-      products.forEach(function (product) {
-        var value = product && product[key] != null ? String(product[key]).trim() : '';
-        if (!value) return;
-        var normalized = value.toLowerCase();
-        if (seen[normalized]) return;
-        seen[normalized] = true;
-        values.push(value);
-      });
-      return values.sort(function (a, b) { return a.localeCompare(b); });
-    }
-
-    function getProductPriceBounds() {
-      var prices = products.map(function (product) {
-        return parseFloat(product && product.productPrice);
-      }).filter(function (price) {
-        return !isNaN(price) && price >= 0;
-      });
-      if (!prices.length) return { min: 0, max: 0 };
-      return {
-        min: 0,
-        max: Math.ceil(Math.max.apply(Math, prices)),
-      };
-    }
-
-    function getColorSwatchValue(color) {
-      var normalized = String(color || '').trim().toLowerCase();
-      var namedColors = {
-        black: '#000000',
-        blue: '#0000ff',
-        brown: '#8b4513',
-        gray: '#808080',
-        grey: '#808080',
-        green: '#008000',
-        orange: '#ffa500',
-        pink: '#ffc0cb',
-        purple: '#800080',
-        red: '#ff0000',
-        white: '#ffffff',
-        yellow: '#ffff00',
-      };
-      return namedColors[normalized] || normalizeHexColor(normalized, null) || normalized;
-    }
-
-    function getReadableColorName(color) {
-      return String(color || '').replace(/[-_]+/g, ' ').trim();
-    }
-
-    function setFilterButtonState() {
-      var activeCount = 0;
-      if (productFilters.availability !== 'all') activeCount++;
-      if (productFilters.color) activeCount++;
-      if (productFilters.minPrice !== '' || productFilters.maxPrice !== '') activeCount++;
-      if (productFilters.vendor) activeCount++;
-      if (productFilters.productType) activeCount++;
-      filterButton.classList.toggle('cb-product-filter-btn--active', activeCount > 0);
-      filterButton.setAttribute('aria-label', activeCount > 0 ? ('Filter products, ' + activeCount + ' active') : 'Filter products');
-    }
-
-    function openFilters() {
-      filterPanel.hidden = false;
-      filterOverlay.hidden = false;
-      requestAnimationFrame(function () {
-        filterPanel.classList.add('cb-product-filter-drawer--open');
-        filterOverlay.classList.add('cb-product-filter-overlay--open');
-      });
-      filterButton.setAttribute('aria-expanded', 'true');
-    }
-
-    function closeFilters() {
-      filterPanel.classList.remove('cb-product-filter-drawer--open');
-      filterOverlay.classList.remove('cb-product-filter-overlay--open');
-      filterButton.setAttribute('aria-expanded', 'false');
-      setTimeout(function () {
-        if (!filterPanel.classList.contains('cb-product-filter-drawer--open')) {
-          filterPanel.hidden = true;
-          filterOverlay.hidden = true;
-        }
-      }, 180);
-    }
-
-    function addFilterSection(title, expanded) {
-      var section = document.createElement('section');
-      section.className = 'cb-product-filter-section';
-      var toggle = document.createElement('button');
-      toggle.type = 'button';
-      toggle.className = 'cb-product-filter-section-toggle';
-      toggle.setAttribute('aria-expanded', expanded === false ? 'false' : 'true');
-      toggle.innerHTML = '<span>' + title + '</span><span class="cb-product-filter-chevron" aria-hidden="true"></span>';
-      var content = document.createElement('div');
-      content.className = 'cb-product-filter-section-content';
-      content.hidden = expanded === false;
-      toggle.addEventListener('click', function () {
-        var nextOpen = content.hidden;
-        content.hidden = !nextOpen;
-        toggle.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
-      });
-      section.appendChild(toggle);
-      section.appendChild(content);
-      filterBody.appendChild(section);
-      return content;
-    }
-
-    var colorContent = addFilterSection('Color');
-    var colorGrid = document.createElement('div');
-    colorGrid.className = 'cb-product-color-filter-grid';
-    var colorMap = {};
-    products.forEach(function (product) {
-      getProductColorValues(product).forEach(function (color) {
-        colorMap[String(color).toLowerCase()] = color;
-      });
-    });
-    Object.keys(colorMap).sort().forEach(function (key) {
-      var color = colorMap[key];
-      var swatch = document.createElement('button');
-      swatch.type = 'button';
-      swatch.className = 'cb-product-color-swatch';
-      swatch.setAttribute('aria-label', 'Filter by color ' + color);
-      swatch.setAttribute('aria-pressed', 'false');
-      swatch.title = getReadableColorName(color);
-      swatch.style.background = getColorSwatchValue(color);
-      swatch.addEventListener('click', function () {
-        productFilters.color = productFilters.color === color ? '' : color;
-        Array.prototype.forEach.call(colorGrid.querySelectorAll('.cb-product-color-swatch'), function (btn) {
-          var selected = btn === swatch && productFilters.color === color;
-          btn.classList.toggle('cb-product-color-swatch--active', selected);
-          btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
-        });
-        setFilterButtonState();
-        renderProductGrid();
-      });
-      colorGrid.appendChild(swatch);
-    });
-    if (!colorGrid.children.length) {
-      var noColors = document.createElement('p');
-      noColors.className = 'cb-product-filter-empty';
-      noColors.textContent = 'No color options found.';
-      colorContent.appendChild(noColors);
-    } else {
-      colorContent.appendChild(colorGrid);
-    }
-
-    var availabilityContent = addFilterSection('Availability');
-    var availabilityToggleLabel = document.createElement('label');
-    availabilityToggleLabel.className = 'cb-product-availability-toggle';
-    var availabilityToggle = document.createElement('input');
-    availabilityToggle.type = 'checkbox';
-    availabilityToggle.className = 'cb-product-availability-input';
-    var availabilityTrack = document.createElement('span');
-    availabilityTrack.className = 'cb-product-availability-track';
-    var availabilityText = document.createElement('span');
-    availabilityText.textContent = 'In stock only';
-    availabilityToggle.addEventListener('change', function () {
-      productFilters.availability = availabilityToggle.checked ? 'available' : 'all';
-      setFilterButtonState();
-      renderProductGrid();
-    });
-    availabilityToggleLabel.appendChild(availabilityToggle);
-    availabilityToggleLabel.appendChild(availabilityTrack);
-    availabilityToggleLabel.appendChild(availabilityText);
-    availabilityContent.appendChild(availabilityToggleLabel);
-
-    var priceContent = addFilterSection('Price');
-    var priceRangeWrap = document.createElement('div');
-    priceRangeWrap.className = 'cb-product-price-filter-range-wrap';
-    var priceRow = document.createElement('div');
-    priceRow.className = 'cb-product-price-filter-row';
-    var priceBounds = getProductPriceBounds();
-    var minPriceRange = document.createElement('input');
-    minPriceRange.type = 'range';
-    minPriceRange.className = 'cb-product-price-filter-range cb-product-price-filter-range--min';
-    minPriceRange.min = String(priceBounds.min);
-    minPriceRange.max = String(priceBounds.max);
-    minPriceRange.step = '0.01';
-    minPriceRange.value = String(priceBounds.min);
-    var maxPriceRange = document.createElement('input');
-    maxPriceRange.type = 'range';
-    maxPriceRange.className = 'cb-product-price-filter-range cb-product-price-filter-range--max';
-    maxPriceRange.min = String(priceBounds.min);
-    maxPriceRange.max = String(priceBounds.max);
-    maxPriceRange.step = '0.01';
-    maxPriceRange.value = String(priceBounds.max);
-    var minPriceInput = document.createElement('input');
-    minPriceInput.type = 'number';
-    minPriceInput.min = String(priceBounds.min);
-    minPriceInput.max = String(priceBounds.max);
-    minPriceInput.step = '0.01';
-    minPriceInput.placeholder = (ctx.currencyCode || 'INR') + ' ' + priceBounds.min;
-    minPriceInput.value = String(priceBounds.min);
-    minPriceInput.className = 'cb-product-price-filter-input';
-    var maxPriceInput = document.createElement('input');
-    maxPriceInput.type = 'number';
-    maxPriceInput.min = String(priceBounds.min);
-    maxPriceInput.max = String(priceBounds.max);
-    maxPriceInput.step = '0.01';
-    maxPriceInput.placeholder = (ctx.currencyCode || 'INR') + ' ' + priceBounds.max;
-    maxPriceInput.value = String(priceBounds.max);
-    maxPriceInput.className = 'cb-product-price-filter-input';
-
-    function clampPrice(value, fallback) {
-      var parsed = parseFloat(value);
-      if (isNaN(parsed)) return fallback;
-      if (parsed < priceBounds.min) return priceBounds.min;
-      if (parsed > priceBounds.max) return priceBounds.max;
-      return parsed;
-    }
-
-    function syncPriceFilter(source) {
-      var minValue = clampPrice(minPriceInput.value, priceBounds.min);
-      var maxValue = clampPrice(maxPriceInput.value, priceBounds.max);
-      if (source === 'min' && minValue > maxValue) maxValue = minValue;
-      if (source === 'max' && maxValue < minValue) minValue = maxValue;
-      minPriceInput.value = String(minValue);
-      maxPriceInput.value = String(maxValue);
-      minPriceRange.value = String(minValue);
-      maxPriceRange.value = String(maxValue);
-      productFilters.minPrice = minValue <= priceBounds.min ? '' : String(minValue);
-      productFilters.maxPrice = maxValue >= priceBounds.max ? '' : String(maxValue);
-      setFilterButtonState();
-      renderProductGrid();
-    }
-
-    minPriceRange.addEventListener('input', function () {
-      minPriceInput.value = minPriceRange.value;
-      syncPriceFilter('min');
-    });
-    maxPriceRange.addEventListener('input', function () {
-      maxPriceInput.value = maxPriceRange.value;
-      syncPriceFilter('max');
-    });
-    minPriceInput.addEventListener('change', function () {
-      syncPriceFilter('min');
-    });
-    maxPriceInput.addEventListener('change', function () {
-      syncPriceFilter('max');
-    });
-    minPriceInput.addEventListener('input', function () {
-      if (minPriceInput.value === '') return;
-      syncPriceFilter('min');
-    });
-    maxPriceInput.addEventListener('input', function () {
-      if (maxPriceInput.value === '') return;
-      syncPriceFilter('max');
-    });
-    priceRangeWrap.appendChild(minPriceRange);
-    priceRangeWrap.appendChild(maxPriceRange);
-    priceContent.appendChild(priceRangeWrap);
-    priceRow.appendChild(minPriceInput);
-    var priceTo = document.createElement('span');
-    priceTo.className = 'cb-product-price-filter-to';
-    priceTo.textContent = 'to';
-    priceRow.appendChild(priceTo);
-    priceRow.appendChild(maxPriceInput);
-    priceContent.appendChild(priceRow);
-
-    function addChoiceSection(title, key, values) {
-      if (!values.length) return;
-      var content = addFilterSection(title, false);
-      var list = document.createElement('div');
-      list.className = 'cb-product-choice-filter-list';
-      values.forEach(function (value) {
-        var choice = document.createElement('button');
-        choice.type = 'button';
-        choice.className = 'cb-product-choice-filter';
-        choice.textContent = value;
-        choice.setAttribute('aria-pressed', 'false');
-        choice.addEventListener('click', function () {
-          productFilters[key] = productFilters[key] === value ? '' : value;
-          Array.prototype.forEach.call(list.querySelectorAll('.cb-product-choice-filter'), function (btn) {
-            var selected = btn === choice && productFilters[key] === value;
-            btn.classList.toggle('cb-product-choice-filter--active', selected);
-            btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
-          });
-          setFilterButtonState();
-          renderProductGrid();
-        });
-        list.appendChild(choice);
-      });
-      content.appendChild(list);
-    }
-
-    addChoiceSection('Brand', 'vendor', getUniqueProductValues('vendor'));
-    addChoiceSection('Product type', 'productType', getUniqueProductValues('productType'));
-
-    filterButton.addEventListener('click', function () {
-      if (filterPanel.hidden) openFilters();
-      else closeFilters();
-    });
-    filterClose.addEventListener('click', closeFilters);
-    filterOverlay.addEventListener('click', closeFilters);
-    filterClear.addEventListener('click', function () {
-      productFilters = { availability: 'all', color: '', minPrice: '', maxPrice: '', vendor: '', productType: '' };
-      availabilityToggle.checked = false;
-      minPriceInput.value = String(priceBounds.min);
-      maxPriceInput.value = String(priceBounds.max);
-      minPriceRange.value = String(priceBounds.min);
-      maxPriceRange.value = String(priceBounds.max);
-      Array.prototype.forEach.call(filterBody.querySelectorAll('[aria-pressed="true"]'), function (btn) {
-        btn.setAttribute('aria-pressed', 'false');
-        btn.classList.remove('cb-product-color-swatch--active', 'cb-product-choice-filter--active');
-      });
-      setFilterButtonState();
-      renderProductGrid();
-    });
-    productSection.appendChild(filterOverlay);
-    productSection.appendChild(filterPanel);
-    productToolbar.appendChild(filterWrap);
     if (searchWrap) productToolbar.appendChild(searchWrap);
 
     var rowControl = document.createElement('div');
@@ -3358,45 +3020,6 @@
         ? products.filter(function (p) { return String(p && p.productTitle || '').toLowerCase().indexOf(searchTerm) !== -1; })
         : products;
 
-      if (productFilters.availability === 'available') {
-        visibleProducts = visibleProducts.filter(function (p) { return isProductAvailable(p); });
-      } else if (productFilters.availability === 'unavailable') {
-        visibleProducts = visibleProducts.filter(function (p) { return !isProductAvailable(p); });
-      }
-
-      if (productFilters.color) {
-        visibleProducts = visibleProducts.filter(function (p) {
-          return productMatchesColor(p, productFilters.color);
-        });
-      }
-
-      if (productFilters.vendor) {
-        visibleProducts = visibleProducts.filter(function (p) {
-          return String(p && p.vendor || '').toLowerCase() === String(productFilters.vendor).toLowerCase();
-        });
-      }
-
-      if (productFilters.productType) {
-        visibleProducts = visibleProducts.filter(function (p) {
-          return String(p && p.productType || '').toLowerCase() === String(productFilters.productType).toLowerCase();
-        });
-      }
-
-      var minPrice = productFilters.minPrice !== '' ? parseFloat(productFilters.minPrice) : null;
-      var maxPrice = productFilters.maxPrice !== '' ? parseFloat(productFilters.maxPrice) : null;
-      if (minPrice != null && !isNaN(minPrice)) {
-        visibleProducts = visibleProducts.filter(function (p) {
-          var price = parseFloat(p && p.productPrice);
-          return !isNaN(price) && price >= minPrice;
-        });
-      }
-      if (maxPrice != null && !isNaN(maxPrice)) {
-        visibleProducts = visibleProducts.filter(function (p) {
-          var price = parseFloat(p && p.productPrice);
-          return !isNaN(price) && price <= maxPrice;
-        });
-      }
-
       if (productCountEl) {
         productCountEl.textContent = String(visibleProducts.length) + ' shown';
       }
@@ -3409,7 +3032,7 @@
       } else if (visibleProducts.length === 0) {
         var noFilteredResults = document.createElement('p');
         noFilteredResults.className = 'cb-product-search-empty';
-        noFilteredResults.textContent = 'No products match the selected filters.';
+        noFilteredResults.textContent = 'No products available.';
         productGrid.appendChild(noFilteredResults);
       }
 
