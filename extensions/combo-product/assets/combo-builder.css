@@ -271,9 +271,8 @@
 }
 
 .cb-active-box-banner {
-  width: 100vw;
+  width: 100%;
   max-width: none;
-  margin: 0 calc(50% - 50vw) 18px;
   overflow: hidden;
   background: var(--cb-primary-light);
 }
