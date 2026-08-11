@@ -4727,6 +4727,18 @@
     return selections.sort(function (a, b) { return a.index - b.index; });
   }
 
+  function getComboCartLineImageFromItem(item) {
+    var props = getCartItemProperties(item);
+    return (
+      props._combo_bundle_image ||
+      props._combo_box_image ||
+      props._combo_image ||
+      (item && item.image) ||
+      (item && item.featured_image && item.featured_image.url) ||
+      ''
+    );
+  }
+
   function enhanceComboCartPresentation(comboLineItems) {
     if (!Array.isArray(comboLineItems) || comboLineItems.length === 0 || !window.fetch) return;
 
@@ -4736,17 +4748,71 @@
         if (!cart || !Array.isArray(cart.items)) return;
         var comboCartItems = cart.items
           .map(function (item) {
-            return { item: item, selections: getComboCartSelectionFromItem(item) };
+            return {
+              item: item,
+              selections: getComboCartSelectionFromItem(item),
+              bundleImage: getComboCartLineImageFromItem(item),
+            };
           })
           .filter(function (entry) { return entry.selections.length > 0; });
 
         comboLineItems.forEach(function (lineItem, index) {
           var entry = comboCartItems[index] || comboCartItems[0];
           if (!entry || !entry.selections.length) return;
+          renderComboCartLineImage(lineItem, entry.bundleImage, entry.item && (entry.item.product_title || entry.item.title));
           renderComboCartSelectionList(lineItem, entry.selections);
         });
       })
       .catch(function () {});
+  }
+
+  function renderComboCartLineImage(lineItem, imageSrc, imageAlt) {
+    if (!lineItem || !imageSrc) return;
+
+    var src = String(imageSrc).trim();
+    if (!src) return;
+
+    var existingImg = lineItem.querySelector(
+      '.cart-item__media img:not(.cb-cart-selected-product__image),' +
+      '.cart-drawer-item__media img:not(.cb-cart-selected-product__image),' +
+      '.line-item__media img:not(.cb-cart-selected-product__image),' +
+      'img.cart-item__image:not(.cb-cart-selected-product__image)'
+    );
+
+    if (existingImg) {
+      existingImg.src = src;
+      existingImg.alt = imageAlt || existingImg.alt || 'Bundle product image';
+      existingImg.loading = existingImg.loading || 'lazy';
+      existingImg.style.display = '';
+      return;
+    }
+
+    var existingFallback = lineItem.querySelector('.cb-cart-box-image-wrap');
+    if (existingFallback && existingFallback.parentNode) existingFallback.parentNode.removeChild(existingFallback);
+
+    var wrap = document.createElement('div');
+    wrap.className = 'cb-cart-box-image-wrap';
+
+    var img = document.createElement('img');
+    img.className = 'cb-cart-box-image';
+    img.src = src;
+    img.alt = imageAlt || 'Bundle product image';
+    img.loading = 'lazy';
+    wrap.appendChild(img);
+
+    var media = lineItem.querySelector(
+      '.cart-item__media,' +
+      '.cart-drawer-item__media,' +
+      '.line-item__media,' +
+      '.cart-item__image-container'
+    );
+
+    if (media) {
+      media.appendChild(wrap);
+      return;
+    }
+
+    lineItem.insertBefore(wrap, lineItem.firstChild);
   }
 
   function renderComboCartSelectionList(lineItem, selections) {
@@ -5191,6 +5257,7 @@
       var bundleProps = {};
       var comboBoxId = box && box.id != null ? String(box.id) : '';
       var comboProductId = box && box.shopifyProductId != null ? String(box.shopifyProductId) : comboBoxId;
+      var bundleImageSrc = getBoxCardBundleImageSrc(box, { apiBase: resolvedApiBase, shop: shop });
 
       slots.forEach(function (p, idx) {
         if (p) {
@@ -5204,6 +5271,9 @@
         }
       });
       bundleProps['_combo_selected_count'] = String(selectedItemsCount);
+      if (bundleImageSrc && !/^(data:|blob:)/i.test(String(bundleImageSrc))) {
+        bundleProps['_combo_bundle_image'] = bundleImageSrc;
+      }
 
       var shouldIncludeGiftDetails = !!(box && box.isGiftBox && box.giftMessageEnabled);
 

@@ -907,6 +907,25 @@
   overflow-wrap: anywhere;
 }
 
+.cb-cart-box-image-wrap {
+  width: 92px;
+  min-width: 92px;
+  margin: 0 14px 10px 0;
+}
+
+.cb-cart-box-image {
+  display: block;
+  width: 92px;
+  height: 92px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #f6f6f7;
+}
+
+.cb-combo-line-item > .cb-cart-box-image-wrap {
+  float: left;
+}
+
 @keyframes cb-pulse {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.6; }
