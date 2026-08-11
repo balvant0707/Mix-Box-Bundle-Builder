@@ -351,7 +351,7 @@ export default function App() {
       `}</style>
       <NavMenu>
         <a href="/app/create-bundle">Create Bundle</a>
-        <a href="/app/boxes">Manage Boxes</a>
+        <a href="/app/boxes">Bundle List</a>
         <a href="/app/analytics">Analytics</a>
         <a href="/app/pricing">Price Plan</a>
       </NavMenu>

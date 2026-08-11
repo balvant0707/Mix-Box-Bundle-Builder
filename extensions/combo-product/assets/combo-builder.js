@@ -2863,6 +2863,10 @@
       return namedColors[normalized] || normalizeHexColor(normalized, null) || normalized;
     }
 
+    function getReadableColorName(color) {
+      return String(color || '').replace(/[-_]+/g, ' ').trim();
+    }
+
     function setFilterButtonState() {
       var activeCount = 0;
       if (productFilters.availability !== 'all') activeCount++;
@@ -2934,7 +2938,12 @@
       swatch.className = 'cb-product-color-swatch';
       swatch.setAttribute('aria-label', 'Filter by color ' + color);
       swatch.setAttribute('aria-pressed', 'false');
+      swatch.title = getReadableColorName(color);
       swatch.style.background = getColorSwatchValue(color);
+      var swatchLabel = document.createElement('span');
+      swatchLabel.className = 'cb-product-color-swatch-label';
+      swatchLabel.textContent = getReadableColorName(color);
+      swatch.appendChild(swatchLabel);
       swatch.addEventListener('click', function () {
         productFilters.color = productFilters.color === color ? '' : color;
         Array.prototype.forEach.call(colorGrid.querySelectorAll('.cb-product-color-swatch'), function (btn) {
@@ -2977,42 +2986,82 @@
     availabilityContent.appendChild(availabilityToggleLabel);
 
     var priceContent = addFilterSection('Price');
+    var priceRangeWrap = document.createElement('div');
+    priceRangeWrap.className = 'cb-product-price-filter-range-wrap';
     var priceRow = document.createElement('div');
     priceRow.className = 'cb-product-price-filter-row';
     var priceBounds = getProductPriceBounds();
-    var priceRange = document.createElement('input');
-    priceRange.type = 'range';
-    priceRange.className = 'cb-product-price-filter-range';
-    priceRange.min = String(priceBounds.min);
-    priceRange.max = String(priceBounds.max);
-    priceRange.step = '0.01';
-    priceRange.value = String(priceBounds.max);
+    var minPriceRange = document.createElement('input');
+    minPriceRange.type = 'range';
+    minPriceRange.className = 'cb-product-price-filter-range cb-product-price-filter-range--min';
+    minPriceRange.min = String(priceBounds.min);
+    minPriceRange.max = String(priceBounds.max);
+    minPriceRange.step = '0.01';
+    minPriceRange.value = String(priceBounds.min);
+    var maxPriceRange = document.createElement('input');
+    maxPriceRange.type = 'range';
+    maxPriceRange.className = 'cb-product-price-filter-range cb-product-price-filter-range--max';
+    maxPriceRange.min = String(priceBounds.min);
+    maxPriceRange.max = String(priceBounds.max);
+    maxPriceRange.step = '0.01';
+    maxPriceRange.value = String(priceBounds.max);
     var minPriceInput = document.createElement('input');
     minPriceInput.type = 'number';
-    minPriceInput.min = '0';
+    minPriceInput.min = String(priceBounds.min);
+    minPriceInput.max = String(priceBounds.max);
     minPriceInput.step = '0.01';
     minPriceInput.placeholder = (ctx.currencyCode || 'INR') + ' ' + priceBounds.min;
+    minPriceInput.value = String(priceBounds.min);
     minPriceInput.className = 'cb-product-price-filter-input';
     var maxPriceInput = document.createElement('input');
     maxPriceInput.type = 'number';
-    maxPriceInput.min = '0';
+    maxPriceInput.min = String(priceBounds.min);
+    maxPriceInput.max = String(priceBounds.max);
     maxPriceInput.step = '0.01';
     maxPriceInput.placeholder = (ctx.currencyCode || 'INR') + ' ' + priceBounds.max;
+    maxPriceInput.value = String(priceBounds.max);
     maxPriceInput.className = 'cb-product-price-filter-input';
-    function onPriceFilterChange() {
-      productFilters.minPrice = minPriceInput.value;
-      productFilters.maxPrice = maxPriceInput.value;
-      if (maxPriceInput.value !== '') priceRange.value = maxPriceInput.value;
+
+    function clampPrice(value, fallback) {
+      var parsed = parseFloat(value);
+      if (isNaN(parsed)) return fallback;
+      if (parsed < priceBounds.min) return priceBounds.min;
+      if (parsed > priceBounds.max) return priceBounds.max;
+      return parsed;
+    }
+
+    function syncPriceFilter(source) {
+      var minValue = clampPrice(minPriceInput.value, priceBounds.min);
+      var maxValue = clampPrice(maxPriceInput.value, priceBounds.max);
+      if (source === 'min' && minValue > maxValue) maxValue = minValue;
+      if (source === 'max' && maxValue < minValue) minValue = maxValue;
+      minPriceInput.value = String(minValue);
+      maxPriceInput.value = String(maxValue);
+      minPriceRange.value = String(minValue);
+      maxPriceRange.value = String(maxValue);
+      productFilters.minPrice = minValue <= priceBounds.min ? '' : String(minValue);
+      productFilters.maxPrice = maxValue >= priceBounds.max ? '' : String(maxValue);
       setFilterButtonState();
       renderProductGrid();
     }
-    priceRange.addEventListener('input', function () {
-      maxPriceInput.value = priceRange.value;
-      onPriceFilterChange();
+
+    minPriceRange.addEventListener('input', function () {
+      minPriceInput.value = minPriceRange.value;
+      syncPriceFilter('min');
     });
-    minPriceInput.addEventListener('input', onPriceFilterChange);
-    maxPriceInput.addEventListener('input', onPriceFilterChange);
-    priceContent.appendChild(priceRange);
+    maxPriceRange.addEventListener('input', function () {
+      maxPriceInput.value = maxPriceRange.value;
+      syncPriceFilter('max');
+    });
+    minPriceInput.addEventListener('change', function () {
+      syncPriceFilter('min');
+    });
+    maxPriceInput.addEventListener('change', function () {
+      syncPriceFilter('max');
+    });
+    priceRangeWrap.appendChild(minPriceRange);
+    priceRangeWrap.appendChild(maxPriceRange);
+    priceContent.appendChild(priceRangeWrap);
     priceRow.appendChild(minPriceInput);
     var priceTo = document.createElement('span');
     priceTo.className = 'cb-product-price-filter-to';
@@ -3059,9 +3108,10 @@
     filterClear.addEventListener('click', function () {
       productFilters = { availability: 'all', color: '', minPrice: '', maxPrice: '', vendor: '', productType: '' };
       availabilityToggle.checked = false;
-      minPriceInput.value = '';
-      maxPriceInput.value = '';
-      priceRange.value = String(priceBounds.max);
+      minPriceInput.value = String(priceBounds.min);
+      maxPriceInput.value = String(priceBounds.max);
+      minPriceRange.value = String(priceBounds.min);
+      maxPriceRange.value = String(priceBounds.max);
       Array.prototype.forEach.call(filterBody.querySelectorAll('[aria-pressed="true"]'), function (btn) {
         btn.setAttribute('aria-pressed', 'false');
         btn.classList.remove('cb-product-color-swatch--active', 'cb-product-choice-filter--active');
@@ -3427,8 +3477,9 @@
         titleEl.textContent = product.productTitle || product.productId;
         titleRow.appendChild(titleEl);
 
+        var learnBtn = null;
         if (product.productHandle && !product.isCollection && !box.hideProductInfoModal) {
-          var learnBtn = document.createElement('button');
+          learnBtn = document.createElement('button');
           learnBtn.type = 'button';
           learnBtn.className = 'cb-product-learn-link';
           learnBtn.innerHTML = '<span class="cb-product-learn-icon" aria-hidden="true">i</span><span>Learn more</span>';
@@ -3437,7 +3488,6 @@
             e.stopPropagation();
             openProductDescriptionModal(product, learnBtn, ctx.rootEl, buildBoxDesignStyle(box.designSettings));
           });
-          titleRow.appendChild(learnBtn);
         }
 
         infoEl.appendChild(titleRow);
@@ -3448,6 +3498,7 @@
         var priceWrap = document.createElement('span');
         priceWrap.className = 'cb-product-price-wrap';
         metaRow.appendChild(priceWrap);
+        if (learnBtn) metaRow.appendChild(learnBtn);
 
         function renderPriceWrap(price, compareAt) {
           priceWrap.innerHTML = '';
@@ -4329,6 +4380,7 @@
         productHandle: p.handle || p.productHandle || '',
         productImageUrl: p.imageUrl || p.productImageUrl || null,
         productPrice: parseFloat(p.price || p.productPrice) || 0,
+        productCompareAtPrice: parseFloat(p.compareAtPrice || p.productCompareAtPrice) || null,
         variantIds: numericVarId ? [numericVarId] : (Array.isArray(p.variantIds) ? p.variantIds : []),
         isCollection: false,
       };
@@ -4472,7 +4524,7 @@
         var selVarId = null;
         var selVarTitle = null;
         var selVarPrice = product.productPrice != null ? parseFloat(product.productPrice) : null;
-        var selVarCompare = null;
+        var selVarCompare = product.productCompareAtPrice != null ? parseFloat(product.productCompareAtPrice) : null;
 
         var infoEl = document.createElement('div');
         infoEl.className = 'cb-product-info';
@@ -4484,16 +4536,16 @@
         titleEl.textContent = product.productTitle || product.productId;
         titleRow.appendChild(titleEl);
 
+        var learnBtn = null;
         if (product.productHandle && !product.isCollection && !box.hideProductInfoModal) {
-          var learnBtn = document.createElement('button');
+          learnBtn = document.createElement('button');
           learnBtn.type = 'button';
           learnBtn.className = 'cb-product-learn-link';
           learnBtn.innerHTML = '<span class="cb-product-learn-icon" aria-hidden="true">i</span><span>Learn more</span>';
           learnBtn.addEventListener('click', function (e) {
             e.preventDefault(); e.stopPropagation();
-            openProductDescriptionModal(product, learnBtn, ctx.rootEl);
+            openProductDescriptionModal(product, learnBtn, ctx.rootEl, buildBoxDesignStyle(box.designSettings));
           });
-          titleRow.appendChild(learnBtn);
         }
         infoEl.appendChild(titleRow);
 
@@ -4502,6 +4554,7 @@
         var priceWrap = document.createElement('span');
         priceWrap.className = 'cb-product-price-wrap';
         metaRow.appendChild(priceWrap);
+        if (learnBtn) metaRow.appendChild(learnBtn);
 
         function renderPriceWrap(price, compareAt) {
           priceWrap.innerHTML = '';
@@ -4512,7 +4565,7 @@
             pEl.className = 'cb-product-price';
             pEl.textContent = formatPrice(sp, ctx.currencySymbol, ctx.currencyCode);
             priceWrap.appendChild(pEl);
-            if (cp && cp > sp) {
+            if (box.displayCompareAtPrice && cp && cp > sp) {
               var cEl = document.createElement('span');
               cEl.className = 'cb-product-compare-price';
               cEl.textContent = formatPrice(cp, ctx.currencySymbol, ctx.currencyCode);
@@ -4649,6 +4702,9 @@
                 productImageUrl: p.productImageUrl,
                 productHandle: p.productHandle,
                 productPrice: resolvedPrice,
+                productCompareAtPrice: variantCompareAtPrice != null && parseFloat(variantCompareAtPrice) > 0
+                  ? parseFloat(variantCompareAtPrice)
+                  : p.productCompareAtPrice,
                 variantIds: p.variantIds,
                 isCollection: p.isCollection,
                 selectedVariantId: variantId || null,
@@ -4678,7 +4734,7 @@
                     selectedVariantCompareAtPrice: selVarCompare,
                     currencySymbol: ctx.currencySymbol,
                     currencyCode: ctx.currencyCode,
-                    showCompareAtPrice: true,
+                    showCompareAtPrice: box.displayCompareAtPrice,
                     buttonLabel: 'Add to Bundle',
                   },
                   doAddToSlot
