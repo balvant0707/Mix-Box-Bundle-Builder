@@ -942,10 +942,19 @@
       }
       if (variants.length <= 1) {
         var onlyVariant = variants[0];
-        variantGroup.hidden = true;
         if (onlyVariant && onlyVariant.available && !blockedSet[String(onlyVariant.id)]) {
+          variantGroup.hidden = true;
           setSelectedVariant(onlyVariant);
         } else {
+          variantGroup.hidden = false;
+          variantSelect.innerHTML = '';
+          var singleOpt = document.createElement('option');
+          singleOpt.value = onlyVariant && onlyVariant.id ? onlyVariant.id : '';
+          singleOpt.textContent = (onlyVariant && onlyVariant.title ? onlyVariant.title : 'Default Title') +
+            (onlyVariant && onlyVariant.available ? ' - Already in box' : ' - Out of stock');
+          singleOpt.disabled = true;
+          variantSelect.appendChild(singleOpt);
+          variantSelect.disabled = true;
           addBtn.disabled = true;
         }
         return;
@@ -3214,10 +3223,30 @@
           ;(function (sel, wrap, blockedForLoad) {
             fetchVariants(product.productHandle, product.variantIds, function (err, variants) {
               if (err || !variants || variants.length === 0) return;
+              var blockedSet = {};
+              (blockedForLoad || []).forEach(function (id) { blockedSet[String(id)] = true; });
 
               // Single variant — set state silently, no select needed
               if (variants.length === 1) {
                 var v0 = variants[0];
+                if (!v0.available || blockedSet[String(v0.id)]) {
+                  sel.innerHTML = '';
+                  sel._cbVariants = variants;
+                  var singleOpt = document.createElement('option');
+                  singleOpt.value = v0.id;
+                  singleOpt.disabled = true;
+                  singleOpt.textContent = (v0.title || 'Default Title') + (!v0.available ? ' — Out of stock' : ' — Already in box');
+                  sel.appendChild(singleOpt);
+                  sel.value = v0.id;
+                  wrap.style.display = '';
+                  if (!v0.available && addBtn) {
+                    addBtn.textContent = 'Sold Out';
+                    addBtn.disabled = true;
+                    addBtn.classList.add('cb-add-btn--sold-out');
+                    card.setAttribute('aria-disabled', 'true');
+                  }
+                  return;
+                }
                 selVarId = v0.id;
                 if (v0.price != null) { selVarPrice = v0.price; selVarCompare = v0.compareAtPrice; }
                 selVarTitle = v0.title !== 'Default Title' ? v0.title : null;
@@ -3228,8 +3257,6 @@
               // Multiple variants — build select options
               sel.innerHTML = '';
               sel._cbVariants = variants;
-              var blockedSet = {};
-              (blockedForLoad || []).forEach(function (id) { blockedSet[String(id)] = true; });
 
               var firstAvailable = null;
               variants.forEach(function (v) {
@@ -4267,6 +4294,24 @@
               if (err || !variants || variants.length === 0) return;
               if (variants.length === 1) {
                 var v0 = variants[0];
+                if (!v0.available) {
+                  sel.innerHTML = '';
+                  sel._cbVariants = variants;
+                  var singleOpt = document.createElement('option');
+                  singleOpt.value = v0.id;
+                  singleOpt.disabled = true;
+                  singleOpt.textContent = (v0.title || 'Default Title') + ' — Out of stock';
+                  sel.appendChild(singleOpt);
+                  sel.value = v0.id;
+                  wrap.style.display = '';
+                  if (addBtn) {
+                    addBtn.textContent = 'Sold Out';
+                    addBtn.disabled = true;
+                    addBtn.classList.add('cb-add-btn--sold-out');
+                    card.setAttribute('aria-disabled', 'true');
+                  }
+                  return;
+                }
                 selVarId = v0.id;
                 if (v0.price != null) { selVarPrice = v0.price; selVarCompare = v0.compareAtPrice; }
                 selVarTitle = v0.title !== 'Default Title' ? v0.title : null;

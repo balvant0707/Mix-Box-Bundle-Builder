@@ -1741,6 +1741,12 @@
   color: var(--cb-box-cta-color);
 }
 
+.cb-add-btn:disabled,
+.cb-add-btn--sold-out {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .cb-add-btn--added {
   background: var(--cb-box-cta-bg);
   color: var(--cb-box-cta-color);
