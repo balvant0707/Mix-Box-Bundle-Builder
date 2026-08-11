@@ -69,6 +69,17 @@
     return mapped != null ? mapped : fallback;
   }
 
+  var DESIGN_CARD_SIZE_MAP = {
+    'Small': '140px',
+    'Medium': '180px',
+    'Large': '220px',
+  };
+
+  function resolveProductCardSize(sizeLabel, fallback) {
+    if (sizeLabel == null) return fallback;
+    return DESIGN_CARD_SIZE_MAP[String(sizeLabel).trim()] || fallback;
+  }
+
   // Builds an inline `style="--cb-box-x: ...; ..."` string from a box's
   // admin-configured designSettings so each box/pack can render with its own
   // colors/sizes without needing a per-box <style> tag (see combo-builder.css
@@ -88,6 +99,10 @@
     set('--cb-box-border-radius', designSettings.borderRadius != null ? designSettings.borderRadius + 'px' : null);
     set('--cb-box-image-height', designSettings.imageHeight != null ? designSettings.imageHeight + 'px' : null);
     set('--cb-box-image-height-mobile', designSettings.imageHeightMobile != null ? designSettings.imageHeightMobile + 'px' : null);
+    set('--cb-box-image-display-desktop', designSettings.imageDisplay === 'Mobile only' ? 'none' : 'block');
+    set('--cb-box-image-display-mobile', designSettings.imageDisplay === 'Desktop only' ? 'none' : 'block');
+    set('--cb-box-product-card-size', resolveProductCardSize(designSettings.productCardDesktopSize, null));
+    set('--cb-box-product-card-size-mobile', resolveProductCardSize(designSettings.productCardMobileSize, null));
 
     set('--cb-box-title-color', normalizeHexColor(designSettings.titleTextColor, null));
     set('--cb-box-title-size', designSettings.titleSize != null ? designSettings.titleSize + 'px' : null);
@@ -96,6 +111,9 @@
     set('--cb-box-price-color', normalizeHexColor(designSettings.productPriceColor, null));
     set('--cb-box-price-size', designSettings.productPriceSize != null ? designSettings.productPriceSize + 'px' : null);
     set('--cb-box-price-weight', resolveFontWeight(designSettings.productPriceStyle, null));
+    set('--cb-box-compare-price-color', normalizeHexColor(designSettings.compareAtPriceColor, null));
+    set('--cb-box-compare-price-size', designSettings.compareAtPriceSize != null ? designSettings.compareAtPriceSize + 'px' : null);
+    set('--cb-box-compare-price-weight', resolveFontWeight(designSettings.compareAtPriceStyle, null));
 
     set('--cb-box-cta-bg', normalizeHexColor(designSettings.ctaBackgroundColor, null));
     set('--cb-box-cta-color', normalizeHexColor(designSettings.ctaTextColor, null));
@@ -2527,7 +2545,6 @@
       productCountEl.className = 'cb-product-search-count';
       productCountEl.textContent = '0';
       searchWrap.appendChild(productCountEl);
-      productToolbar.appendChild(searchWrap);
     }
 
     var filterWrap = document.createElement('div');
@@ -2832,6 +2849,7 @@
     productSection.appendChild(filterOverlay);
     productSection.appendChild(filterPanel);
     productToolbar.appendChild(filterWrap);
+    if (searchWrap) productToolbar.appendChild(searchWrap);
 
     var rowControl = document.createElement('div');
     rowControl.className = 'cb-products-per-row-control';
