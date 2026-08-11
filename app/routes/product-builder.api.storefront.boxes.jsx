@@ -80,7 +80,7 @@ export const loader = async ({ request }) => {
 
   const boxes = await getStorefrontBoxes(shop, undefined, {
     includeImageData: false,
-    imageUrlBuilder: (field, _page, box) => `/apps/product-builder/boxes/${box.id}/image/${field}`,
+    imageUrlBuilder: (field, _page, box) => `/apps/product-builder/api/storefront/boxes/${box.id}/image/${field}`,
   });
 
   // Check order limits by billing cycle:

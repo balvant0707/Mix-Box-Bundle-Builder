@@ -255,7 +255,7 @@ export const loader = async ({ request, params }) => {
   const boxId = Number(params.id);
   const box = await getBox(boxId, session.shop, {
     includeImageData: false,
-    imageUrlBuilder: (field) => `/api/admin/boxes/${boxId}/image/${field}`,
+    imageUrlBuilder: (field) => `/api/admin/boxes/${boxId}/image/${field}${url.search}`,
   });
 
   if (!box) {

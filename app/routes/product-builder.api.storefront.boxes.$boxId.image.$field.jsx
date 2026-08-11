@@ -20,9 +20,13 @@ function getImageSelection(field) {
 function getImageFromPage(page, field) {
   if (!page) return null;
   const prefix = field === "bundleImage" ? "bundleImage" : "bannerImage";
+  const data = page[`${prefix}Data`] || null;
+  const mimeType = page[`${prefix}MimeType`] || null;
+  if (!data || !mimeType) return null;
+
   return {
-    data: page[`${prefix}Data`] || null,
-    mimeType: page[`${prefix}MimeType`] || null,
+    data,
+    mimeType,
   };
 }
 
@@ -44,6 +48,8 @@ export const loader = async ({ request, params }) => {
   const box = await db.comboBox.findFirst({
     where: { id: boxId, shop, deletedAt: null, isActive: true },
     select: {
+      bannerImageData: true,
+      bannerImageMimeType: true,
       simpleBoxPage: { select: imageSelection },
       multipleBoxPage: { select: imageSelection },
     },
@@ -51,7 +57,10 @@ export const loader = async ({ request, params }) => {
 
   const image =
     getImageFromPage(box?.simpleBoxPage, field) ||
-    getImageFromPage(box?.multipleBoxPage, field);
+    getImageFromPage(box?.multipleBoxPage, field) ||
+    (field === "bannerImage"
+      ? { data: box?.bannerImageData || null, mimeType: box?.bannerImageMimeType || null }
+      : null);
 
   if (!image?.data || !image?.mimeType) {
     return new Response("Not found", { status: 404, headers: CORS_HEADERS });
