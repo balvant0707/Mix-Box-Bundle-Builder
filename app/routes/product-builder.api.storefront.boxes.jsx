@@ -80,7 +80,7 @@ export const loader = async ({ request }) => {
 
   const boxes = await getStorefrontBoxes(shop, undefined, {
     includeImageData: false,
-    imageUrlBuilder: (field, _page, box) => `/apps/product-builder/api/storefront/boxes/${box.id}/image/${field}`,
+    imageUrlBuilder: (field, _page, box) => `/api/storefront/boxes/${box.id}/image/${field}`,
   });
 
   // Check order limits by billing cycle:
@@ -103,8 +103,16 @@ export const loader = async ({ request }) => {
   const publicBoxes = mappedBoxes.map((box) => {
     const pageConfig = box.pageConfig || null;
     const bannerImageUrl = box.bannerImageUrl || null;
+    const hasUploadedBundleImage =
+      typeof pageConfig?.bundleImage === "string" &&
+      pageConfig.bundleImage.includes(`/boxes/${box.id}/image/bundleImage`);
     // Flag so the widget can build the URL via the app proxy (avoids cross-origin issues)
-    const hasUploadedBanner = !bannerImageUrl && !!box.bannerImageMimeType;
+    const hasUploadedBanner =
+      (!bannerImageUrl && !!box.bannerImageMimeType) ||
+      (
+        typeof pageConfig?.bannerImage === "string" &&
+        pageConfig.bannerImage.includes(`/boxes/${box.id}/image/bannerImage`)
+      );
     let rawComboConfig = null;
     if (box.comboStepsConfig) {
       try { rawComboConfig = JSON.parse(box.comboStepsConfig); } catch {}
@@ -152,6 +160,7 @@ export const loader = async ({ request }) => {
       bannerImageUrl,
       bannerImage: pageConfig?.bannerImage || null,
       bundleImage: pageConfig?.bundleImage || null,
+      hasUploadedBundleImage,
       hasUploadedBanner,
       giftMessageEnabled: giftMessageEnabledFromConfig !== null
         ? giftMessageEnabledFromConfig

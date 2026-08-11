@@ -35,8 +35,9 @@ export const loader = async ({ request, params }) => {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
 
+  const url = new URL(request.url);
   const { session } = await authenticate.public.appProxy(request);
-  const shop = session?.shop;
+  const shop = session?.shop || url.searchParams.get("shop");
   const boxId = Number(params.boxId);
   const field = params.field;
 

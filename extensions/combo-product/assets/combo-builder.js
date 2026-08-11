@@ -2030,11 +2030,26 @@
 
   // ─── Box Card ─────────────────────────────────────────────────────────────────
 
+  function appendShopParam(url, shop) {
+    if (!url || !shop || /[?&]shop=/.test(url)) return url;
+    return url + (url.indexOf('?') === -1 ? '?' : '&') + 'shop=' + encodeURIComponent(shop);
+  }
+
+  function resolveStorefrontImageSrc(src, ctx) {
+    if (!src) return null;
+    var value = String(src);
+    if (/^(data:|blob:|https?:\/\/|\/\/)/i.test(value)) return value;
+    if (value.indexOf('/api/storefront/') === 0 && ctx && ctx.apiBase) {
+      return appendShopParam(ctx.apiBase.replace(/\/+$/, '') + value, ctx.shop);
+    }
+    return appendShopParam(value, ctx && ctx.shop);
+  }
+
   function getBoxCardBannerSrc(box, ctx) {
-    if (box.bannerImage) return box.bannerImage;
+    if (box.bannerImage) return resolveStorefrontImageSrc(box.bannerImage, ctx);
     if (box.bannerImageUrl) return box.bannerImageUrl;
     if (box.hasUploadedBanner) {
-      return ctx.apiBase + '/api/storefront/boxes/' + box.id + '/banner';
+      return appendShopParam(ctx.apiBase + '/api/storefront/boxes/' + box.id + '/banner', ctx.shop);
     }
 
     var steps = box && box.comboConfig && Array.isArray(box.comboConfig.steps)
@@ -2047,9 +2062,12 @@
     return null;
   }
 
-  function getBoxCardBundleImageSrc(box) {
-    if (box.bundleImage) return box.bundleImage;
+  function getBoxCardBundleImageSrc(box, ctx) {
+    if (box.bundleImage) return resolveStorefrontImageSrc(box.bundleImage, ctx);
     if (box.bundleImageUrl) return box.bundleImageUrl;
+    if (box.hasUploadedBundleImage && ctx && ctx.apiBase) {
+      return appendShopParam(ctx.apiBase + '/api/storefront/boxes/' + box.id + '/image/bundleImage', ctx.shop);
+    }
     return null;
   }
 
@@ -2126,7 +2144,7 @@
     var body = document.createElement('div');
     body.className = 'cb-box-body';
 
-    var bundleImageSrc = getBoxCardBundleImageSrc(box);
+    var bundleImageSrc = getBoxCardBundleImageSrc(box, ctx);
     if (bundleImageSrc) {
       var bundleImageWrap = document.createElement('div');
       bundleImageWrap.className = 'cb-box-bundle-image-wrap';
