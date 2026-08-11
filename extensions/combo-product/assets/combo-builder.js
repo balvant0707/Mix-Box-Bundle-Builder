@@ -2841,7 +2841,7 @@
       });
       if (!prices.length) return { min: 0, max: 0 };
       return {
-        min: Math.floor(Math.min.apply(Math, prices)),
+        min: 0,
         max: Math.ceil(Math.max.apply(Math, prices)),
       };
     }
@@ -2942,10 +2942,6 @@
       swatch.setAttribute('aria-pressed', 'false');
       swatch.title = getReadableColorName(color);
       swatch.style.background = getColorSwatchValue(color);
-      var swatchLabel = document.createElement('span');
-      swatchLabel.className = 'cb-product-color-swatch-label';
-      swatchLabel.textContent = getReadableColorName(color);
-      swatch.appendChild(swatchLabel);
       swatch.addEventListener('click', function () {
         productFilters.color = productFilters.color === color ? '' : color;
         Array.prototype.forEach.call(colorGrid.querySelectorAll('.cb-product-color-swatch'), function (btn) {
@@ -3059,6 +3055,14 @@
       syncPriceFilter('min');
     });
     maxPriceInput.addEventListener('change', function () {
+      syncPriceFilter('max');
+    });
+    minPriceInput.addEventListener('input', function () {
+      if (minPriceInput.value === '') return;
+      syncPriceFilter('min');
+    });
+    maxPriceInput.addEventListener('input', function () {
+      if (maxPriceInput.value === '') return;
       syncPriceFilter('max');
     });
     priceRangeWrap.appendChild(minPriceRange);

@@ -278,7 +278,6 @@
 
 /* productImageAutoHeight admin toggle: let the banner size to its image
    instead of the fixed --cb-box-image-height crop. */
-.cb-box-card--auto-height .cb-box-banner,
 .cb-builder-area--auto-height .cb-product-img-wrap {
   height: auto;
   aspect-ratio: auto;
@@ -1268,38 +1267,26 @@
 
 .cb-product-color-filter-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(6, 36px);
+  gap: 14px 18px;
 }
 
 .cb-product-color-swatch {
-  width: 100%;
-  min-height: 46px;
+  width: 36px;
+  height: 36px;
   border: 1px solid #dfe3e8;
-  border-radius: 4px;
+  border-radius: 0;
   box-shadow: none;
   cursor: pointer;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding: 4px;
+  display: block;
+  padding: 0;
   background-clip: padding-box;
   overflow: hidden;
   position: relative;
 }
 
 .cb-product-color-swatch-label {
-  max-width: 100%;
-  padding: 2px 4px;
-  background: rgba(255,255,255,0.88);
-  color: #111827;
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1.1;
-  text-transform: capitalize;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: none;
 }
 
 .cb-product-color-swatch--active {
@@ -1595,7 +1582,6 @@
 .cb-product-img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
   display: block;
   transition: transform 0.3s ease;
 }
@@ -1714,7 +1700,6 @@
   width: 16px;
   height: 16px;
   flex: 0 0 16px;
-  fill: currentColor;
   display: block;
 }
 
@@ -2620,7 +2605,7 @@
   }
 
   .cb-product-color-filter-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(5, 36px);
   }
 
   .cb-products-per-row-control {
