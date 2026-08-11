@@ -49,13 +49,22 @@ function getAttr(attrs, key) {
 }
 
 function extractSelectedProducts(attrs) {
-  return (attrs || [])
+  const indexedByPosition = new Map();
+
+  (attrs || [])
     .filter((a) => /^Item\s+\d+$/i.test(a.key) || /^_item_\d+$/i.test(a.key))
-    .map((a) => {
+    .forEach((a) => {
       const match = a.key.match(/(\d+)$/);
-      return { index: match ? parseInt(match[1], 10) : 0, value: a.value };
-    })
-    .filter((e) => e.value != null && String(e.value).trim() !== "")
+      const index = match ? parseInt(match[1], 10) : 0;
+      if (!index || a.value == null || String(a.value).trim() === "") return;
+      const isVisibleProperty = /^Item\s+\d+$/i.test(a.key);
+      const current = indexedByPosition.get(index);
+      if (!current || isVisibleProperty) {
+        indexedByPosition.set(index, { index, value: a.value });
+      }
+    });
+
+  return Array.from(indexedByPosition.values())
     .sort((a, b) => a.index - b.index)
     .map((e) => String(e.value).trim());
 }

@@ -70,16 +70,25 @@ function getOrderAttributeAny(orderAttributes, keys) {
 }
 
 function extractSelectedProducts(properties) {
-  const indexed = properties
+  const indexedByPosition = new Map();
+
+  properties
     .filter((entry) => /^_item_\d+$/i.test(entry.name) || /^Item\s+\d+$/i.test(entry.name))
-    .map((entry) => {
+    .forEach((entry) => {
       const match = entry.name.match(/^_item_(\d+)$/i) || entry.name.match(/^Item\s+(\d+)$/i);
-      return {
-        index: Number.parseInt(match?.[1] ?? "0", 10) || 0,
-        value: entry.value,
-      };
-    })
-    .filter((entry) => entry.value != null && String(entry.value).trim() !== "")
+      const index = Number.parseInt(match?.[1] ?? "0", 10) || 0;
+      if (!index || entry.value == null || String(entry.value).trim() === "") return;
+      const isVisibleProperty = /^Item\s+\d+$/i.test(entry.name);
+      const current = indexedByPosition.get(index);
+      if (!current || isVisibleProperty) {
+        indexedByPosition.set(index, {
+          index,
+          value: entry.value,
+        });
+      }
+    });
+
+  const indexed = Array.from(indexedByPosition.values())
     .sort((a, b) => a.index - b.index)
     .map((entry) => String(entry.value).trim());
 

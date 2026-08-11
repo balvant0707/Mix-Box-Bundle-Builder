@@ -4664,6 +4664,8 @@
       }
     });
 
+    enhanceComboCartPresentation(comboLineItems);
+
     comboLineItems.forEach(function (lineItem) {
       lineItem.classList.add('cb-combo-line-item');
     });
@@ -4688,6 +4690,98 @@
         '.cb-combo-line-item input[name^=\"updates[\"]' +
         '{display:none !important;}';
       document.head.appendChild(style);
+    }
+  }
+
+  function getCartItemProperties(item) {
+    if (!item) return {};
+    var props = item.properties || item.line_level_properties || {};
+    if (Array.isArray(props)) {
+      var mapped = {};
+      props.forEach(function (entry) {
+        if (!entry) return;
+        var key = entry.name || entry.key;
+        if (!key) return;
+        mapped[key] = entry.value;
+      });
+      return mapped;
+    }
+    return props && typeof props === 'object' ? props : {};
+  }
+
+  function getComboCartSelectionFromItem(item) {
+    var props = getCartItemProperties(item);
+    var selections = [];
+    Object.keys(props).forEach(function (key) {
+      var match = key.match(/^Item\s+(\d+)$/i);
+      if (!match) return;
+      var index = parseInt(match[1], 10);
+      var title = props[key];
+      if (!index || title == null || String(title).trim() === '') return;
+      selections.push({
+        index: index,
+        title: String(title).trim(),
+        image: props['_item_' + index + '_image'] || props['_item_' + index + '_image_url'] || '',
+      });
+    });
+    return selections.sort(function (a, b) { return a.index - b.index; });
+  }
+
+  function enhanceComboCartPresentation(comboLineItems) {
+    if (!Array.isArray(comboLineItems) || comboLineItems.length === 0 || !window.fetch) return;
+
+    fetch('/cart.js', { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (cart) {
+        if (!cart || !Array.isArray(cart.items)) return;
+        var comboCartItems = cart.items
+          .map(function (item) {
+            return { item: item, selections: getComboCartSelectionFromItem(item) };
+          })
+          .filter(function (entry) { return entry.selections.length > 0; });
+
+        comboLineItems.forEach(function (lineItem, index) {
+          var entry = comboCartItems[index] || comboCartItems[0];
+          if (!entry || !entry.selections.length) return;
+          renderComboCartSelectionList(lineItem, entry.selections);
+        });
+      })
+      .catch(function () {});
+  }
+
+  function renderComboCartSelectionList(lineItem, selections) {
+    if (!lineItem || !Array.isArray(selections) || !selections.length) return;
+    var existing = lineItem.querySelector('.cb-cart-selected-products');
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+    var list = document.createElement('div');
+    list.className = 'cb-cart-selected-products';
+
+    selections.forEach(function (selection) {
+      var row = document.createElement('div');
+      row.className = 'cb-cart-selected-product';
+
+      if (selection.image) {
+        var img = document.createElement('img');
+        img.className = 'cb-cart-selected-product__image';
+        img.src = selection.image;
+        img.alt = selection.title;
+        img.loading = 'lazy';
+        row.appendChild(img);
+      }
+
+      var title = document.createElement('span');
+      title.className = 'cb-cart-selected-product__title';
+      title.textContent = 'Item ' + selection.index + ': ' + selection.title;
+      row.appendChild(title);
+      list.appendChild(row);
+    });
+
+    var anchor = lineItem.querySelector('.product-option, .cart-item__details, .cart-drawer-item__details, .line-item__properties, dl, ul') || lineItem;
+    if (anchor && anchor.parentNode && anchor !== lineItem) {
+      anchor.parentNode.insertBefore(list, anchor.nextSibling);
+    } else {
+      lineItem.appendChild(list);
     }
   }
 
@@ -5103,8 +5197,13 @@
           var label = p.productTitle || ('Item ' + (idx + 1));
           if (p.selectedVariantTitle) label += ' (' + p.selectedVariantTitle + ')';
           bundleProps['Item ' + (idx + 1)] = label;
+          bundleProps['_item_' + (idx + 1)] = label;
+          if (p.productImageUrl) {
+            bundleProps['_item_' + (idx + 1) + '_image'] = p.productImageUrl;
+          }
         }
       });
+      bundleProps['_combo_selected_count'] = String(selectedItemsCount);
 
       var shouldIncludeGiftDetails = !!(box && box.isGiftBox && box.giftMessageEnabled);
 
