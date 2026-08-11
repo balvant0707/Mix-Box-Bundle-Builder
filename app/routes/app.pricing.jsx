@@ -28,7 +28,6 @@ import {
   Divider,
   InlineGrid,
   InlineStack,
-  Layout,
   Page,
   Text,
 } from "@shopify/polaris";

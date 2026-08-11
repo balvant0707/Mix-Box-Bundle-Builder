@@ -7,7 +7,13 @@ export const loader = async ({ request }) => {
   const from = url.searchParams.get("from") || null;
   const to = url.searchParams.get("to") || null;
   const comboTypeParam = String(url.searchParams.get("comboType") || "all").toLowerCase();
-  const comboType = comboTypeParam === "simple" ? comboTypeParam : "all";
+  const comboType = comboTypeParam === "simple"
+    ? "single"
+    : comboTypeParam === "specific"
+      ? "multiple"
+      : ["single", "multiple"].includes(comboTypeParam)
+        ? comboTypeParam
+        : "all";
   const analytics = await getAnalytics(session.shop, from, to, { comboTypeFilter: comboType });
   return Response.json(analytics);
 };

@@ -52,7 +52,13 @@ export const loader = async ({ request }) => {
   const customFrom = url.searchParams.get("from") || null;
   const customTo = url.searchParams.get("to") || null;
   const comboTypeParam = String(url.searchParams.get("comboType") || "all").toLowerCase();
-  const comboType = comboTypeParam === "simple" ? comboTypeParam : "all";
+  const comboType = comboTypeParam === "simple"
+    ? "single"
+    : comboTypeParam === "specific"
+      ? "multiple"
+      : ["single", "multiple"].includes(comboTypeParam)
+        ? comboTypeParam
+        : "all";
 
   let fromDate, toDate;
   if (customFrom && customTo) {
@@ -330,7 +336,7 @@ function ComboTypeFilter({ value = "all" }) {
   const navigate = useNavigate();
 
   function handleChange(nextValue) {
-    const normalized = nextValue === "simple" ? nextValue : "all";
+    const normalized = ["single", "multiple"].includes(nextValue) ? nextValue : "all";
     // Build params from current search to preserve date / period params
     const params = new URLSearchParams(location.search);
     if (normalized === "all") params.delete("comboType");
@@ -354,8 +360,9 @@ function ComboTypeFilter({ value = "all" }) {
         label="Type filter"
         labelInline
         options={[
-          { label: "All Box", value: "all" },
-          { label: "Simple", value: "simple" },
+          { label: "All Boxes", value: "all" },
+          { label: "Single Boxes", value: "single" },
+          { label: "Multiple Boxes", value: "multiple" },
         ]}
         value={value}
         onChange={handleChange}
@@ -1008,7 +1015,7 @@ function RecentOrdersTable({ data, currencyCode, onOpenItemsPopup, shopDomain })
           )}
         </IndexTable.Cell>
         <IndexTable.Cell>
-          <Badge tone={order.comboType === "specific" ? "info" : "success"}>{comboTypeText}</Badge>
+          <Badge tone={order.comboType === "multiple" ? "info" : "success"}>{comboTypeText}</Badge>
         </IndexTable.Cell>
         <IndexTable.Cell>
           <InlineStack gap="100" blockAlign="center" wrap={false}>
@@ -1145,12 +1152,16 @@ export default function AnalyticsPage() {
   const periodLabel = periodRange ? `${fmtDate(periodRange.from)} - ${fmtDate(periodRange.to)}` : "Current";
   const prevPeriodLabel = prevPeriod ? `${fmtDate(prevPeriod.from)} - ${fmtDate(prevPeriod.to)}` : "Previous";
 
-  const analyticsScopeLabel = comboType === "simple"
-    ? "Simple"
-    : "All";
-  const analyticsScopePluralLabel = comboType === "simple"
-    ? "Simple"
-    : "All";
+  const analyticsScopeLabel = comboType === "single"
+    ? "Single"
+    : comboType === "multiple"
+      ? "Multiple"
+      : "All";
+  const analyticsScopePluralLabel = comboType === "single"
+    ? "Single Boxes"
+    : comboType === "multiple"
+      ? "Multiple Boxes"
+      : "Boxes";
 
   const revData = (dailyTrend || []).map((d) => ({ date: d.date, value: d.revenue }));
   const prevRevData = (prevDailyTrend || []).map((d) => ({ date: d.date, value: d.revenue }));

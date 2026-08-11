@@ -6,35 +6,40 @@ function toDateKey(date) {
 
 function normalizeAnalyticsComboTypeFilter(value) {
   const normalized = String(value || "all").trim().toLowerCase();
-  if (normalized === "simple" || normalized === "specific") return normalized;
+  if (normalized === "single" || normalized === "simple") return "single";
+  if (normalized === "multiple" || normalized === "specific") return "multiple";
   return "all";
 }
 
-function isSpecificComboBoxRecord(box) {
-  if (!box || !box.comboStepsConfig) return false;
+function getComboBoxAnalyticsType(box) {
+  if (!box) return "single";
+  if (box.multipleBoxPage) return "multiple";
+  if (box.simpleBoxPage) return "single";
+
+  if (!box.comboStepsConfig) return "single";
 
   const raw = typeof box.comboStepsConfig === "string" ? box.comboStepsConfig.trim() : "";
-  if (!raw) return false;
+  if (!raw) return "single";
 
   try {
     const parsed = JSON.parse(raw);
-    if (Number.parseInt(parsed?.type, 10) >= 2) return true; // Aligns with getComboConfigSummary in _index.jsx
-    if (Array.isArray(parsed?.steps) && parsed.steps.length > 0) return true;
+    if (Number.parseInt(parsed?.type, 10) >= 2) return "multiple";
+    if (Number.parseInt(parsed?.comboType, 10) >= 2) return "multiple";
+    if (Array.isArray(parsed?.steps) && parsed.steps.length > 0) return "multiple";
   } catch {
-    return false;
+    return "single";
   }
 
-  return false;
+  return "single";
 }
 
 function matchesComboTypeFilter(box, comboTypeFilter) {
   if (comboTypeFilter === "all") return true;
-  const isSpecific = isSpecificComboBoxRecord(box);
-  return comboTypeFilter === "specific" ? isSpecific : !isSpecific;
+  return getComboBoxAnalyticsType(box) === comboTypeFilter;
 }
 
 function getComboTypeLabel(box) {
-  return isSpecificComboBoxRecord(box) ? "Specific" : "Simple";
+  return getComboBoxAnalyticsType(box) === "multiple" ? "Multiple" : "Single";
 }
 
 function buildDailySkeleton(fromDate, toDate) {
@@ -233,7 +238,8 @@ export async function getAnalytics(shop, from, to, options = {}) {
             displayTitle: true,
             itemCount: true,
             comboStepsConfig: true,
-            // config: { select: { comboType: true } },
+            simpleBoxPage: { select: { id: true } },
+            multipleBoxPage: { select: { id: true } },
           },
         },
       },
@@ -245,7 +251,8 @@ export async function getAnalytics(shop, from, to, options = {}) {
         box: {
           select: {
             comboStepsConfig: true,
-            // config: { select: { comboType: true } },
+            simpleBoxPage: { select: { id: true } },
+            multipleBoxPage: { select: { id: true } },
           },
         },
       },
@@ -257,7 +264,8 @@ export async function getAnalytics(shop, from, to, options = {}) {
         id: true,
         displayTitle: true,
         comboStepsConfig: true,
-        // config: { select: { comboType: true } },
+        simpleBoxPage: { select: { id: true } },
+        multipleBoxPage: { select: { id: true } },
       },
       orderBy: { sortOrder: "asc" },
     }),
@@ -351,7 +359,7 @@ export async function getAnalytics(shop, from, to, options = {}) {
         orderNumber: order.orderNumber ?? null,
         boxId: order.boxId,
         boxTitle: order.box?.displayTitle || "Unknown Box",
-        comboType: isSpecificComboBoxRecord(order.box) ? "specific" : "simple",
+        comboType: getComboBoxAnalyticsType(order.box),
         comboTypeLabel: getComboTypeLabel(order.box),
         selectedProducts: selected,
         selectedCount: selected.length,
@@ -390,7 +398,8 @@ export async function getRecentOrders(shop, limit = 10) {
           displayTitle: true,
           itemCount: true,
           comboStepsConfig: true,
-          // config: { select: { comboType: true } },
+          simpleBoxPage: { select: { id: true } },
+          multipleBoxPage: { select: { id: true } },
         },
       },
     },

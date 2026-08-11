@@ -70,21 +70,23 @@ function parseOrderSelectedProducts(value) {
   return [];
 }
 
-function isSpecificComboFromBox(box) {
-  if (!box) return false;
+function getComboTypeFromBox(box) {
+  if (!box) return "single";
+  if (box.multipleBoxPage) return "multiple";
+  if (box.simpleBoxPage) return "single";
   const cfgType = Number.parseInt(box?.config?.comboType, 10);
-  if (Number.isFinite(cfgType) && cfgType > 0) return true;
+  if (Number.isFinite(cfgType) && cfgType > 0) return "multiple";
   const raw = typeof box?.comboStepsConfig === "string" ? box.comboStepsConfig.trim() : "";
-  if (!raw) return false;
+  if (!raw) return "single";
   try {
     const parsed = JSON.parse(raw);
     const parsedType = Number.parseInt(parsed?.comboType ?? parsed?.type, 10);
-    if (Number.isFinite(parsedType) && parsedType > 0) return true;
-    if (Array.isArray(parsed?.steps) && parsed.steps.length > 0) return true;
+    if (Number.isFinite(parsedType) && parsedType > 0) return "multiple";
+    if (Array.isArray(parsed?.steps) && parsed.steps.length > 0) return "multiple";
   } catch {
-    return false;
+    return "single";
   }
-  return false;
+  return "single";
 }
 
 async function getShopifyOrdersCount(admin, fromIso, toIso) {
@@ -286,8 +288,8 @@ export const loader = async ({ request }) => {
         null,
       boxTitle: order.box?.displayTitle || "Unknown Box",
       itemCount: order.box?.itemCount || 0,
-      comboType: isSpecificComboFromBox(order.box) ? "specific" : "simple",
-      comboTypeLabel: isSpecificComboFromBox(order.box) ? "Specific" : "Simple",
+      comboType: getComboTypeFromBox(order.box),
+      comboTypeLabel: getComboTypeFromBox(order.box) === "multiple" ? "Multiple" : "Single",
       selectedProducts: parseOrderSelectedProducts(order.selectedProducts),
       selectedProductEntries: parseOrderSelectedProducts(order.selectedProducts).map((label) => ({
         label,
@@ -299,16 +301,6 @@ export const loader = async ({ request }) => {
     }),
   };
 };
-
-const createBoxActions = [
-  {
-    key: "create-box",
-    icon: "package",
-    label: "Create Bundle Box",
-    sub: "Create a single or multiple product bundle box for your storefront.",
-    href: "#",
-  },
-];
 
 const quickActions = [
   { key: "manage-boxes", label: "Manage Boxes", sub: "Edit existing combos", href: "/app/boxes" },
@@ -421,8 +413,6 @@ export default function DashboardPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const navigation = useNavigation();
-  const [showCreateBoxModal, setShowCreateBoxModal] = useState(false);
-  const [pendingCreateAction, setPendingCreateAction] = useState(null);
   const [itemsPopup, setItemsPopup] = useState({
     open: false,
     boxTitle: "",
@@ -446,16 +436,6 @@ export default function DashboardPage() {
     } finally {
       setTimeout(() => { navInFlightRef.current = false; }, 500);
     }
-  }
-
-  function closeCreateBoxModal() {
-    setShowCreateBoxModal(false);
-    setPendingCreateAction(null);
-  }
-
-  function handleCreateBoxAction(action) {
-    setPendingCreateAction(action.key);
-    navigateTo(action.href);
   }
 
   function openItemsPopup(order) {
@@ -520,10 +500,10 @@ export default function DashboardPage() {
       );
     })(),
     (() => {
-      const isSpecific = order.comboType === "specific";
+      const isMultiple = order.comboType === "multiple";
       return (
-        <Badge tone={isSpecific ? "info" : "success"}>
-          {isSpecific ? "Specific" : "Simple"}
+        <Badge tone={isMultiple ? "info" : "success"}>
+          {isMultiple ? "Multiple" : "Single"}
         </Badge>
       );
     })(),
@@ -570,8 +550,8 @@ export default function DashboardPage() {
     <Page
       title={`Welcome To ${storeOwnerName}`}
       primaryAction={{
-        content: "Create Box",
-        onAction: () => setShowCreateBoxModal(true),
+        content: "Create Bundle Box",
+        onAction: () => navigateTo("/app/create-bundle"),
       }}
       secondaryActions={[
         {
@@ -652,7 +632,7 @@ export default function DashboardPage() {
               </Text>
               <BlockStack gap="200">
                 <Button
-                  onClick={() => setShowCreateBoxModal(true)}
+                  onClick={() => navigateTo("/app/create-bundle")}
                   variant="primary"
                   fullWidth
                 >
@@ -689,7 +669,7 @@ export default function DashboardPage() {
                 heading="No combo box orders yet"
                 action={{
                   content: "Create bundle box",
-                  onAction: () => setShowCreateBoxModal(true),
+                  onAction: () => navigateTo("/app/create-bundle"),
                 }}
                 secondaryAction={{
                   content: "View analytics",
@@ -885,41 +865,6 @@ export default function DashboardPage() {
           </BlockStack>
         </Modal.Section>
       </Modal>
-
-      <Modal
-        open={showCreateBoxModal}
-        onClose={closeCreateBoxModal}
-        title="Choose Bundle Type"
-        size="medium"
-      >
-        <Modal.Section>
-          <BlockStack gap="300">
-            {createBoxActions.map((action) => (
-              <Card key={action.key}>
-                <BlockStack gap="200">
-                  <InlineStack gap="200" blockAlign="center">
-                    <AdminIcon type={action.icon} size="base" />
-                    <Text as="h3" variant="headingSm">
-                      {action.label}
-                    </Text>
-                  </InlineStack>
-                  <Text as="p" tone="subdued" variant="bodySm">
-                    {action.sub}
-                  </Text>
-                  <Button
-                    variant="primary"
-                    disabled={pendingCreateAction !== null}
-                    onClick={() => handleCreateBoxAction(action)}
-                  >
-                    Create Box
-                  </Button>
-                </BlockStack>
-              </Card>
-            ))}
-          </BlockStack>
-        </Modal.Section>
-      </Modal>
-
       {/* ── Full-page loading overlay ── */}
       {isPageLoading && (
         <div
