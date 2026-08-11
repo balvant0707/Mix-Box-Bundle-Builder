@@ -825,6 +825,7 @@
 
     var variantGroup = document.createElement('div');
     variantGroup.className = 'cb-product-info-modal-variant';
+    variantGroup.hidden = true;
     var variantLabel = document.createElement('label');
     variantLabel.textContent = 'Title';
     variantGroup.appendChild(variantLabel);
@@ -844,6 +845,17 @@
     addBtn.disabled = true;
     details.appendChild(addBtn);
 
+    var learnMoreBtn = document.createElement('button');
+    learnMoreBtn.type = 'button';
+    learnMoreBtn.className = 'cb-product-info-modal-learn';
+    learnMoreBtn.innerHTML = '<span class="cb-product-info-modal-learn-icon" aria-hidden="true">i</span><span>Learn more</span>';
+    learnMoreBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      openProductDescriptionModal(product, learnMoreBtn, rootEl, designStyle);
+    });
+    details.appendChild(learnMoreBtn);
+
     info.appendChild(details);
     _productDescriptionModalBody.appendChild(info);
 
@@ -859,6 +871,7 @@
 
     function renderVariantOptions(variants) {
       variantSelect.innerHTML = '';
+      variantGroup.hidden = false;
       variantSelect.disabled = false;
       var firstAvailable = null;
       variants.forEach(function (variant) {
@@ -915,13 +928,23 @@
       if (requestToken !== _productDescriptionModalRequestToken) return;
       if (err || !variants || variants.length === 0) {
         var fallbackId = product.variantIds && product.variantIds[0] ? String(product.variantIds[0]) : null;
+        variantGroup.hidden = true;
         if (fallbackId && !blockedSet[fallbackId]) {
-          variantSelect.innerHTML = '<option>Default Title</option>';
           selectedVariantId = fallbackId;
           selectedVariantTitle = null;
           addBtn.disabled = false;
         } else {
           variantSelect.innerHTML = '<option>No available options</option>';
+        }
+        return;
+      }
+      if (variants.length <= 1) {
+        var onlyVariant = variants[0];
+        variantGroup.hidden = true;
+        if (onlyVariant && onlyVariant.available && !blockedSet[String(onlyVariant.id)]) {
+          setSelectedVariant(onlyVariant);
+        } else {
+          addBtn.disabled = true;
         }
         return;
       }
@@ -3408,7 +3431,7 @@
           var learnBtn = document.createElement('button');
           learnBtn.type = 'button';
           learnBtn.className = 'cb-product-learn-link';
-          learnBtn.innerHTML = '&#9432; Learn';
+          learnBtn.innerHTML = '<span class="cb-product-learn-icon" aria-hidden="true">i</span><span>Learn more</span>';
           learnBtn.addEventListener('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
@@ -4465,7 +4488,7 @@
           var learnBtn = document.createElement('button');
           learnBtn.type = 'button';
           learnBtn.className = 'cb-product-learn-link';
-          learnBtn.innerHTML = '&#9432; Learn';
+          learnBtn.innerHTML = '<span class="cb-product-learn-icon" aria-hidden="true">i</span><span>Learn more</span>';
           learnBtn.addEventListener('click', function (e) {
             e.preventDefault(); e.stopPropagation();
             openProductDescriptionModal(product, learnBtn, ctx.rootEl);
