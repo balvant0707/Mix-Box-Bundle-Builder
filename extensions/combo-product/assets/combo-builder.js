@@ -1141,6 +1141,9 @@
               productHandle: p.handle,
               productImageUrl: p.images && p.images[0] ? p.images[0].src : null,
               productPrice: v0 ? parseFloat(v0.price) : 0,
+              productType: p.product_type || '',
+              vendor: p.vendor || '',
+              tags: p.tags || '',
               productAvailable: (p.variants || []).some(function (v) { return !!v.available; }),
               productOptions: normalizeOptionList(p.options || []),
               colorValues: normalizeOptionList(p.options || []).filter(function (option) { return /^(color|colour)$/i.test(option.name); }).reduce(function (acc, option) { return acc.concat(option.values); }, []),
@@ -1568,6 +1571,7 @@
               productHandle: p.handle || '',
               productImageUrl: p.images && p.images[0] ? p.images[0].src : null,
               productPrice: v0 ? parseFloat(v0.price) : 0,
+              productType: p.product_type || '',
               productAvailable: (p.variants || []).some(function (v) { return !!v.available; }),
               productOptions: normalizeOptionList(p.options || []),
               colorValues: normalizeOptionList(p.options || []).filter(function (option) { return /^(color|colour)$/i.test(option.name); }).reduce(function (acc, option) { return acc.concat(option.values); }, []),
@@ -2242,7 +2246,7 @@
     container.innerHTML = '';
 
     var searchTerm = '';
-    var productFilters = { availability: 'all', color: '', minPrice: '', maxPrice: '' };
+    var productFilters = { availability: 'all', color: '', minPrice: '', maxPrice: '', vendor: '', productType: '' };
     var selectedProductsPerRow = normalizeProductGridControlPerRow(ctx.settings && ctx.settings.productCardsPerRow);
     var sessionId = generateSessionId();
     var slots = [];
@@ -2506,19 +2510,20 @@
     productSection.appendChild(productToolbar);
 
     var searchInput = null;
+    var productCountEl = null;
     if (box.showProductSearch) {
       var searchWrap = document.createElement('div');
       searchWrap.className = 'cb-product-search-wrap';
       searchInput = document.createElement('input');
       searchInput.type = 'search';
       searchInput.className = 'cb-product-search';
-      searchInput.placeholder = 'Search products…';
+      searchInput.placeholder = 'Search products...';
       searchInput.addEventListener('input', function () {
         searchTerm = String(searchInput.value || '').trim().toLowerCase();
         renderProductGrid();
       });
       searchWrap.appendChild(searchInput);
-      var productCountEl = document.createElement('span');
+      productCountEl = document.createElement('span');
       productCountEl.className = 'cb-product-search-count';
       productCountEl.textContent = '0';
       searchWrap.appendChild(productCountEl);
@@ -2536,43 +2541,146 @@
     filterWrap.appendChild(filterButton);
 
     var filterPanel = document.createElement('div');
-    filterPanel.className = 'cb-product-filter-panel';
+    filterPanel.className = 'cb-product-filter-drawer';
     filterPanel.hidden = true;
 
-    function addFilterLabel(text) {
-      var label = document.createElement('label');
-      label.className = 'cb-product-filter-label';
-      label.textContent = text;
-      filterPanel.appendChild(label);
-      return label;
+    var filterOverlay = document.createElement('button');
+    filterOverlay.type = 'button';
+    filterOverlay.className = 'cb-product-filter-overlay';
+    filterOverlay.hidden = true;
+    filterOverlay.setAttribute('aria-label', 'Close filters');
+
+    var filterHeader = document.createElement('div');
+    filterHeader.className = 'cb-product-filter-header';
+    var filterTitle = document.createElement('h3');
+    filterTitle.className = 'cb-product-filter-title';
+    filterTitle.textContent = 'Filters';
+    var filterClose = document.createElement('button');
+    filterClose.type = 'button';
+    filterClose.className = 'cb-product-filter-close';
+    filterClose.setAttribute('aria-label', 'Close filters');
+    filterClose.innerHTML = '&times;';
+    filterHeader.appendChild(filterTitle);
+    filterHeader.appendChild(filterClose);
+    filterPanel.appendChild(filterHeader);
+
+    var filterBody = document.createElement('div');
+    filterBody.className = 'cb-product-filter-body';
+    filterPanel.appendChild(filterBody);
+
+    var filterFooter = document.createElement('div');
+    filterFooter.className = 'cb-product-filter-footer';
+    var filterClear = document.createElement('button');
+    filterClear.type = 'button';
+    filterClear.className = 'cb-product-filter-clear';
+    filterClear.textContent = 'Clear all';
+    filterFooter.appendChild(filterClear);
+    filterPanel.appendChild(filterFooter);
+
+    function getUniqueProductValues(key) {
+      var seen = {};
+      var values = [];
+      products.forEach(function (product) {
+        var value = product && product[key] != null ? String(product[key]).trim() : '';
+        if (!value) return;
+        var normalized = value.toLowerCase();
+        if (seen[normalized]) return;
+        seen[normalized] = true;
+        values.push(value);
+      });
+      return values.sort(function (a, b) { return a.localeCompare(b); });
     }
 
-    addFilterLabel('Availability');
-    var availabilitySelect = document.createElement('select');
-    availabilitySelect.className = 'cb-product-filter-select';
-    [
-      { label: 'All', value: 'all' },
-      { label: 'Available', value: 'available' },
-      { label: 'Unavailable', value: 'unavailable' }
-    ].forEach(function (option) {
-      var opt = document.createElement('option');
-      opt.value = option.value;
-      opt.textContent = option.label;
-      availabilitySelect.appendChild(opt);
-    });
-    availabilitySelect.addEventListener('change', function () {
-      productFilters.availability = availabilitySelect.value || 'all';
-      renderProductGrid();
-    });
-    filterPanel.appendChild(availabilitySelect);
+    function getProductPriceBounds() {
+      var prices = products.map(function (product) {
+        return parseFloat(product && product.productPrice);
+      }).filter(function (price) {
+        return !isNaN(price) && price >= 0;
+      });
+      if (!prices.length) return { min: 0, max: 0 };
+      return {
+        min: Math.floor(Math.min.apply(Math, prices)),
+        max: Math.ceil(Math.max.apply(Math, prices)),
+      };
+    }
 
-    addFilterLabel('Color');
-    var colorSelect = document.createElement('select');
-    colorSelect.className = 'cb-product-filter-select';
-    var allColorOption = document.createElement('option');
-    allColorOption.value = '';
-    allColorOption.textContent = 'All colors';
-    colorSelect.appendChild(allColorOption);
+    function getColorSwatchValue(color) {
+      var normalized = String(color || '').trim().toLowerCase();
+      var namedColors = {
+        black: '#000000',
+        blue: '#0000ff',
+        brown: '#8b4513',
+        gray: '#808080',
+        grey: '#808080',
+        green: '#008000',
+        orange: '#ffa500',
+        pink: '#ffc0cb',
+        purple: '#800080',
+        red: '#ff0000',
+        white: '#ffffff',
+        yellow: '#ffff00',
+      };
+      return namedColors[normalized] || normalizeHexColor(normalized, null) || normalized;
+    }
+
+    function setFilterButtonState() {
+      var activeCount = 0;
+      if (productFilters.availability !== 'all') activeCount++;
+      if (productFilters.color) activeCount++;
+      if (productFilters.minPrice !== '' || productFilters.maxPrice !== '') activeCount++;
+      if (productFilters.vendor) activeCount++;
+      if (productFilters.productType) activeCount++;
+      filterButton.classList.toggle('cb-product-filter-btn--active', activeCount > 0);
+      filterButton.setAttribute('aria-label', activeCount > 0 ? ('Filter products, ' + activeCount + ' active') : 'Filter products');
+    }
+
+    function openFilters() {
+      filterPanel.hidden = false;
+      filterOverlay.hidden = false;
+      requestAnimationFrame(function () {
+        filterPanel.classList.add('cb-product-filter-drawer--open');
+        filterOverlay.classList.add('cb-product-filter-overlay--open');
+      });
+      filterButton.setAttribute('aria-expanded', 'true');
+    }
+
+    function closeFilters() {
+      filterPanel.classList.remove('cb-product-filter-drawer--open');
+      filterOverlay.classList.remove('cb-product-filter-overlay--open');
+      filterButton.setAttribute('aria-expanded', 'false');
+      setTimeout(function () {
+        if (!filterPanel.classList.contains('cb-product-filter-drawer--open')) {
+          filterPanel.hidden = true;
+          filterOverlay.hidden = true;
+        }
+      }, 180);
+    }
+
+    function addFilterSection(title, expanded) {
+      var section = document.createElement('section');
+      section.className = 'cb-product-filter-section';
+      var toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'cb-product-filter-section-toggle';
+      toggle.setAttribute('aria-expanded', expanded === false ? 'false' : 'true');
+      toggle.innerHTML = '<span>' + title + '</span><span class="cb-product-filter-chevron" aria-hidden="true"></span>';
+      var content = document.createElement('div');
+      content.className = 'cb-product-filter-section-content';
+      content.hidden = expanded === false;
+      toggle.addEventListener('click', function () {
+        var nextOpen = content.hidden;
+        content.hidden = !nextOpen;
+        toggle.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+      });
+      section.appendChild(toggle);
+      section.appendChild(content);
+      filterBody.appendChild(section);
+      return content;
+    }
+
+    var colorContent = addFilterSection('Color');
+    var colorGrid = document.createElement('div');
+    colorGrid.className = 'cb-product-color-filter-grid';
     var colorMap = {};
     products.forEach(function (product) {
       getProductColorValues(product).forEach(function (color) {
@@ -2580,49 +2688,149 @@
       });
     });
     Object.keys(colorMap).sort().forEach(function (key) {
-      var opt = document.createElement('option');
-      opt.value = colorMap[key];
-      opt.textContent = colorMap[key];
-      colorSelect.appendChild(opt);
+      var color = colorMap[key];
+      var swatch = document.createElement('button');
+      swatch.type = 'button';
+      swatch.className = 'cb-product-color-swatch';
+      swatch.setAttribute('aria-label', 'Filter by color ' + color);
+      swatch.setAttribute('aria-pressed', 'false');
+      swatch.style.background = getColorSwatchValue(color);
+      swatch.addEventListener('click', function () {
+        productFilters.color = productFilters.color === color ? '' : color;
+        Array.prototype.forEach.call(colorGrid.querySelectorAll('.cb-product-color-swatch'), function (btn) {
+          var selected = btn === swatch && productFilters.color === color;
+          btn.classList.toggle('cb-product-color-swatch--active', selected);
+          btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        });
+        setFilterButtonState();
+        renderProductGrid();
+      });
+      colorGrid.appendChild(swatch);
     });
-    colorSelect.addEventListener('change', function () {
-      productFilters.color = colorSelect.value || '';
+    if (!colorGrid.children.length) {
+      var noColors = document.createElement('p');
+      noColors.className = 'cb-product-filter-empty';
+      noColors.textContent = 'No color options found.';
+      colorContent.appendChild(noColors);
+    } else {
+      colorContent.appendChild(colorGrid);
+    }
+
+    var availabilityContent = addFilterSection('Availability');
+    var availabilityToggleLabel = document.createElement('label');
+    availabilityToggleLabel.className = 'cb-product-availability-toggle';
+    var availabilityToggle = document.createElement('input');
+    availabilityToggle.type = 'checkbox';
+    availabilityToggle.className = 'cb-product-availability-input';
+    var availabilityTrack = document.createElement('span');
+    availabilityTrack.className = 'cb-product-availability-track';
+    var availabilityText = document.createElement('span');
+    availabilityText.textContent = 'In stock only';
+    availabilityToggle.addEventListener('change', function () {
+      productFilters.availability = availabilityToggle.checked ? 'available' : 'all';
+      setFilterButtonState();
       renderProductGrid();
     });
-    filterPanel.appendChild(colorSelect);
+    availabilityToggleLabel.appendChild(availabilityToggle);
+    availabilityToggleLabel.appendChild(availabilityTrack);
+    availabilityToggleLabel.appendChild(availabilityText);
+    availabilityContent.appendChild(availabilityToggleLabel);
 
-    addFilterLabel('Price');
+    var priceContent = addFilterSection('Price');
     var priceRow = document.createElement('div');
     priceRow.className = 'cb-product-price-filter-row';
+    var priceBounds = getProductPriceBounds();
+    var priceRange = document.createElement('input');
+    priceRange.type = 'range';
+    priceRange.className = 'cb-product-price-filter-range';
+    priceRange.min = String(priceBounds.min);
+    priceRange.max = String(priceBounds.max);
+    priceRange.step = '0.01';
+    priceRange.value = String(priceBounds.max);
     var minPriceInput = document.createElement('input');
     minPriceInput.type = 'number';
     minPriceInput.min = '0';
     minPriceInput.step = '0.01';
-    minPriceInput.placeholder = 'Min';
+    minPriceInput.placeholder = (ctx.currencyCode || 'INR') + ' ' + priceBounds.min;
     minPriceInput.className = 'cb-product-price-filter-input';
     var maxPriceInput = document.createElement('input');
     maxPriceInput.type = 'number';
     maxPriceInput.min = '0';
     maxPriceInput.step = '0.01';
-    maxPriceInput.placeholder = 'Max';
+    maxPriceInput.placeholder = (ctx.currencyCode || 'INR') + ' ' + priceBounds.max;
     maxPriceInput.className = 'cb-product-price-filter-input';
     function onPriceFilterChange() {
       productFilters.minPrice = minPriceInput.value;
       productFilters.maxPrice = maxPriceInput.value;
+      if (maxPriceInput.value !== '') priceRange.value = maxPriceInput.value;
+      setFilterButtonState();
       renderProductGrid();
     }
+    priceRange.addEventListener('input', function () {
+      maxPriceInput.value = priceRange.value;
+      onPriceFilterChange();
+    });
     minPriceInput.addEventListener('input', onPriceFilterChange);
     maxPriceInput.addEventListener('input', onPriceFilterChange);
+    priceContent.appendChild(priceRange);
     priceRow.appendChild(minPriceInput);
+    var priceTo = document.createElement('span');
+    priceTo.className = 'cb-product-price-filter-to';
+    priceTo.textContent = 'to';
+    priceRow.appendChild(priceTo);
     priceRow.appendChild(maxPriceInput);
-    filterPanel.appendChild(priceRow);
+    priceContent.appendChild(priceRow);
+
+    function addChoiceSection(title, key, values) {
+      if (!values.length) return;
+      var content = addFilterSection(title, false);
+      var list = document.createElement('div');
+      list.className = 'cb-product-choice-filter-list';
+      values.forEach(function (value) {
+        var choice = document.createElement('button');
+        choice.type = 'button';
+        choice.className = 'cb-product-choice-filter';
+        choice.textContent = value;
+        choice.setAttribute('aria-pressed', 'false');
+        choice.addEventListener('click', function () {
+          productFilters[key] = productFilters[key] === value ? '' : value;
+          Array.prototype.forEach.call(list.querySelectorAll('.cb-product-choice-filter'), function (btn) {
+            var selected = btn === choice && productFilters[key] === value;
+            btn.classList.toggle('cb-product-choice-filter--active', selected);
+            btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
+          });
+          setFilterButtonState();
+          renderProductGrid();
+        });
+        list.appendChild(choice);
+      });
+      content.appendChild(list);
+    }
+
+    addChoiceSection('Brand', 'vendor', getUniqueProductValues('vendor'));
+    addChoiceSection('Product type', 'productType', getUniqueProductValues('productType'));
 
     filterButton.addEventListener('click', function () {
-      var nextOpen = !!filterPanel.hidden;
-      filterPanel.hidden = !nextOpen;
-      filterButton.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+      if (filterPanel.hidden) openFilters();
+      else closeFilters();
     });
-    filterWrap.appendChild(filterPanel);
+    filterClose.addEventListener('click', closeFilters);
+    filterOverlay.addEventListener('click', closeFilters);
+    filterClear.addEventListener('click', function () {
+      productFilters = { availability: 'all', color: '', minPrice: '', maxPrice: '', vendor: '', productType: '' };
+      availabilityToggle.checked = false;
+      minPriceInput.value = '';
+      maxPriceInput.value = '';
+      priceRange.value = String(priceBounds.max);
+      Array.prototype.forEach.call(filterBody.querySelectorAll('[aria-pressed="true"]'), function (btn) {
+        btn.setAttribute('aria-pressed', 'false');
+        btn.classList.remove('cb-product-color-swatch--active', 'cb-product-choice-filter--active');
+      });
+      setFilterButtonState();
+      renderProductGrid();
+    });
+    productSection.appendChild(filterOverlay);
+    productSection.appendChild(filterPanel);
     productToolbar.appendChild(filterWrap);
 
     var rowControl = document.createElement('div');
@@ -2862,6 +3070,18 @@
       if (productFilters.color) {
         visibleProducts = visibleProducts.filter(function (p) {
           return productMatchesColor(p, productFilters.color);
+        });
+      }
+
+      if (productFilters.vendor) {
+        visibleProducts = visibleProducts.filter(function (p) {
+          return String(p && p.vendor || '').toLowerCase() === String(productFilters.vendor).toLowerCase();
+        });
+      }
+
+      if (productFilters.productType) {
+        visibleProducts = visibleProducts.filter(function (p) {
+          return String(p && p.productType || '').toLowerCase() === String(productFilters.productType).toLowerCase();
         });
       }
 

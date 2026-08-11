@@ -149,6 +149,8 @@ const RESOLVE_PRODUCTS_BY_ID_QUERY = `#graphql
         title
         handle
         status
+        vendor
+        productType
         featuredImage { url }
         options {
           name
@@ -172,6 +174,8 @@ const RESOLVE_PRODUCTS_BY_COLLECTION_QUERY = `#graphql
             title
             handle
             status
+            vendor
+            productType
             featuredImage { url }
             options {
               name
@@ -210,6 +214,8 @@ function mapGraphqlProductNode(node, { hideOutOfStockProducts = false } = {}) {
     productImageUrl: node.featuredImage?.url || null,
     productHandle: node.handle,
     productPrice: firstPrice != null ? parseFloat(firstPrice) : null,
+    productType: node.productType || "",
+    vendor: node.vendor || "",
     productAvailable: availableForSale,
     productOptions,
     colorValues: colorOption?.values || [],

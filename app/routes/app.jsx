@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Outlet, redirect, useFetcher, useLoaderData, useLocation, useRevalidator, useRouteError } from "react-router";
 import { isbot } from "isbot";
 import { boundary } from "@shopify/shopify-app-react-router/server";
+import { NavMenu } from "@shopify/app-bridge-react";
 import { AppProvider as ShopifyAppProvider } from "@shopify/shopify-app-react-router/react";
 import { AppProvider as PolarisAppProvider } from "@shopify/polaris";
 import { Banner, BlockStack, Box, Button, InlineStack, Modal, Page, Text, TextField, Thumbnail } from "@shopify/polaris";
@@ -348,12 +349,12 @@ export default function App() {
           border-color: #000000;
         }
       `}</style>
-      <s-app-nav>
-        <s-link href={withEmbeddedAppParams("/app/create-bundle", location.search)}>Create Bundle</s-link>
-        <s-link href={withEmbeddedAppParams("/app/boxes", location.search)}>Manage Boxes</s-link>
-        <s-link href={withEmbeddedAppParams("/app/analytics", location.search)}>Analytics</s-link>
-        <s-link href={withEmbeddedAppParams("/app/pricing", location.search)}>Price Plan</s-link>
-      </s-app-nav>
+      <NavMenu>
+        <a href="/app/create-bundle">Create Bundle</a>
+        <a href="/app/boxes">Manage Boxes</a>
+        <a href="/app/analytics">Analytics</a>
+        <a href="/app/pricing">Price Plan</a>
+      </NavMenu>
       {!embedBlockEnabled && (
         <Page>
           <Banner
