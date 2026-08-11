@@ -75,6 +75,8 @@
     'Large': '220px',
   };
 
+  var LEARN_MORE_ICON_SVG = '<svg class="cb-product-learn-svg" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="8 8 84 84" aria-hidden="true" focusable="false"><path d="M49.9997559,8.083252c-23.112793,0-41.9165039,18.8037109-41.9165039,41.9165039c0,23.1132812,18.8037109,41.9169922,41.9165039,41.9169922c23.1132812,0,41.9169922-18.8037109,41.9169922-41.9169922C91.916748,26.8869629,73.1130371,8.083252,49.9997559,8.083252zM49.9997559,85.916748c-19.8041992,0-35.9165039-16.1123047-35.9165039-35.9169922c0-19.8041992,16.1123047-35.9165039,35.9165039-35.9165039c19.8046875,0,35.9169922,16.1123047,35.9169922,35.9165039C85.916748,69.8044434,69.8044434,85.916748,49.9997559,85.916748z"/><path d="M49.9997559,28.2907715c-1.4599609,0-2.7216797,0.5141602-3.7880859,1.5410156c-1.0654297,1.027832-1.5986328,2.2426758-1.5986328,3.6445312c0,1.4980469,0.5039062,2.7275391,1.5126953,3.6875c1.0078125,0.9604492,2.2988281,1.4404297,3.8740234,1.4404297s2.8662109-0.4799805,3.8740234-1.4404297c1.0097656-0.9599609,1.5136719-2.1894531,1.5136719-3.6875c0-1.4018555-0.5332031-2.6166992-1.5996094-3.6445312C52.7214355,28.8049316,51.4597168,28.2907715,49.9997559,28.2907715z"/><rect x="44.5837402" y="41.1105957" width="10.7744141" height="28.722168"/></svg>';
+
   function resolveProductCardSize(sizeLabel, fallback) {
     if (sizeLabel == null) return fallback;
     return DESIGN_CARD_SIZE_MAP[String(sizeLabel).trim()] || fallback;
@@ -848,7 +850,7 @@
     var learnMoreBtn = document.createElement('button');
     learnMoreBtn.type = 'button';
     learnMoreBtn.className = 'cb-product-info-modal-learn';
-    learnMoreBtn.innerHTML = '<span class="cb-product-info-modal-learn-icon" aria-hidden="true">i</span><span>Learn more</span>';
+    learnMoreBtn.innerHTML = LEARN_MORE_ICON_SVG + '<span>Learn more</span>';
     learnMoreBtn.addEventListener('click', function (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -3482,7 +3484,7 @@
           learnBtn = document.createElement('button');
           learnBtn.type = 'button';
           learnBtn.className = 'cb-product-learn-link';
-          learnBtn.innerHTML = '<span class="cb-product-learn-icon" aria-hidden="true">i</span><span>Learn more</span>';
+          learnBtn.innerHTML = LEARN_MORE_ICON_SVG + '<span>Learn more</span>';
           learnBtn.addEventListener('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
@@ -4541,7 +4543,7 @@
           learnBtn = document.createElement('button');
           learnBtn.type = 'button';
           learnBtn.className = 'cb-product-learn-link';
-          learnBtn.innerHTML = '<span class="cb-product-learn-icon" aria-hidden="true">i</span><span>Learn more</span>';
+          learnBtn.innerHTML = LEARN_MORE_ICON_SVG + '<span>Learn more</span>';
           learnBtn.addEventListener('click', function (e) {
             e.preventDefault(); e.stopPropagation();
             openProductDescriptionModal(product, learnBtn, ctx.rootEl, buildBoxDesignStyle(box.designSettings));

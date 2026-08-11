@@ -1710,6 +1710,14 @@
   line-height: 1;
 }
 
+.cb-product-learn-svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  fill: currentColor;
+  display: block;
+}
+
 .cb-product-learn-link:hover { color: var(--cb-box-title-color); text-decoration: none; }
 .cb-product-learn-link:focus-visible { outline: none; color: var(--cb-box-title-color); }
 
@@ -2368,6 +2376,12 @@
   font-size: 10px;
   font-weight: 800;
   line-height: 1;
+}
+
+.cb-product-info-modal-learn .cb-product-learn-svg {
+  width: 16px;
+  height: 16px;
+  flex-basis: 16px;
 }
 
 .cb-product-info-modal-learn:hover,
