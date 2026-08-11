@@ -80,6 +80,11 @@
     return DESIGN_CARD_SIZE_MAP[String(sizeLabel).trim()] || fallback;
   }
 
+  function parsePixelSize(value, fallback) {
+    var parsed = parseFloat(String(value || ''));
+    return isNaN(parsed) || parsed <= 0 ? fallback : parsed;
+  }
+
   // Builds an inline `style="--cb-box-x: ...; ..."` string from a box's
   // admin-configured designSettings so each box/pack can render with its own
   // colors/sizes without needing a per-box <style> tag (see combo-builder.css
@@ -123,6 +128,11 @@
     set('--cb-box-variant-color', normalizeHexColor(designSettings.variantSelectorColor, null));
     set('--cb-box-variant-size', designSettings.variantSelectorSize != null ? designSettings.variantSelectorSize + 'px' : null);
     set('--cb-box-variant-weight', resolveFontWeight(designSettings.variantSelectorStyle, null));
+    set('--cb-filter-title-size', designSettings.titleSize != null ? (Math.max(14, Math.min(20, parseInt(String(designSettings.titleSize), 10) || 16)) + 'px') : null);
+    set('--cb-filter-section-size', designSettings.variantSelectorSize != null ? (Math.max(12, Math.min(15, parseInt(String(designSettings.variantSelectorSize), 10) || 13)) + 'px') : null);
+    set('--cb-filter-body-size', designSettings.variantSelectorSize != null ? (Math.max(11, Math.min(14, parseInt(String(designSettings.variantSelectorSize), 10) || 12)) + 'px') : null);
+    set('--cb-filter-heading-color', normalizeHexColor(designSettings.titleTextColor, null));
+    set('--cb-filter-body-color', normalizeHexColor(designSettings.variantSelectorColor, null));
 
     set('--cb-box-popup-bg', normalizeHexColor(designSettings.imagePopupBackgroundColor, null));
     set('--cb-box-popup-color', normalizeHexColor(designSettings.imagePopupTextColor, null));
@@ -2560,6 +2570,8 @@
     var filterPanel = document.createElement('div');
     filterPanel.className = 'cb-product-filter-drawer';
     filterPanel.hidden = true;
+    var filterDesignStyle = buildBoxDesignStyle(box.designSettings);
+    if (filterDesignStyle) filterPanel.setAttribute('style', filterDesignStyle);
 
     var filterOverlay = document.createElement('button');
     filterOverlay.type = 'button';
@@ -2865,9 +2877,16 @@
     function applyProductsPerRow(value) {
       selectedProductsPerRow = normalizeProductGridControlPerRow(value);
       if (!productGrid) return;
+      var cardSize = parsePixelSize(
+        resolveProductCardSize(box.designSettings && box.designSettings.productCardDesktopSize, '220px'),
+        220
+      );
+      var gridGap = 20;
+      var gridMaxWidth = (selectedProductsPerRow * cardSize) + ((selectedProductsPerRow - 1) * gridGap);
       productGrid.style.setProperty('--cb-products-per-row', String(selectedProductsPerRow));
       productGrid.style.setProperty('--cb-products-per-row-tablet', String(Math.min(selectedProductsPerRow, 3)));
       productGrid.style.setProperty('--cb-products-per-row-mobile', String(Math.min(selectedProductsPerRow, 2)));
+      productGrid.style.setProperty('--cb-product-grid-max-width', gridMaxWidth + 'px');
       rowButtons.forEach(function (btn) {
         var isActive = String(btn.getAttribute('data-row-count')) === String(selectedProductsPerRow);
         btn.classList.toggle('cb-products-per-row-btn--active', isActive);
