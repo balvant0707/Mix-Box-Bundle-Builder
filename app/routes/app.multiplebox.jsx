@@ -1112,16 +1112,17 @@ function BundleInformationSection({
         placeholder="Build your perfect bundle"
         autoComplete="off"
       />
-
-      <TextField
-        label="Box block code"
-        value={form.boxCode}
-        onChange={(value) => onChange('boxCode', value)}
-        error={boxCodeError || undefined}
-        helpText="Optional. Use this code to identify this bundle box."
-        placeholder="Example: 12345"
-        autoComplete="off"
-      />
+      <div hidden>
+        <TextField
+          label="Box block code"
+          value={form.boxCode}
+          onChange={(value) => onChange('boxCode', value)}
+          error={boxCodeError || undefined}
+          helpText="Optional. Use this code to identify this bundle box."
+          placeholder="Example: 12345"
+          autoComplete="off"
+        />
+        </div>
 
       <TextField
         label="Description"
