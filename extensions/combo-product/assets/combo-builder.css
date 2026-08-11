@@ -286,17 +286,6 @@
   object-position: center;
 }
 
-/* productImageAutoHeight admin toggle: let the banner size to its image
-   instead of the fixed --cb-box-image-height crop. */
-.cb-builder-area--auto-height .cb-product-img-wrap {
-  height: auto;
-  aspect-ratio: auto;
-}
-
-.cb-builder-area--auto-height .cb-product-img {
-  height: auto;
-}
-
 /* Selected checkmark */
 .cb-box-check {
   display: none;
@@ -327,7 +316,7 @@
 
 .cb-box-bundle-image-wrap {
   width: 100%;
-  height: min(130px, var(--cb-box-image-height));
+  height: var(--cb-box-image-height);
   margin-bottom: 12px;
   overflow: hidden;
   background: #f6f6f6;
@@ -1595,8 +1584,7 @@
 
 .cb-product-img-wrap {
   width: 100%;
-  height: var(--cb-box-image-height);
-  aspect-ratio: auto;
+  aspect-ratio: 1 / 1;
   overflow: hidden;
   background: #f1f5f9;
   position: relative;
@@ -2521,6 +2509,10 @@
   }
 
   .cb-product-img-wrap {
+    aspect-ratio: 1 / 1;
+  }
+
+  .cb-box-bundle-image-wrap {
     height: var(--cb-box-image-height-mobile);
   }
 
