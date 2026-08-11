@@ -80,11 +80,6 @@
     return DESIGN_CARD_SIZE_MAP[String(sizeLabel).trim()] || fallback;
   }
 
-  function parsePixelSize(value, fallback) {
-    var parsed = parseFloat(String(value || ''));
-    return isNaN(parsed) || parsed <= 0 ? fallback : parsed;
-  }
-
   // Builds an inline `style="--cb-box-x: ...; ..."` string from a box's
   // admin-configured designSettings so each box/pack can render with its own
   // colors/sizes without needing a per-box <style> tag (see combo-builder.css
@@ -686,6 +681,7 @@
     _productDescriptionModal.hidden = true;
     _productDescriptionModal.setAttribute('aria-hidden', 'true');
     _productDescriptionModal.removeAttribute('data-cb-instance');
+    _productDescriptionModal.classList.remove('cb-product-modal--info');
     document.body.style.overflow = _productDescriptionModalBodyOverflow;
 
     if (
@@ -700,6 +696,7 @@
     if (!product || !product.productHandle) return;
 
     var modal = ensureProductDescriptionModal();
+    modal.classList.remove('cb-product-modal--info');
     var blockId = rootEl &&
       (rootEl.getAttribute('data-cb-instance') || rootEl.getAttribute('data-block-id'));
     var requestToken = ++_productDescriptionModalRequestToken;
@@ -742,6 +739,197 @@
 
       if (_productDescriptionModalCloseBtn) _productDescriptionModalCloseBtn.focus();
     });
+  }
+
+  function openProductInfoModal(product, triggerEl, rootEl, designStyle, options, onAdd) {
+    if (!product || !product.productHandle || typeof onAdd !== 'function') return false;
+
+    options = options || {};
+    var modal = ensureProductDescriptionModal();
+    var blockId = rootEl &&
+      (rootEl.getAttribute('data-cb-instance') || rootEl.getAttribute('data-block-id'));
+    var requestToken = ++_productDescriptionModalRequestToken;
+    var dialogEl = modal.querySelector('.cb-product-modal-dialog');
+    var blockedSet = {};
+    (options.blockedVariantIds || []).forEach(function (id) {
+      blockedSet[String(id)] = true;
+    });
+
+    if (dialogEl) dialogEl.setAttribute('style', designStyle || '');
+    modal.classList.add('cb-product-modal--info');
+    _productDescriptionModalLastFocus = triggerEl || document.activeElement;
+    _productDescriptionModalBodyOverflow = document.body.style.overflow;
+    _productDescriptionModalTitle.textContent = product.productTitle || 'Product details';
+    _productDescriptionModalBody.innerHTML = '';
+
+    if (blockId) modal.setAttribute('data-cb-instance', blockId);
+    modal.hidden = false;
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+
+    var info = document.createElement('div');
+    info.className = 'cb-product-info-modal';
+
+    var media = document.createElement('div');
+    media.className = 'cb-product-info-modal-media';
+    if (product.productImageUrl) {
+      var img = document.createElement('img');
+      img.src = product.productImageUrl;
+      img.alt = product.productTitle || '';
+      img.loading = 'lazy';
+      media.appendChild(img);
+    } else {
+      var placeholder = document.createElement('div');
+      placeholder.className = 'cb-product-info-modal-placeholder';
+      placeholder.textContent = (product.productTitle || '?').charAt(0).toUpperCase();
+      media.appendChild(placeholder);
+    }
+    info.appendChild(media);
+
+    var details = document.createElement('div');
+    details.className = 'cb-product-info-modal-details';
+
+    var title = document.createElement('h4');
+    title.className = 'cb-product-info-modal-title';
+    title.textContent = product.productTitle || 'Product';
+    details.appendChild(title);
+
+    var priceWrap = document.createElement('div');
+    priceWrap.className = 'cb-product-info-modal-price';
+    details.appendChild(priceWrap);
+
+    function renderModalPrice(price, compareAt) {
+      priceWrap.innerHTML = '';
+      var sp = price != null ? parseFloat(price) : null;
+      var cp = compareAt != null ? parseFloat(compareAt) : null;
+      if (sp && sp > 0) {
+        var pEl = document.createElement('span');
+        pEl.textContent = formatPrice(sp, options.currencySymbol, options.currencyCode);
+        priceWrap.appendChild(pEl);
+        if (options.showCompareAtPrice && cp && cp > sp) {
+          var cEl = document.createElement('span');
+          cEl.className = 'cb-product-info-modal-compare';
+          cEl.textContent = formatPrice(cp, options.currencySymbol, options.currencyCode);
+          priceWrap.appendChild(cEl);
+        }
+      }
+    }
+
+    var selectedVariantId = options.selectedVariantId || null;
+    var selectedVariantTitle = options.selectedVariantTitle || null;
+    var selectedVariantPrice = options.selectedVariantPrice != null ? options.selectedVariantPrice : product.productPrice;
+    var selectedVariantCompare = options.selectedVariantCompareAtPrice != null
+      ? options.selectedVariantCompareAtPrice
+      : product.productCompareAtPrice;
+    renderModalPrice(selectedVariantPrice, selectedVariantCompare);
+
+    var variantGroup = document.createElement('div');
+    variantGroup.className = 'cb-product-info-modal-variant';
+    var variantLabel = document.createElement('label');
+    variantLabel.textContent = 'Title';
+    variantGroup.appendChild(variantLabel);
+    var variantSelect = document.createElement('select');
+    variantSelect.className = 'cb-product-info-modal-select';
+    variantSelect.disabled = true;
+    var loadingOpt = document.createElement('option');
+    loadingOpt.textContent = 'Loading options...';
+    variantSelect.appendChild(loadingOpt);
+    variantGroup.appendChild(variantSelect);
+    details.appendChild(variantGroup);
+
+    var addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'cb-product-info-modal-add';
+    addBtn.textContent = options.buttonLabel || 'Add to Bundle';
+    addBtn.disabled = true;
+    details.appendChild(addBtn);
+
+    info.appendChild(details);
+    _productDescriptionModalBody.appendChild(info);
+
+    function setSelectedVariant(variant) {
+      if (!variant) return;
+      selectedVariantId = variant.id;
+      selectedVariantTitle = variant.title !== 'Default Title' ? variant.title : null;
+      selectedVariantPrice = variant.price != null ? variant.price : product.productPrice;
+      selectedVariantCompare = variant.compareAtPrice != null ? variant.compareAtPrice : product.productCompareAtPrice;
+      renderModalPrice(selectedVariantPrice, selectedVariantCompare);
+      addBtn.disabled = false;
+    }
+
+    function renderVariantOptions(variants) {
+      variantSelect.innerHTML = '';
+      variantSelect.disabled = false;
+      var firstAvailable = null;
+      variants.forEach(function (variant) {
+        var isBlocked = !!blockedSet[String(variant.id)];
+        var isDisabled = !variant.available || isBlocked;
+        var option = document.createElement('option');
+        option.value = variant.id;
+        option.disabled = isDisabled;
+        option.textContent = variant.title + (!variant.available ? ' - Out of stock' : (isBlocked ? ' - Already in box' : ''));
+        variantSelect.appendChild(option);
+        if (!firstAvailable && !isDisabled) firstAvailable = variant;
+      });
+
+      variantSelect._cbVariants = variants;
+      if (selectedVariantId) {
+        var selected = variants.filter(function (variant) {
+          return String(variant.id) === String(selectedVariantId) && !variantSelect.querySelector('option[value="' + variant.id + '"]').disabled;
+        })[0];
+        if (selected) firstAvailable = selected;
+      }
+
+      if (firstAvailable) {
+        variantSelect.value = firstAvailable.id;
+        setSelectedVariant(firstAvailable);
+      } else {
+        var emptyOpt = document.createElement('option');
+        emptyOpt.textContent = 'No available options';
+        variantSelect.innerHTML = '';
+        variantSelect.appendChild(emptyOpt);
+        variantSelect.disabled = true;
+        addBtn.disabled = true;
+      }
+    }
+
+    variantSelect.addEventListener('change', function () {
+      var variants = variantSelect._cbVariants || [];
+      for (var i = 0; i < variants.length; i++) {
+        if (String(variants[i].id) === String(variantSelect.value)) {
+          setSelectedVariant(variants[i]);
+          break;
+        }
+      }
+    });
+
+    addBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!selectedVariantId) return;
+      closeProductDescriptionModal();
+      onAdd(selectedVariantId, selectedVariantTitle, selectedVariantPrice, selectedVariantCompare);
+    });
+
+    fetchVariants(product.productHandle, product.variantIds, function (err, variants) {
+      if (requestToken !== _productDescriptionModalRequestToken) return;
+      if (err || !variants || variants.length === 0) {
+        var fallbackId = product.variantIds && product.variantIds[0] ? String(product.variantIds[0]) : null;
+        if (fallbackId && !blockedSet[fallbackId]) {
+          variantSelect.innerHTML = '<option>Default Title</option>';
+          selectedVariantId = fallbackId;
+          selectedVariantTitle = null;
+          addBtn.disabled = false;
+        } else {
+          variantSelect.innerHTML = '<option>No available options</option>';
+        }
+        return;
+      }
+      renderVariantOptions(variants);
+    });
+
+    if (_productDescriptionModalCloseBtn) _productDescriptionModalCloseBtn.focus();
+    return true;
   }
 
   function fetchVariants(handle, allowedVariantIds, cb) {
@@ -2877,16 +3065,9 @@
     function applyProductsPerRow(value) {
       selectedProductsPerRow = normalizeProductGridControlPerRow(value);
       if (!productGrid) return;
-      var cardSize = parsePixelSize(
-        resolveProductCardSize(box.designSettings && box.designSettings.productCardDesktopSize, '220px'),
-        220
-      );
-      var gridGap = 20;
-      var gridMaxWidth = (selectedProductsPerRow * cardSize) + ((selectedProductsPerRow - 1) * gridGap);
       productGrid.style.setProperty('--cb-products-per-row', String(selectedProductsPerRow));
       productGrid.style.setProperty('--cb-products-per-row-tablet', String(Math.min(selectedProductsPerRow, 3)));
       productGrid.style.setProperty('--cb-products-per-row-mobile', String(Math.min(selectedProductsPerRow, 2)));
-      productGrid.style.setProperty('--cb-product-grid-max-width', gridMaxWidth + 'px');
       rowButtons.forEach(function (btn) {
         var isActive = String(btn.getAttribute('data-row-count')) === String(selectedProductsPerRow);
         btn.classList.toggle('cb-products-per-row-btn--active', isActive);
@@ -3243,7 +3424,6 @@
         metaRow.className = 'cb-product-meta-row';
         var priceWrap = document.createElement('span');
         priceWrap.className = 'cb-product-price-wrap';
-        if (ctx.settings && ctx.settings.showProductPrices === false) priceWrap.style.display = 'none';
         metaRow.appendChild(priceWrap);
 
         function renderPriceWrap(price, compareAt) {
@@ -3441,7 +3621,30 @@
               updateCartButton();
             }
 
-            function onProductClick() {
+            function onProductClick(showInfoModal) {
+              if (showInfoModal && !box.hideProductInfoModal && p.productHandle && !p.isCollection) {
+                var opened = openProductInfoModal(
+                  p,
+                  card,
+                  ctx.rootEl,
+                  buildBoxDesignStyle(box.designSettings),
+                  {
+                    blockedVariantIds: blockedVariantIdsForProduct,
+                    selectedVariantId: selVarId,
+                    selectedVariantTitle: selVarTitle,
+                    selectedVariantPrice: selVarPrice,
+                    selectedVariantCompareAtPrice: selVarCompare,
+                    currencySymbol: ctx.currencySymbol,
+                    currencyCode: ctx.currencyCode,
+                    showCompareAtPrice: box.displayCompareAtPrice,
+                    buttonLabel: 'Add to Bundle',
+                  },
+                  doAddToSlot
+                );
+                if (opened) return;
+              }
+              if (showInfoModal) return;
+
               if (p.isCollection || !p.productHandle) {
                 // Collection or no handle — add directly with fallback variant
                 var fallbackId = p.variantIds && p.variantIds[0] ? String(p.variantIds[0]) : null;
@@ -3460,10 +3663,10 @@
               }
             }
 
-            aBtn.addEventListener('click', function (e) { e.stopPropagation(); onProductClick(); });
-            card.addEventListener('click', onProductClick);
+            aBtn.addEventListener('click', function (e) { e.stopPropagation(); onProductClick(false); });
+            card.addEventListener('click', function () { onProductClick(true); });
             card.addEventListener('keydown', function (e) {
-              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onProductClick(); }
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onProductClick(true); }
             });
           })(product, addBtn, blockedVariantIds);
         }
@@ -4258,7 +4461,7 @@
         titleEl.textContent = product.productTitle || product.productId;
         titleRow.appendChild(titleEl);
 
-        if (product.productHandle && !product.isCollection) {
+        if (product.productHandle && !product.isCollection && !box.hideProductInfoModal) {
           var learnBtn = document.createElement('button');
           learnBtn.type = 'button';
           learnBtn.className = 'cb-product-learn-link';
@@ -4275,7 +4478,6 @@
         metaRow.className = 'cb-product-meta-row';
         var priceWrap = document.createElement('span');
         priceWrap.className = 'cb-product-price-wrap';
-        if (ctx.settings && ctx.settings.showProductPrices === false) priceWrap.style.display = 'none';
         metaRow.appendChild(priceWrap);
 
         function renderPriceWrap(price, compareAt) {
@@ -4439,7 +4641,29 @@
               updateCartButton();
             }
 
-            function onProductClick() {
+            function onProductClick(showInfoModal) {
+              if (showInfoModal && !box.hideProductInfoModal && p.productHandle && !p.isCollection) {
+                var opened = openProductInfoModal(
+                  p,
+                  card,
+                  ctx.rootEl,
+                  buildBoxDesignStyle(box.designSettings),
+                  {
+                    selectedVariantId: selVarId,
+                    selectedVariantTitle: selVarTitle,
+                    selectedVariantPrice: selVarPrice,
+                    selectedVariantCompareAtPrice: selVarCompare,
+                    currencySymbol: ctx.currencySymbol,
+                    currencyCode: ctx.currencyCode,
+                    showCompareAtPrice: true,
+                    buttonLabel: 'Add to Bundle',
+                  },
+                  doAddToSlot
+                );
+                if (opened) return;
+              }
+              if (showInfoModal) return;
+
               if (p.isCollection || !p.productHandle) {
                 var fallbackId = p.variantIds && p.variantIds[0] ? String(p.variantIds[0]) : null;
                 doAddToSlot(fallbackId, null, p.productPrice, null);
@@ -4453,10 +4677,10 @@
               }
             }
 
-            aBtn.addEventListener('click', function (e) { e.stopPropagation(); onProductClick(); });
-            card.addEventListener('click', onProductClick);
+            aBtn.addEventListener('click', function (e) { e.stopPropagation(); onProductClick(false); });
+            card.addEventListener('click', function () { onProductClick(true); });
             card.addEventListener('keydown', function (e) {
-              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onProductClick(); }
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onProductClick(true); }
             });
           })(product, addBtn);
         }
