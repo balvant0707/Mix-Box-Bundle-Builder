@@ -267,12 +267,17 @@
 }
 
 .cb-box-banner {
+  display: none;
   width: 100%;
   height: var(--cb-box-image-height);
   background: var(--cb-primary-light);
   position: relative;
   overflow: hidden;
-  margin-bottom: 18px;
+  margin-bottom: 0;
+}
+
+.cb-box-card--active .cb-box-banner {
+  display: block;
 }
 
 .cb-box-banner-img {

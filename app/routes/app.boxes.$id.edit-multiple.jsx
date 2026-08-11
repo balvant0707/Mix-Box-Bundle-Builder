@@ -54,10 +54,6 @@ import { resolveImageField } from '../utils/image-upload';
 import { getBox } from '../models/boxes.server';
 
 const PICKER_PAGE_SIZE = 10;
-const BOX_CODE_MIN_LENGTH = 3;
-const BOX_CODE_MAX_LENGTH = 10;
-const BOX_CODE_PATTERN = /^\d+$/;
-
 const EMPTY_PAGE_INFO = {
   hasNextPage: false,
   endCursor: null,
@@ -66,18 +62,6 @@ const EMPTY_ITEMS = [];
 
 function normalizeBoxCode(value) {
   return String(value || '').trim();
-}
-
-function getBoxCodeValidationError(value) {
-  const code = normalizeBoxCode(value);
-  if (!code) return '';
-  if (code.length < BOX_CODE_MIN_LENGTH || code.length > BOX_CODE_MAX_LENGTH) {
-    return `Code must be ${BOX_CODE_MIN_LENGTH}-${BOX_CODE_MAX_LENGTH} digits.`;
-  }
-  if (!BOX_CODE_PATTERN.test(code)) {
-    return 'Code can only contain numbers.';
-  }
-  return '';
 }
 
 const PRODUCTS_QUERY = `#graphql
@@ -1033,7 +1017,6 @@ function BundleInformationSection({
   onRemoveProduct,
   onRemoveCollection,
   onRemoveGiftProduct,
-  boxCodeError,
 }) {
   return (
     <BlockStack gap="400">
@@ -1043,16 +1026,6 @@ function BundleInformationSection({
         value={form.title}
         onChange={(value) => onChange('title', value)}
         placeholder="Build your perfect bundle"
-        autoComplete="off"
-      />
-
-      <TextField
-        label="Code"
-        value={form.boxCode}
-        onChange={(value) => onChange('boxCode', value)}
-        placeholder="Auto-generated if blank"
-        helpText="Use 3-10 digits. This code is saved with the box and must be unique."
-        error={boxCodeError || undefined}
         autoComplete="off"
       />
 
@@ -2884,8 +2857,6 @@ export default function EditMultipleMixMatchBundlePage() {
       getCustomerSelectionLabel(csvToList(form.customers), customerOptions),
     [customerOptions, form.customers],
   );
-  const boxCodeError = getBoxCodeValidationError(form.boxCode);
-
   const setField = useCallback((field, value) => {
     setForm((current) => {
       if (field === 'scheduleType' && value === 'scheduled') {
@@ -3090,13 +3061,6 @@ export default function EditMultipleMixMatchBundlePage() {
   }, [activePack, form]);
 
   const handleSubmit = useCallback(async () => {
-    const codeError = getBoxCodeValidationError(form.boxCode);
-    if (codeError) {
-      setSubmitError(codeError);
-      setOpenSections((current) => ({ ...current, bundleInformation: true }));
-      return;
-    }
-
     try {
       setSaving(true);
       setSubmitError('');
@@ -3221,7 +3185,6 @@ export default function EditMultipleMixMatchBundlePage() {
                             ),
                           )
                         }
-                        boxCodeError={boxCodeError}
                       />
                     </AccordionSection>
 

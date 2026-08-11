@@ -2047,22 +2047,6 @@
     return null;
   }
 
-  function appendActiveBoxBanner(container, box, ctx) {
-    if (!container || !box || box.hideBannerImage) return;
-    var bannerSrc = getBoxCardBannerSrc(box, ctx);
-    if (!bannerSrc) return;
-
-    var banner = document.createElement('div');
-    banner.className = 'cb-box-banner cb-box-banner--active';
-    var img = document.createElement('img');
-    img.className = 'cb-box-banner-img';
-    img.src = bannerSrc;
-    img.alt = box.displayTitle || box.boxName || 'Bundle banner';
-    img.loading = 'lazy';
-    banner.appendChild(img);
-    container.appendChild(banner);
-  }
-
   function createBoxCard(box, ctx) {
     var card = document.createElement('div');
     card.className = 'cb-box-card' + (box.productImageAutoHeight ? ' cb-box-card--auto-height' : '');
@@ -2074,6 +2058,21 @@
     if (designStyle) card.setAttribute('style', designStyle);
 
     // Gift badge — top-left corner of card
+    if (!box.hideBannerImage) {
+      var bannerSrc = getBoxCardBannerSrc(box, ctx);
+      if (bannerSrc) {
+        var banner = document.createElement('div');
+        banner.className = 'cb-box-banner';
+        var bannerImg = document.createElement('img');
+        bannerImg.className = 'cb-box-banner-img';
+        bannerImg.src = bannerSrc;
+        bannerImg.alt = box.displayTitle || box.boxName || 'Bundle banner';
+        bannerImg.loading = 'lazy';
+        banner.appendChild(bannerImg);
+        card.appendChild(banner);
+      }
+    }
+
     if (box.isGiftBox) {
       var giftTag = document.createElement('span');
       giftTag.className = 'cb-gift-tag';
@@ -2335,7 +2334,6 @@
 
   function renderPackPicker(container, box, ctx) {
     container.innerHTML = '';
-    appendActiveBoxBanner(container, box, ctx);
 
     if (!box.hideBundleHeader) {
       var heading = document.createElement('h2');
@@ -2503,7 +2501,6 @@
 
   function renderBuilder(container, box, products, ctx) {
     container.innerHTML = '';
-    if (!box._packKey) appendActiveBoxBanner(container, box, ctx);
 
     var searchTerm = '';
     var selectedProductsPerRow = normalizeProductGridControlPerRow(ctx.settings && ctx.settings.productCardsPerRow);
@@ -3544,7 +3541,6 @@
 
   function renderSpecificComboBuilder(container, box, ctx) {
     container.innerHTML = '';
-    appendActiveBoxBanner(container, box, ctx);
 
     var comboConfig = box.comboConfig;
     var numSteps = comboConfig.comboType || comboConfig.steps.length;

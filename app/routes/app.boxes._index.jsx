@@ -8,10 +8,8 @@ import {
   toggleBoxStatus,
   reorderBoxes,
 } from "../models/boxes.server";
-import { getShopCurrencyCode } from "../models/shop.server";
 import { AdminIcon } from "../components/admin-icons";
 import { withEmbeddedAppParams } from "../utils/embedded-app";
-import { formatCurrencyAmount, getCurrencySymbol } from "../utils/currency";
 import {
   ActionList,
   Avatar,
@@ -38,7 +36,6 @@ import {
 } from "@shopify/polaris";
 import {
   CalendarIcon,
-  ClipboardIcon,
   GiftCardIcon,
   MenuHorizontalIcon,
 } from "@shopify/polaris-icons";
@@ -226,14 +223,12 @@ export const loader = async ({ request }) => {
   // The imports are now being removed as they are no longer used in this file.
   let boxes = await listBoxes(session.shop, false, true); // listBoxes is still used
   boxes = boxes.filter((box) => box.simpleBoxPage || box.multipleBoxPage);
-  const currencyCode = await getShopCurrencyCode(session.shop);
   const previewUrlByProductId = await getBundlePreviewUrlByProductId(
     admin,
     session.shop,
     boxes.map((b) => b.shopifyProductId),
   );
   return {
-    currencyCode,
     boxes: boxes.map((b) => ({
       id: b.id,
       boxType: b.boxType || "single",
@@ -293,32 +288,8 @@ export const action = async ({ request }) => {
   return { ok: false };
 };
 
-function CopyCodeBtn({ code }) {
-  const [copied, setCopied] = useState(false);
-  function handleCopy() {
-    navigator.clipboard.writeText(code).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }
-  return (
-    <InlineStack gap="100" blockAlign="center">
-      <Badge tone="info">{code}</Badge>
-      <Tooltip content={copied ? "Copied" : "Copy code"}>
-        <Button
-          variant="plain"
-          size="micro"
-          icon={ClipboardIcon}
-          onClick={handleCopy}
-          accessibilityLabel={copied ? "Copied" : "Copy code"}
-        />
-      </Tooltip>
-    </InlineStack>
-  );
-}
-
 export default function ManageBoxesPage() {
-  const { boxes, currencyCode } = useLoaderData();
+  const { boxes } = useLoaderData();
   const location = useLocation();
   const navigate = useNavigate();
   const navigation = useNavigation();
@@ -764,10 +735,7 @@ export default function ManageBoxesPage() {
                 itemCount={displayBoxes.length}
                 headings={[
                   { title: "Name" },
-                  { title: "Code" },
-                  { title: "Price" },
                   { title: "Type" },
-                  { title: "Orders" },
                   { title: "Status" },
                   { title: "Last Edited" },
                   { title: "More" },
@@ -812,56 +780,11 @@ export default function ManageBoxesPage() {
                         </InlineStack>
                       </IndexTable.Cell>
 
-                      {/* Code */}
-                      <IndexTable.Cell>
-                        {box.boxCode ? (
-                          <CopyCodeBtn code={box.boxCode} />
-                        ) : (
-                          <Text as="span" tone="disabled">—</Text>
-                        )}
-                      </IndexTable.Cell>
-
-                      {/* Price */}
-                      <IndexTable.Cell>
-                        {box.bundlePriceType === "dynamic" ? (
-                          <BlockStack gap="050">
-                          <Text as="span" tone="subdued" variant="bodySm" fontStyle="italic">Dynamic</Text>
-                            {box.discount && (
-                              <Text as="span" variant="bodySm" tone="success" fontWeight="semibold">
-                                {box.discount.discountType === "percent"
-                                    ? `${box.discount.discountValue}% off`
-                                    : box.discount.discountType === "fixed"
-                                    ? `${getCurrencySymbol(currencyCode)}${box.discount.discountValue} off`
-                                    : box.discount.discountType === "buy_x_get_y"
-                                      ? `Buy ${box.discount.buyQuantity || 1} Get ${box.discount.getQuantity || 1} Free`
-                                      : `${box.discount.discountValue} off`}
-                              </Text>
-                            )}
-                          </BlockStack>
-                        ) : (
-                          <Text as="span" fontWeight="bold" variant="bodySm">
-                            {formatCurrencyAmount(Number(box.bundlePrice || 0), currencyCode)}
-                          </Text>
-                        )}
-                      </IndexTable.Cell>
-
                       {/* Type */}
                       <IndexTable.Cell>
                         <Badge tone={getBoxTypeBadgeTone(box)}>
                           {getBoxTypeLabel(box)}
                         </Badge>
-                      </IndexTable.Cell>
-
-                      {/* Orders */}
-                      <IndexTable.Cell>
-                        {box.orderCount > 0 ? (
-                          <InlineStack gap="100" blockAlign="center">
-                            <AdminIcon type="orders" size="small" style={{ color: "#2A7A4F" }} />
-                            <Text as="span" fontWeight="bold">{box.orderCount}</Text>
-                          </InlineStack>
-                        ) : (
-                          <Text as="span" tone="disabled">No</Text>
-                        )}
                       </IndexTable.Cell>
 
                       {/* Status */}
