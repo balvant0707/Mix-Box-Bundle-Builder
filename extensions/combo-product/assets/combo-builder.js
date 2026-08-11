@@ -1973,6 +1973,12 @@
       ctx._wizardSelectedPriceEl = wizardSelectedPrice;
     }
 
+    var activeBoxBanner = document.createElement('div');
+    activeBoxBanner.className = 'cb-active-box-banner';
+    activeBoxBanner.hidden = true;
+    root.appendChild(activeBoxBanner);
+    ctx._activeBoxBanner = activeBoxBanner;
+
     // Step 1 Heading
     var step1Head = document.createElement('h2');
     step1Head.className = 'cb-step-heading';
@@ -2047,6 +2053,31 @@
     return null;
   }
 
+  function setActiveBoxBanner(ctx, box) {
+    var banner = ctx && ctx._activeBoxBanner;
+    if (!banner) return;
+
+    banner.innerHTML = '';
+    if (!box || box.hideBannerImage) {
+      banner.hidden = true;
+      return;
+    }
+
+    var bannerSrc = getBoxCardBannerSrc(box, ctx);
+    if (!bannerSrc) {
+      banner.hidden = true;
+      return;
+    }
+
+    var img = document.createElement('img');
+    img.className = 'cb-active-box-banner-img';
+    img.src = bannerSrc;
+    img.alt = box.displayTitle || box.boxName || 'Bundle banner';
+    img.loading = 'lazy';
+    banner.appendChild(img);
+    banner.hidden = false;
+  }
+
   function createBoxCard(box, ctx) {
     var card = document.createElement('div');
     card.className = 'cb-box-card' + (box.productImageAutoHeight ? ' cb-box-card--auto-height' : '');
@@ -2058,21 +2089,6 @@
     if (designStyle) card.setAttribute('style', designStyle);
 
     // Gift badge — top-left corner of card
-    if (!box.hideBannerImage) {
-      var bannerSrc = getBoxCardBannerSrc(box, ctx);
-      if (bannerSrc) {
-        var banner = document.createElement('div');
-        banner.className = 'cb-box-banner';
-        var bannerImg = document.createElement('img');
-        bannerImg.className = 'cb-box-banner-img';
-        bannerImg.src = bannerSrc;
-        bannerImg.alt = box.displayTitle || box.boxName || 'Bundle banner';
-        bannerImg.loading = 'lazy';
-        banner.appendChild(bannerImg);
-        card.appendChild(banner);
-      }
-    }
-
     if (box.isGiftBox) {
       var giftTag = document.createElement('span');
       giftTag.className = 'cb-gift-tag';
@@ -2151,6 +2167,7 @@
     function onSelect() {
       document.querySelectorAll('.cb-box-card').forEach(function (c) { c.classList.remove('cb-box-card--active'); });
       card.classList.add('cb-box-card--active');
+      setActiveBoxBanner(ctx, box);
       openBuilder(box, ctx);
     }
 
@@ -2202,6 +2219,7 @@
           builderArea.innerHTML = '';
           ctx._productSection = null;
           ctx._openBoxId = null;
+          setActiveBoxBanner(ctx, null);
           _cbBtn.style.visibility = 'hidden';
           setWizardSelectedPrice(ctx, null, null);
           if (ctx._wizardStep1Content) ctx._wizardStep1Content.style.display = 'none';

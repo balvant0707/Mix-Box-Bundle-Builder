@@ -78,7 +78,10 @@ export const loader = async ({ request }) => {
     return Response.json({ error: "shop parameter required" }, { status: 400, headers: CORS_HEADERS });
   }
 
-  const boxes = await getStorefrontBoxes(shop);
+  const boxes = await getStorefrontBoxes(shop, undefined, {
+    includeImageData: false,
+    imageUrlBuilder: (field, _page, box) => `/apps/product-builder/boxes/${box.id}/image/${field}`,
+  });
 
   // Check order limits by billing cycle:
   // monthly plans => count current month, yearly plans => count current year.

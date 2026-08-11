@@ -291,7 +291,11 @@ export const loader = async ({ request, params }) => {
     }
   }
 
-  const box = await getBox(params.id, session.shop, { includeImageData: false });
+  const boxId = Number(params.id);
+  const box = await getBox(boxId, session.shop, {
+    includeImageData: false,
+    imageUrlBuilder: (field) => `/api/admin/boxes/${boxId}/image/${field}`,
+  });
 
   if (!box) {
     const location = withEmbeddedAppParams("/app/boxes", new URL(request.url).search);

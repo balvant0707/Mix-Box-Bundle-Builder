@@ -228,8 +228,8 @@
 .cb-box-grid {
   display: grid;
   width: 100%;
-  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
-  justify-content: stretch;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 360px));
+  justify-content: center;
   gap: 20px;
   margin-bottom: 40px;
 }
@@ -266,25 +266,23 @@
   transform: translateY(-2px);
 }
 
-.cb-box-banner {
-  display: none;
-  width: 100%;
-  height: var(--cb-box-image-height);
-  background: var(--cb-primary-light);
-  position: relative;
+.cb-active-box-banner[hidden] {
+  display: none !important;
+}
+
+.cb-active-box-banner {
+  width: 100vw;
+  max-width: none;
+  margin: 0 calc(50% - 50vw) 18px;
   overflow: hidden;
-  margin-bottom: 0;
+  background: var(--cb-primary-light);
 }
 
-.cb-box-card--active .cb-box-banner {
-  display: block;
-}
-
-.cb-box-banner-img {
+.cb-active-box-banner-img {
   width: 100%;
-  height: 100%;
+  height: auto;
   display: block;
-  object-fit: cover;
+  object-fit: contain;
   object-position: center;
 }
 
@@ -295,10 +293,8 @@
   aspect-ratio: auto;
 }
 
-.cb-box-banner-overlay {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(160deg, rgba(0,0,0,0.06) 0%, rgba(0,0,0,0.22) 100%);
+.cb-builder-area--auto-height .cb-product-img {
+  height: auto;
 }
 
 /* Selected checkmark */
@@ -321,7 +317,7 @@
 .cb-box-card--active .cb-box-check { display: flex; }
 
 .cb-box-body {
-  padding: 16px 16px 18px;
+  padding: 14px 14px 16px;
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -331,7 +327,7 @@
 
 .cb-box-bundle-image-wrap {
   width: 100%;
-  height: min(150px, var(--cb-box-image-height));
+  height: min(130px, var(--cb-box-image-height));
   margin-bottom: 12px;
   overflow: hidden;
   background: #f6f6f6;
@@ -1070,7 +1066,6 @@
   justify-content: space-between;
   gap: 14px;
   width: 100%;
-  max-width: 1320px;
   margin-left: auto;
   margin-right: auto;
   margin-bottom: 16px;
@@ -1490,12 +1485,12 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  flex: 0 0 180px;
+  flex: 0 0 145px;
   justify-content: flex-end;
   margin-left: auto;
-  padding: 4px;
+  padding: 5px;
   border: 1px solid var(--cb-border);
-  border-radius: 8px;
+  border-radius: 0px;
   background: var(--cb-bg);
 }
 
@@ -1600,7 +1595,8 @@
 
 .cb-product-img-wrap {
   width: 100%;
-  aspect-ratio: 1 / 1;
+  height: var(--cb-box-image-height);
+  aspect-ratio: auto;
   overflow: hidden;
   background: #f1f5f9;
   position: relative;
@@ -2500,7 +2496,7 @@
   /* Box grid: 2-column responsive grid */
   .cb-box-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 14px;
     justify-items: stretch;
     margin-bottom: 28px;
@@ -2512,13 +2508,20 @@
     flex-shrink: unset;
   }
 
-  .cb-box-banner { height: var(--cb-box-image-height-mobile); }
+  .cb-active-box-banner {
+    width: calc(100vw - var(--removed-body-scrollbar-size, 0px));
+    margin-bottom: 14px;
+  }
 
   /* Product grid: 2 cols */
   .cb-product-grid {
     grid-template-columns: repeat(var(--cb-products-per-row-mobile, 2), minmax(0, 1fr)) !important;
     justify-content: center;
     gap: 8px;
+  }
+
+  .cb-product-img-wrap {
+    height: var(--cb-box-image-height-mobile);
   }
 
   .cb-product-toolbar {
@@ -2714,8 +2717,6 @@
     grid-template-columns: 1fr;
     gap: 12px;
   }
-
-  .cb-box-banner { height: var(--cb-box-image-height-mobile); }
 
   /* Step heading */
   .cb-step-heading {

@@ -1154,8 +1154,13 @@ function parseJsonArray(value) {
 const SAVED_IMAGE_PLACEHOLDER =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='180' viewBox='0 0 320 180'%3E%3Crect width='320' height='180' fill='%23f6f6f7'/%3E%3Ctext x='160' y='92' text-anchor='middle' font-family='Arial,sans-serif' font-size='14' fill='%236d7175'%3ESaved image%3C/text%3E%3C/svg%3E";
 
-function buildImageDataUri(data, mimeType, url, includeImageData = true) {
-  if (!includeImageData && data) return url || SAVED_IMAGE_PLACEHOLDER;
+function buildImageDataUri(data, mimeType, url, options = true) {
+  const includeImageData = typeof options === "object"
+    ? options.includeImageData !== false
+    : options !== false;
+  const fallbackImageUrl = typeof options === "object" ? options.imageUrl : null;
+
+  if (!includeImageData && data) return url || fallbackImageUrl || SAVED_IMAGE_PLACEHOLDER;
   if (data) {
     const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
     return `data:${mimeType || "image/jpeg"};base64,${buffer.toString("base64")}`;
@@ -1215,13 +1220,23 @@ function toPlainNumber(value) {
 export function buildPageConfigFromSimpleBoxPage(page, options = {}) {
   if (!page) return null;
   const includeImageData = options.includeImageData !== false;
+  const imageUrlFor = (field) =>
+    typeof options.imageUrlBuilder === "function"
+      ? options.imageUrlBuilder(field, page)
+      : null;
 
   const { bundleImageData, bannerImageData, ...rest } = page;
   return {
     ...rest,
     discountValue: toPlainNumber(page.discountValue),
-    bundleImage: buildImageDataUri(bundleImageData, page.bundleImageMimeType, page.bundleImageUrl, includeImageData),
-    bannerImage: buildImageDataUri(bannerImageData, page.bannerImageMimeType, page.bannerImageUrl, includeImageData),
+    bundleImage: buildImageDataUri(bundleImageData, page.bundleImageMimeType, page.bundleImageUrl, {
+      includeImageData,
+      imageUrl: imageUrlFor("bundleImage"),
+    }),
+    bannerImage: buildImageDataUri(bannerImageData, page.bannerImageMimeType, page.bannerImageUrl, {
+      includeImageData,
+      imageUrl: imageUrlFor("bannerImage"),
+    }),
     designSettings: buildDesignSettingsForRead(page),
     selectedProductIds: parseJsonArray(page.selectedProductIdsJson),
     selectedCollectionIds: parseJsonArray(page.selectedCollectionIdsJson),
@@ -1233,13 +1248,23 @@ export function buildPageConfigFromSimpleBoxPage(page, options = {}) {
 export function buildPageConfigFromMultipleBoxPage(page, options = {}) {
   if (!page) return null;
   const includeImageData = options.includeImageData !== false;
+  const imageUrlFor = (field) =>
+    typeof options.imageUrlBuilder === "function"
+      ? options.imageUrlBuilder(field, page)
+      : null;
 
   const { bundleImageData, bannerImageData, ...rest } = page;
   return {
     ...rest,
     discountValue: toPlainNumber(page.discountValue),
-    bundleImage: buildImageDataUri(bundleImageData, page.bundleImageMimeType, page.bundleImageUrl, includeImageData),
-    bannerImage: buildImageDataUri(bannerImageData, page.bannerImageMimeType, page.bannerImageUrl, includeImageData),
+    bundleImage: buildImageDataUri(bundleImageData, page.bundleImageMimeType, page.bundleImageUrl, {
+      includeImageData,
+      imageUrl: imageUrlFor("bundleImage"),
+    }),
+    bannerImage: buildImageDataUri(bannerImageData, page.bannerImageMimeType, page.bannerImageUrl, {
+      includeImageData,
+      imageUrl: imageUrlFor("bannerImage"),
+    }),
     designSettings: buildDesignSettingsForRead(page),
     selectedProductIds: parseJsonArray(page.selectedProductIdsJson),
     selectedCollectionIds: parseJsonArray(page.selectedCollectionIdsJson),
@@ -1315,7 +1340,7 @@ export async function getBox(id, shop, options = {}) {
 // page, so the storefront widget can render every admin-configured field
 // instead of ComboBox-level defaults. Boxes/packs outside their configured
 // schedule window are excluded here so they never reach the browser.
-export async function getStorefrontBoxes(shop, now) {
+export async function getStorefrontBoxes(shop, now, options = {}) {
   await ensureAppTables();
 
   const boxes = await db.comboBox.findMany({
@@ -1353,9 +1378,16 @@ export async function getStorefrontBoxes(shop, now) {
   return boxes
     .filter((box) => box.simpleBoxPage || box.multipleBoxPage)
     .map((box) => {
+      const pageConfigOptions = {
+        includeImageData: options.includeImageData,
+        imageUrlBuilder: (field, page) =>
+          typeof options.imageUrlBuilder === "function"
+            ? options.imageUrlBuilder(field, page, box)
+            : null,
+      };
       const pageConfig = box.simpleBoxPage
-        ? buildPageConfigFromSimpleBoxPage(box.simpleBoxPage)
-        : buildPageConfigFromMultipleBoxPage(box.multipleBoxPage);
+        ? buildPageConfigFromSimpleBoxPage(box.simpleBoxPage, pageConfigOptions)
+        : buildPageConfigFromMultipleBoxPage(box.multipleBoxPage, pageConfigOptions);
 
       if (pageConfig?.quantityPacks) {
         pageConfig.quantityPacks = pageConfig.quantityPacks.filter((pack) => isWithinSchedule(pack, referenceTime));
