@@ -71,7 +71,7 @@ function getBoxTypeLabel(box) {
 }
 
 function getBoxSearchText(box) {
-  return [box?.boxName, box?.displayTitle, box?.title]
+  return [box?.boxName, box?.displayTitle, box?.title, box?.boxCode]
     .filter((value) => value != null && String(value).trim() !== "")
     .join(" ")
     .toLowerCase();
@@ -571,7 +571,7 @@ export default function ManageBoxesPage() {
                   <TextField
                     label=""
                     labelHidden
-                    placeholder="Search box by name..."
+                    placeholder="Search box by name or code..."
                     value={search}
                     onChange={(val) => setSearch(val)}
                     clearButton
@@ -752,6 +752,7 @@ export default function ManageBoxesPage() {
                 itemCount={displayBoxes.length}
                 headings={[
                   { title: "Name" },
+                  { title: "Code" },
                   { title: "Type" },
                   { title: "Status" },
                   { title: "Last Edited" },
@@ -795,6 +796,13 @@ export default function ManageBoxesPage() {
                             </InlineStack>
                           </BlockStack>
                         </InlineStack>
+                      </IndexTable.Cell>
+
+                      {/* Code */}
+                      <IndexTable.Cell>
+                        <Text as="span" variant="bodySm" tone={box.boxCode ? undefined : "subdued"}>
+                          {box.boxCode || "-"}
+                        </Text>
                       </IndexTable.Cell>
 
                       {/* Type */}
