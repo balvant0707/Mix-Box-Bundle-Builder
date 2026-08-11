@@ -191,6 +191,20 @@ function getDiscountSummary(box) {
   } catch { return null; }
 }
 
+function getBoxStatusLabel(box) {
+  const pageStatus = String(box?.pageStatus || "").toLowerCase();
+  if (pageStatus === "scheduled") return "Scheduled";
+  if (pageStatus === "inactive") return "Inactive";
+  return box?.isActive ? "Active" : "Inactive";
+}
+
+function getBoxStatusTone(box) {
+  const label = getBoxStatusLabel(box);
+  if (label === "Active") return "success";
+  if (label === "Scheduled") return "attention";
+  return undefined;
+}
+
 function getComboConfigSummary(box) {
   if (!box.comboStepsConfig) return null;
   try {
@@ -415,8 +429,9 @@ export default function ManageBoxesPage() {
 
   const filteredBoxes = useMemo(() => {
     let result = boxesWithPendingToggle;
-    if (statusFilter === "active") result = result.filter((b) => b.isActive);
-    if (statusFilter === "inactive") result = result.filter((b) => !b.isActive);
+    if (statusFilter !== "all") {
+      result = result.filter((b) => getBoxStatusLabel(b).toLowerCase() === statusFilter);
+    }
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       result = result.filter((b) => getBoxSearchText(b).includes(q));
@@ -473,8 +488,9 @@ export default function ManageBoxesPage() {
   // Reset to page 1 when filter/search changes
   useEffect(() => { setCurrentPage(1); }, [statusFilter, search, boxTypeFilter, selectedDates]);
 
-  const activeCount = boxesWithPendingToggle.filter((b) => b.isActive).length;
-  const inactiveCount = boxesWithPendingToggle.length - activeCount;
+  const activeCount = boxesWithPendingToggle.filter((b) => getBoxStatusLabel(b) === "Active").length;
+  const scheduledCount = boxesWithPendingToggle.filter((b) => getBoxStatusLabel(b) === "Scheduled").length;
+  const inactiveCount = boxesWithPendingToggle.filter((b) => getBoxStatusLabel(b) === "Inactive").length;
 
   const performanceRows = useMemo(() => {
     const filteredOrderTotal = filteredBoxes.reduce(
@@ -498,6 +514,7 @@ export default function ManageBoxesPage() {
   const statusTabs = [
     { key: "all", label: `All (${baseBoxes.length})` },
     { key: "active", label: `Active (${activeCount})` },
+    { key: "scheduled", label: `Scheduled (${scheduledCount})` },
     { key: "inactive", label: `Inactive (${inactiveCount})` },
   ];
 
@@ -684,8 +701,8 @@ export default function ManageBoxesPage() {
                             </Text>
                           </IndexTable.Cell>
                           <IndexTable.Cell>
-                            <Badge tone={box.isActive ? "success" : undefined}>
-                              {box.isActive ? "Active" : "Inactive"}
+                            <Badge tone={getBoxStatusTone(box)}>
+                              {getBoxStatusLabel(box)}
                             </Badge>
                           </IndexTable.Cell>
                         </IndexTable.Row>
@@ -789,8 +806,8 @@ export default function ManageBoxesPage() {
 
                       {/* Status */}
                       <IndexTable.Cell>
-                        <Badge tone={box.isActive ? "success" : undefined}>
-                          {box.isActive ? "Active" : "Inactive"}
+                        <Badge tone={getBoxStatusTone(box)}>
+                          {getBoxStatusLabel(box)}
                         </Badge>
                       </IndexTable.Cell>
 

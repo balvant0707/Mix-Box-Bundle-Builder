@@ -82,6 +82,25 @@
     return DESIGN_CARD_SIZE_MAP[String(sizeLabel).trim()] || fallback;
   }
 
+  function getVariantInventoryQuantity(variant) {
+    if (!variant) return null;
+    var raw = variant.inventoryQuantity != null
+      ? variant.inventoryQuantity
+      : variant.inventory_quantity != null
+        ? variant.inventory_quantity
+        : null;
+    if (raw == null || raw === '') return null;
+    var numeric = Number(raw);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  function isVariantAvailable(variant) {
+    if (!variant) return false;
+    var quantity = getVariantInventoryQuantity(variant);
+    if (quantity === 0) return false;
+    return !!variant.available;
+  }
+
   // Builds an inline `style="--cb-box-x: ...; ..."` string from a box's
   // admin-configured designSettings so each box/pack can render with its own
   // colors/sizes without needing a per-box <style> tag (see combo-builder.css
@@ -597,7 +616,8 @@
             return {
               id: String(v.id),
               title: v.title,
-              available: v.available,
+              available: isVariantAvailable(v),
+              inventoryQuantity: getVariantInventoryQuantity(v),
               // Shopify product JSON returns variant prices in the smallest unit.
               price: v.price != null ? (parseFloat(v.price) / 100) : null,
               compareAtPrice: v.compare_at_price != null ? (parseFloat(v.compare_at_price) / 100) : null,
@@ -1394,14 +1414,15 @@
               productType: p.product_type || '',
               vendor: p.vendor || '',
               tags: p.tags || '',
-              productAvailable: (p.variants || []).some(function (v) { return !!v.available; }),
+              productAvailable: (p.variants || []).some(isVariantAvailable),
               productOptions: normalizeOptionList(p.options || []),
               colorValues: normalizeOptionList(p.options || []).filter(function (option) { return /^(color|colour)$/i.test(option.name); }).reduce(function (acc, option) { return acc.concat(option.values); }, []),
               variants: (p.variants || []).map(function (v) {
                 return {
                   id: String(v.id),
                   price: v.price != null ? parseFloat(v.price) : null,
-                  available: !!v.available,
+                  available: isVariantAvailable(v),
+                  inventoryQuantity: getVariantInventoryQuantity(v),
                   selectedOptions: normalizeOptionList(p.options || []).map(function (option, index) {
                     return { name: option.name, value: v['option' + (index + 1)] || '' };
                   }).filter(function (option) { return option.value; })
@@ -1822,14 +1843,15 @@
               productImageUrl: p.images && p.images[0] ? p.images[0].src : null,
               productPrice: v0 ? parseFloat(v0.price) : 0,
               productType: p.product_type || '',
-              productAvailable: (p.variants || []).some(function (v) { return !!v.available; }),
+              productAvailable: (p.variants || []).some(isVariantAvailable),
               productOptions: normalizeOptionList(p.options || []),
               colorValues: normalizeOptionList(p.options || []).filter(function (option) { return /^(color|colour)$/i.test(option.name); }).reduce(function (acc, option) { return acc.concat(option.values); }, []),
               variants: (p.variants || []).map(function (v) {
                 return {
                   id: String(v.id),
                   price: v.price != null ? parseFloat(v.price) : null,
-                  available: !!v.available,
+                  available: isVariantAvailable(v),
+                  inventoryQuantity: getVariantInventoryQuantity(v),
                   selectedOptions: normalizeOptionList(p.options || []).map(function (option, index) {
                     return { name: option.name, value: v['option' + (index + 1)] || '' };
                   }).filter(function (option) { return option.value; })

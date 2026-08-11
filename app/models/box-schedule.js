@@ -1,21 +1,31 @@
-// A page/pack is "scheduled" and gated by a start/end window only when
-// scheduleType === 'scheduled' — otherwise (e.g. 'immediately', or missing)
-// it's always visible. Unparseable dates fail open (visible) rather than
-// silently hiding a box/pack due to bad data.
+// A page/pack is gated by a start/end window only when scheduleType ===
+// 'scheduled'. Scheduled boxes require a valid start date and time; future
+// starts report "scheduled", active windows report "active", and completed
+// windows report "inactive".
 export function isWithinSchedule(pageConfig, now) {
-  if (!pageConfig || pageConfig.scheduleType !== 'scheduled') return true;
+  return getSchedulePublicationStatus(pageConfig, now) === 'active';
+}
+
+function parseScheduleDateTime(date, time) {
+  if (!date) return null;
+  const parsed = new Date([date, time].filter(Boolean).join(' '));
+  return isNaN(parsed) ? null : parsed;
+}
+
+export function getSchedulePublicationStatus(pageConfig, now) {
+  if (!pageConfig || pageConfig.scheduleType !== 'scheduled') return 'active';
 
   const referenceTime = now instanceof Date && !isNaN(now) ? now : new Date();
+  const start = parseScheduleDateTime(pageConfig.startDate, pageConfig.startTime);
 
-  if (pageConfig.startDate) {
-    const start = new Date([pageConfig.startDate, pageConfig.startTime].filter(Boolean).join(' '));
-    if (!isNaN(start) && referenceTime < start) return false;
-  }
+  // A scheduled box is not publishable until a valid start date/time exists.
+  if (!start || !pageConfig.startTime) return 'inactive';
+  if (referenceTime < start) return 'scheduled';
 
   if (pageConfig.hasEndDate && pageConfig.endDate) {
-    const end = new Date([pageConfig.endDate, pageConfig.endTime].filter(Boolean).join(' '));
-    if (!isNaN(end) && referenceTime > end) return false;
+    const end = parseScheduleDateTime(pageConfig.endDate, pageConfig.endTime);
+    if (end && referenceTime > end) return 'inactive';
   }
 
-  return true;
+  return 'active';
 }

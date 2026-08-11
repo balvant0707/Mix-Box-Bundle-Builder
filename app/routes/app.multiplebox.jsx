@@ -1018,6 +1018,73 @@ function CustomerEligibilitySection({
   );
 }
 
+function ScheduleSection({ form, onChange, minScheduleDate }) {
+  return (
+    <BlockStack gap="400">
+      <ChoiceList
+        title="Publishing schedule"
+        titleHidden
+        choices={SCHEDULE_OPTIONS}
+        selected={[form.scheduleType]}
+        onChange={(value) => onChange('scheduleType', value[0])}
+      />
+
+      {form.scheduleType === 'scheduled' ? (
+        <BlockStack gap="400">
+          <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+            <TextField
+              label="Start Date"
+              type="date"
+              value={form.startDate}
+              onChange={(value) => onChange('startDate', value)}
+              min={minScheduleDate}
+              prefix={<Icon source={CalendarIcon} />}
+              autoComplete="off"
+            />
+
+            <TextField
+              label="Start Time"
+              type="time"
+              value={form.startTime}
+              onChange={(value) => onChange('startTime', value)}
+              autoComplete="off"
+            />
+          </InlineGrid>
+
+          <Checkbox
+            label="Set an end date"
+            checked={form.hasEndDate}
+            onChange={(value) => onChange('hasEndDate', value)}
+            helpText="The bundle becomes unavailable after the end date and time."
+          />
+
+          {form.hasEndDate ? (
+            <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+              <TextField
+                label="End Date"
+                type="date"
+                value={form.endDate}
+                onChange={(value) => onChange('endDate', value)}
+                min={form.startDate || minScheduleDate}
+                prefix={<Icon source={CalendarIcon} />}
+                autoComplete="off"
+              />
+
+              <TextField
+                label="End Time"
+                type="time"
+                value={form.endTime}
+                onChange={(value) => onChange('endTime', value)}
+                autoComplete="off"
+              />
+            </InlineGrid>
+          ) : null}
+        </BlockStack>
+      ) : null}
+    </BlockStack>
+  );
+}
+
 function BundleInformationSection({
   form,
   onChange,
@@ -1025,7 +1092,6 @@ function BundleInformationSection({
   activePackId,
   onActivePackChange,
   onActivePackSelect,
-  minScheduleDate,
   products,
   collections,
   onBrowseProducts,
@@ -1087,7 +1153,6 @@ function BundleInformationSection({
         activePackId={activePackId}
         onActivePackChange={onActivePackChange}
         onActivePackSelect={onActivePackSelect}
-        minScheduleDate={minScheduleDate}
         products={products}
         collections={collections}
         onBrowseProducts={onBrowseProducts}
@@ -1117,7 +1182,6 @@ function QuantityPackSection({
   activePackId,
   onActivePackChange,
   onActivePackSelect,
-  minScheduleDate,
   products,
   collections,
   onBrowseProducts,
@@ -1223,7 +1287,6 @@ function QuantityPackSection({
               key={activePackId}
               pack={currentPack}
               onChange={onActivePackChange}
-              minScheduleDate={minScheduleDate}
               products={products}
               collections={collections}
               onBrowseProducts={onBrowseProducts}
@@ -1263,7 +1326,6 @@ function QuantityPackSection({
 function QuantityPackConfigurationList({
   pack,
   onChange,
-  minScheduleDate,
   products,
   collections,
   onBrowseProducts,
@@ -1439,71 +1501,6 @@ function QuantityPackConfigurationList({
                 selectedIds={pack.selectedCollectionIds}
                 onRemove={onRemoveCollection}
               />
-            </BlockStack>
-          ) : null}
-        </BlockStack>
-      </PackSectionPreview>
-
-      <PackSectionPreview
-        id="schedule"
-        title="Schedule"
-        open={openPanel === 'schedule'}
-        onToggle={togglePanel}
-      >
-        <BlockStack gap="400">
-          <ChoiceList
-            title="Publishing schedule"
-            titleHidden
-            choices={SCHEDULE_OPTIONS}
-            selected={[pack.scheduleType]}
-            onChange={(value) => onChange('scheduleType', value[0])}
-          />
-          {pack.scheduleType === 'scheduled' ? (
-            <BlockStack gap="400">
-              <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
-                <TextField
-                  label="Start Date"
-                  type="date"
-                  value={pack.startDate}
-                  onChange={(value) => onChange('startDate', value)}
-                  min={minScheduleDate}
-                  prefix={<Icon source={CalendarIcon} />}
-                  autoComplete="off"
-                />
-                <TextField
-                  label="Start Time"
-                  type="time"
-                  value={pack.startTime}
-                  onChange={(value) => onChange('startTime', value)}
-                  autoComplete="off"
-                />
-              </InlineGrid>
-              <Checkbox
-                label="Set an end date"
-                checked={pack.hasEndDate}
-                onChange={(value) => onChange('hasEndDate', value)}
-                helpText="The bundle becomes unavailable after the end date and time."
-              />
-              {pack.hasEndDate ? (
-                <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
-                  <TextField
-                    label="End Date"
-                    type="date"
-                    value={pack.endDate}
-                    onChange={(value) => onChange('endDate', value)}
-                    min={pack.startDate || minScheduleDate}
-                    prefix={<Icon source={CalendarIcon} />}
-                    autoComplete="off"
-                  />
-                  <TextField
-                    label="End Time"
-                    type="time"
-                    value={pack.endTime}
-                    onChange={(value) => onChange('endTime', value)}
-                    autoComplete="off"
-                  />
-                </InlineGrid>
-              ) : null}
             </BlockStack>
           ) : null}
         </BlockStack>
@@ -2807,6 +2804,7 @@ export default function CreateMultipleMixMatchBundlePage() {
   const [openSections, setOpenSections] = useState({
     bundleInformation: true,
     customerEligibility: false,
+    schedule: false,
   });
 
   const [selectedProductIds, setSelectedProductIds] = useState(
@@ -3027,19 +3025,17 @@ export default function CreateMultipleMixMatchBundlePage() {
   }, [activePack, form, products]);
 
   const scheduleText = useMemo(() => {
-    const source = activePack || form;
+    if (form.scheduleType === 'immediately') return 'Publish immediately';
 
-    if (source.scheduleType === 'immediately') return 'Publish immediately';
+    if (!form.startDate || !form.startTime) return 'Schedule not completed';
 
-    if (!source.startDate) return 'Schedule not completed';
-
-    const start = [source.startDate, source.startTime].filter(Boolean).join(' ');
-    const end = source.hasEndDate
-      ? [source.endDate, source.endTime].filter(Boolean).join(' ')
+    const start = [form.startDate, form.startTime].filter(Boolean).join(' ');
+    const end = form.hasEndDate
+      ? [form.endDate, form.endTime].filter(Boolean).join(' ')
       : '';
 
     return end ? `${start} to ${end}` : `Starts ${start}`;
-  }, [activePack, form]);
+  }, [form]);
 
   const summaryForm = useMemo(() => {
     if (!activePack) return form;
@@ -3054,12 +3050,6 @@ export default function CreateMultipleMixMatchBundlePage() {
       discountType: activePack.discountType,
       discountValue: activePack.discountValue,
       productConfiguration: activePack.productConfiguration,
-      scheduleType: activePack.scheduleType,
-      startDate: activePack.startDate,
-      startTime: activePack.startTime,
-      hasEndDate: activePack.hasEndDate,
-      endDate: activePack.endDate,
-      endTime: activePack.endTime,
     };
   }, [activePack, form]);
 
@@ -3171,7 +3161,6 @@ export default function CreateMultipleMixMatchBundlePage() {
                         activePackId={activePackId}
                         onActivePackChange={setActivePackField}
                         onActivePackSelect={setActivePackId}
-                        minScheduleDate={minScheduleDate}
                         products={products}
                         collections={collections}
                         onBrowseProducts={() => setProductModalOpen(true)}
@@ -3218,6 +3207,21 @@ export default function CreateMultipleMixMatchBundlePage() {
                         onBrowseTags={() => setCustomerTagsModalOpen(true)}
                         onBrowseCustomers={() => setCustomersModalOpen(true)}
                         customerDisplayValue={customerDisplayValue}
+                      />
+                    </AccordionSection>
+
+                    <AccordionSection
+                      id="schedule"
+                      title="Schedule"
+                      description="Publish immediately or schedule the bundle for a date and time."
+                      open={openSections.schedule}
+                      onToggle={toggleSection}
+                      paddingBottom="400"
+                    >
+                      <ScheduleSection
+                        form={form}
+                        onChange={setField}
+                        minScheduleDate={minScheduleDate}
                       />
                     </AccordionSection>
                   </BlockStack>

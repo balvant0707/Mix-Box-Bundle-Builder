@@ -1,5 +1,5 @@
 import { authenticate } from "../shopify.server";
-import { BoxCodeValidationError, listBoxes, createBox } from "../models/boxes.server";
+import { BoxCodeValidationError, getSchedulePublicationStatus, listBoxes, createBox } from "../models/boxes.server";
 import { saveSimpleBox, saveMultipleBox } from "../models/shop.server";
 
 const DESIGN_SETTINGS_FIELDS = [
@@ -155,6 +155,8 @@ function buildPagePayload(body) {
   applyImageField(payload, source, "bundleImage");
   applyImageField(payload, source, "bannerImage");
 
+  payload.status = getSchedulePublicationStatus(payload);
+
   return payload;
 }
 
@@ -181,6 +183,7 @@ export const action = async ({ request }) => {
 
     const box = await createBox(session.shop, dataForCreate, admin);
     const pagePayload = buildPagePayload(dataForCreate);
+    const nextIsActive = pagePayload.status === "active";
     const boxId = box?.id;
     const persistedBox = Array.isArray(dataForCreate.quantityPacks) && dataForCreate.quantityPacks.length > 0
       ? await saveMultipleBox(session.shop, {
@@ -188,7 +191,7 @@ export const action = async ({ request }) => {
           comboBoxData: {
             boxName: box?.boxName || dataForCreate.boxName,
             displayTitle: box?.displayTitle || dataForCreate.displayTitle,
-            isActive: box?.isActive ?? true,
+            isActive: nextIsActive,
           },
           multipleBoxPageData: pagePayload,
         })
@@ -197,7 +200,7 @@ export const action = async ({ request }) => {
           comboBoxData: {
             boxName: box?.boxName || dataForCreate.boxName,
             displayTitle: box?.displayTitle || dataForCreate.displayTitle,
-            isActive: box?.isActive ?? true,
+            isActive: nextIsActive,
           },
           simpleBoxPageData: pagePayload,
         });

@@ -1,8 +1,8 @@
 import db, { ensureAppTables } from "../db.server";
 import { Buffer } from "node:buffer";
-import { isWithinSchedule } from "./box-schedule.js";
+import { getSchedulePublicationStatus, isWithinSchedule } from "./box-schedule.js";
 
-export { isWithinSchedule };
+export { getSchedulePublicationStatus, isWithinSchedule };
 
 // Generate a 5-digit unique box code
 const BOX_CODE_CHARS = "0123456789";
@@ -157,7 +157,7 @@ const RESOLVE_PRODUCTS_BY_ID_QUERY = `#graphql
           values
         }
         variants(first: 100) {
-          edges { node { id price availableForSale selectedOptions { name value } } }
+          edges { node { id price availableForSale inventoryQuantity selectedOptions { name value } } }
         }
       }
     }
@@ -182,7 +182,7 @@ const RESOLVE_PRODUCTS_BY_COLLECTION_QUERY = `#graphql
               values
             }
             variants(first: 100) {
-              edges { node { id price availableForSale selectedOptions { name value } } }
+              edges { node { id price availableForSale inventoryQuantity selectedOptions { name value } } }
             }
           }
         }
@@ -195,8 +195,14 @@ const RESOLVE_PRODUCTS_BY_COLLECTION_QUERY = `#graphql
 function mapGraphqlProductNode(node, { hideOutOfStockProducts = false } = {}) {
   if (!node || node.status !== "ACTIVE") return null;
   const variantEdges = node.variants?.edges || [];
-  const availableForSale = variantEdges.some((edge) => edge.node?.availableForSale);
-  if (hideOutOfStockProducts && !variantEdges.some((edge) => edge.node?.availableForSale)) {
+  const isVariantAvailable = (variant) =>
+    !!variant?.availableForSale && (
+      variant.inventoryQuantity === null ||
+      variant.inventoryQuantity === undefined ||
+      Number(variant.inventoryQuantity) > 0
+    );
+  const availableForSale = variantEdges.some((edge) => isVariantAvailable(edge.node));
+  if (hideOutOfStockProducts && !availableForSale) {
     return null;
   }
   const firstPrice = variantEdges[0]?.node?.price;
@@ -224,7 +230,8 @@ function mapGraphqlProductNode(node, { hideOutOfStockProducts = false } = {}) {
     variants: variantEdges.map((edge) => ({
       id: String(edge.node.id).split("/").pop(),
       price: edge.node.price != null ? parseFloat(edge.node.price) : null,
-      available: !!edge.node.availableForSale,
+      available: isVariantAvailable(edge.node),
+      inventoryQuantity: edge.node.inventoryQuantity ?? null,
       selectedOptions: Array.isArray(edge.node.selectedOptions) ? edge.node.selectedOptions : [],
     })),
   };
@@ -1137,6 +1144,79 @@ export async function listBoxes(shop, activeOnly = false, includeBannerBinary = 
     pageTitle: box.simpleBoxPage?.title || box.multipleBoxPage?.title || null,
     pageStatus: box.simpleBoxPage?.status || box.multipleBoxPage?.status || null,
   }));
+}
+
+export async function syncScheduledBoxStatuses(now = new Date()) {
+  await ensureAppTables();
+
+  const boxes = await db.comboBox.findMany({
+    where: {
+      deletedAt: null,
+      OR: [
+        { simpleBoxPage: { is: { scheduleType: "scheduled" } } },
+        { multipleBoxPage: { is: { scheduleType: "scheduled" } } },
+      ],
+    },
+    select: {
+      id: true,
+      isActive: true,
+      simpleBoxPage: {
+        select: {
+          id: true,
+          status: true,
+          scheduleType: true,
+          startDate: true,
+          startTime: true,
+          hasEndDate: true,
+          endDate: true,
+          endTime: true,
+        },
+      },
+      multipleBoxPage: {
+        select: {
+          id: true,
+          status: true,
+          scheduleType: true,
+          startDate: true,
+          startTime: true,
+          hasEndDate: true,
+          endDate: true,
+          endTime: true,
+        },
+      },
+    },
+  });
+
+  let updated = 0;
+
+  for (const box of boxes) {
+    const isSimple = Boolean(box.simpleBoxPage);
+    const page = box.simpleBoxPage || box.multipleBoxPage;
+    if (!page) continue;
+
+    const status = getSchedulePublicationStatus(page, now);
+    const isActive = status === "active";
+    const data = {};
+
+    if (box.isActive !== isActive) data.isActive = isActive;
+    if (page.status !== status) {
+      if (isSimple) {
+        data.simpleBoxPage = { update: { status } };
+      } else {
+        data.multipleBoxPage = { update: { status } };
+      }
+    }
+
+    if (!Object.keys(data).length) continue;
+
+    await db.comboBox.update({
+      where: { id: box.id },
+      data,
+    });
+    updated += 1;
+  }
+
+  return { checked: boxes.length, updated };
 }
 
 function parseJsonArray(value) {
