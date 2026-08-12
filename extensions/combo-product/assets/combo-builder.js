@@ -1321,6 +1321,14 @@
     var roots = document.querySelectorAll('.combo-builder-auto-product-root');
     for (var i = 0; i < roots.length; i++) {
       if (roots[i] === currentRoot) continue;
+      // Never tear down an auto-embed root that has already rendered its
+      // matched bundle — this function only exists to stop a not-yet-rendered
+      // auto-embed from ALSO showing when a manual block is present on the
+      // same page. A manual block that only appears/initializes later (e.g.
+      // a theme AJAX section re-render recreating it, then picked up by
+      // reinitializeUninitializedComboRoots()) must not retroactively wipe an
+      // auto-embed that was already showing correctly with no real conflict.
+      if (roots[i].getAttribute('data-cb-rendered') === '1') continue;
       roots[i].innerHTML = '';
       roots[i].style.display = 'none';
       roots[i].setAttribute('data-cb-suppressed-by-manual-block', '1');
@@ -1967,6 +1975,10 @@
     }
     root.innerHTML = '';
     root.className = 'combo-builder-root cb-loaded' + (ctx.autoProductBox ? ' combo-builder-auto-product-root' : '');
+    // Marks this root as having real, successfully-matched content — see
+    // clearAutoProductComboRoots(), which must never wipe a root once this is
+    // set, regardless of when/why it runs again later.
+    root.setAttribute('data-cb-rendered', '1');
 
     var wrapper = document.createElement('div');
     wrapper.className = 'cb-wrapper';

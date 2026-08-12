@@ -1631,10 +1631,9 @@
 
 .cb-product-img-wrap {
   width: 100%;
-  height: var(--cb-box-image-height);
-  aspect-ratio: auto;
+  height: auto;
+  aspect-ratio: 1/1;
   overflow: hidden;
-  background: #f1f5f9;
   position: relative;
   flex-shrink: 0;
   display: var(--cb-box-image-display-desktop);
