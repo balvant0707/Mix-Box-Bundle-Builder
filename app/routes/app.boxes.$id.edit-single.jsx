@@ -50,6 +50,7 @@ import { ToggleSwitch } from '../components/toggle-switch';
 import { authenticate } from '../shopify.server';
 import { withEmbeddedAppParams } from '../utils/embedded-app';
 import { resolveImageField } from '../utils/image-upload';
+import { showPolarisToast } from '../utils/polaris-toast';
 import { getBox } from '../models/boxes.server';
 
 const PICKER_PAGE_SIZE = 10;
@@ -2346,9 +2347,11 @@ export default function EditSingleMixMatchBundlePage() {
         const json = await response.json().catch(() => null);
         throw new Error(json?.error || 'Failed to save bundle');
       }
-      navigate(withEmbeddedAppParams('/app/boxes?toast=Bundle%20configuration%20saved%20successfully.', location.search));
+      navigate(withEmbeddedAppParams('/app/boxes?toast=Single%20Box%20Bundle%20configuration%20saved%20successfully.', location.search));
     } catch (error) {
-      setSubmitError(error?.message || 'Failed to save bundle');
+      const message = error?.message || 'Failed to save bundle';
+      setSubmitError(message);
+      showPolarisToast(message, { isError: true });
     } finally {
       setSaving(false);
     }
