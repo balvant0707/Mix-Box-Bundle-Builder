@@ -6,6 +6,116 @@
   // at, instead of a hardcoded (and easily stale) absolute host.
   var DEFAULT_API_BASE = '/apps/product-builder';
 
+  // ═══ TEMPORARY DIAGNOSTIC INSTRUMENTATION — remove this whole block once the ═══
+  // ═══ live disappearance root cause is confirmed from real console output.   ═══
+  // Enable/disable without a redeploy via the browser console:
+  //   localStorage.setItem('cbDebug', '0')   // turn off
+  //   localStorage.removeItem('cbDebug')     // back to default (on)
+  var __CB_DEBUG__ = (function () {
+    try { return localStorage.getItem('cbDebug') !== '0'; } catch (_) { return true; }
+  })();
+  var __cbDebugStart = (window.performance && performance.now) ? performance.now() : Date.now();
+  function cbNow() {
+    return Math.round(((window.performance && performance.now) ? performance.now() : Date.now()) - __cbDebugStart);
+  }
+  function cbLog() {
+    if (!__CB_DEBUG__) return;
+    var args = Array.prototype.slice.call(arguments);
+    args.unshift('[COMBO-DEBUG] +' + cbNow() + 'ms');
+    try { console.log.apply(console, args); } catch (_) {}
+  }
+  function cbDescribeRoot(root) {
+    if (!root) return { exists: false };
+    var cs = null;
+    try { cs = window.getComputedStyle ? window.getComputedStyle(root) : null; } catch (_) {}
+    var parent = root.parentNode;
+    return {
+      id: root.id,
+      isConnected: root.isConnected,
+      inlineDisplay: root.style ? root.style.display : null,
+      computedDisplay: cs ? cs.display : null,
+      computedVisibility: cs ? cs.visibility : null,
+      computedOpacity: cs ? cs.opacity : null,
+      htmlLength: root.innerHTML ? root.innerHTML.length : 0,
+      className: root.className,
+      cbInitialized: root.getAttribute('data-cb-initialized'),
+      cbRendered: root.getAttribute('data-cb-rendered'),
+      cbSuppressed: root.getAttribute('data-cb-suppressed-by-manual-block'),
+      cbNoProductContext: root.getAttribute('data-cb-no-product-context'),
+      productId: root.dataset ? root.dataset.productId : null,
+      parentTag: parent ? (parent.id ? ('#' + parent.id) : parent.tagName) : null,
+      parentDisplay: parent && parent.style ? parent.style.display : null,
+    };
+  }
+  // Attaches a live watcher directly to a successfully-rendered root so we can
+  // log the EXACT moment/mutation/attribute-change responsible if it ever goes
+  // away — instead of guessing from static code reading.
+  function cbWatchRootDisappearance(root) {
+    if (!root || typeof MutationObserver === 'undefined') return;
+    if (root.__cbWatched) return; // one watcher per element instance
+    root.__cbWatched = true;
+    var lastSnapshot = JSON.stringify(cbDescribeRoot(root));
+    cbLog('watch: attached disappearance watcher', cbDescribeRoot(root));
+
+    if (root.parentNode) {
+      try {
+        new MutationObserver(function () {
+          if (!root.isConnected) {
+            cbLog('*** ROOT DISCONNECTED FROM DOCUMENT ***', cbDescribeRoot(root));
+            try { console.trace('[COMBO-DEBUG] stack at disconnection (root=' + root.id + ')'); } catch (_) {}
+          }
+        }).observe(root.parentNode, { childList: true });
+      } catch (_) {}
+    }
+
+    try {
+      new MutationObserver(function () {
+        var snapshot = cbDescribeRoot(root);
+        var next = JSON.stringify(snapshot);
+        if (next === lastSnapshot) return;
+        cbLog('root mutated', 'before=', lastSnapshot, 'after=', next);
+        if (snapshot.htmlLength === 0 || snapshot.computedDisplay === 'none' || snapshot.computedVisibility === 'hidden' || snapshot.computedOpacity === '0') {
+          cbLog('*** ROOT VISUALLY CLEARED/HIDDEN ***', snapshot);
+          try { console.trace('[COMBO-DEBUG] stack at clear/hide (root=' + root.id + ')'); } catch (_) {}
+        }
+        lastSnapshot = next;
+      }).observe(root, {
+        childList: true,
+        attributes: true,
+        attributeFilter: ['style', 'class', 'data-cb-initialized', 'data-cb-rendered', 'data-cb-suppressed-by-manual-block'],
+      });
+    } catch (_) {}
+  }
+  function cbInstallLifecycleListeners() {
+    if (window.__cbLifecycleListenersInstalled) return;
+    window.__cbLifecycleListenersInstalled = true;
+    function snapshotAllRoots(label) {
+      var roots = document.querySelectorAll('.combo-builder-root');
+      var out = [];
+      for (var i = 0; i < roots.length; i++) out.push(cbDescribeRoot(roots[i]));
+      cbLog(label, 'combo-root count=' + roots.length, out);
+    }
+    ['shopify:section:load', 'shopify:section:unload', 'shopify:section:reorder', 'shopify:section:select', 'shopify:section:deselect']
+      .forEach(function (evt) {
+        document.addEventListener(evt, function (e) {
+          cbLog('EVENT', evt, 'target=', e.target && (e.target.id || e.target.className));
+          snapshotAllRoots('roots at ' + evt);
+        });
+      });
+    ['variant:change', 'product:variant-change', 'change'].forEach(function (evt) {
+      document.addEventListener(evt, function (e) {
+        if (evt === 'change' && !(e.target && /variant|option/i.test(String(e.target.name || e.target.id || '')))) return;
+        cbLog('EVENT', evt, 'target=', e.target && (e.target.id || e.target.name || e.target.className));
+      }, true);
+    });
+    window.addEventListener('popstate', function () { cbLog('EVENT popstate'); snapshotAllRoots('roots at popstate'); });
+    window.addEventListener('pageshow', function (e) { cbLog('EVENT pageshow persisted=' + e.persisted); snapshotAllRoots('roots at pageshow'); });
+    document.addEventListener('DOMContentLoaded', function () { cbLog('EVENT DOMContentLoaded'); });
+    window.addEventListener('load', function () { cbLog('EVENT window load'); snapshotAllRoots('roots at window load'); });
+    cbLog('lifecycle listeners installed');
+  }
+  // ═══ END TEMPORARY DIAGNOSTIC INSTRUMENTATION (helpers) ═══
+
   // ─── Utilities ───────────────────────────────────────────────────────────────
 
   function generateSessionId() {
@@ -1311,14 +1421,20 @@
 
   function hasManualComboBuilderRoot(currentRoot) {
     var roots = document.querySelectorAll('.combo-builder-root:not(.combo-builder-auto-product-root)');
+    var otherIds = [];
     for (var i = 0; i < roots.length; i++) {
-      if (roots[i] !== currentRoot) return true;
+      if (roots[i] !== currentRoot) otherIds.push(roots[i].id || '(no id)');
+    }
+    if (otherIds.length > 0) {
+      cbLog('hasManualComboBuilderRoot(' + (currentRoot && currentRoot.id) + ') => true', 'otherManualRoots=', otherIds);
+      return true;
     }
     return false;
   }
 
   function clearAutoProductComboRoots(currentRoot) {
     var roots = document.querySelectorAll('.combo-builder-auto-product-root');
+    cbLog('clearAutoProductComboRoots() called', 'callerRoot=' + (currentRoot && currentRoot.id), 'candidateCount=' + roots.length);
     for (var i = 0; i < roots.length; i++) {
       if (roots[i] === currentRoot) continue;
       // Never tear down an auto-embed root that has already rendered its
@@ -1328,7 +1444,11 @@
       // a theme AJAX section re-render recreating it, then picked up by
       // reinitializeUninitializedComboRoots()) must not retroactively wipe an
       // auto-embed that was already showing correctly with no real conflict.
-      if (roots[i].getAttribute('data-cb-rendered') === '1') continue;
+      if (roots[i].getAttribute('data-cb-rendered') === '1') {
+        cbLog('clearAutoProductComboRoots: SKIPPING already-rendered root', cbDescribeRoot(roots[i]));
+        continue;
+      }
+      cbLog('clearAutoProductComboRoots: CLEARING root (not yet rendered)', cbDescribeRoot(roots[i]));
       roots[i].innerHTML = '';
       roots[i].style.display = 'none';
       roots[i].setAttribute('data-cb-suppressed-by-manual-block', '1');
@@ -1509,10 +1629,15 @@
   // ─── Main Widget Init ─────────────────────────────────────────────────────────
 
   function initWidget(config) {
+    cbLog('initWidget() called', 'mountId=' + config.mountId);
     var root = document.getElementById(config.mountId);
-    if (!root) return;
-    if (root.getAttribute('data-cb-initialized') === '1') return;
+    if (!root) { cbLog('initWidget: root NOT FOUND for mountId=' + config.mountId); return; }
+    if (root.getAttribute('data-cb-initialized') === '1') {
+      cbLog('initWidget: SKIPPED — already initialized', cbDescribeRoot(root));
+      return;
+    }
     root.setAttribute('data-cb-initialized', '1');
+    cbLog('initWidget: proceeding, marked data-cb-initialized=1', cbDescribeRoot(root));
 
     var shop = root.dataset.shop || config.shop;
     var currencySymbol = root.dataset.currencySymbol || config.currencySymbol || "$";
@@ -1534,13 +1659,16 @@
     var boxTypeFilter = String(root.dataset.boxTypeFilter || config.boxTypeFilter || 'all').toLowerCase();
     if (boxTypeFilter !== 'single' && boxTypeFilter !== 'multiple') boxTypeFilter = 'all';
     var currentProductId = normalizeShopifyProductId(root.dataset.productId || config.productId || null);
+    cbLog('initWidget: productId raw=' + (root.dataset.productId || config.productId || null) + ' normalized=' + currentProductId, 'autoProductBox=' + autoProductBox, 'productBoxOnly=' + productBoxOnly, 'showAllBoxes=' + showAllBoxes);
     if (productBoxOnly && !currentProductId) {
+      cbLog('initWidget: HIDING — productBoxOnly with no product id', cbDescribeRoot(root));
       root.innerHTML = '';
       root.style.display = 'none';
       root.setAttribute('data-cb-no-product-context', '1');
       return;
     }
     if (autoProductBox && hasManualComboBuilderRoot(root)) {
+      cbLog('initWidget: HIDING (init-time) — manual block root exists, self-suppressing auto embed', cbDescribeRoot(root));
       root.innerHTML = '';
       root.style.display = 'none';
       root.setAttribute('data-cb-suppressed-by-manual-block', '1');
@@ -1549,6 +1677,7 @@
     if (autoProductBox) {
       root.classList.add('combo-builder-auto-product-root');
     } else {
+      cbLog('initWidget: non-auto-embed root initializing — calling clearAutoProductComboRoots()', 'callerRoot=' + root.id);
       clearAutoProductComboRoots(root);
     }
     var enableStickyCart = parseBooleanSetting(
@@ -1628,6 +1757,7 @@
     root.innerHTML = '<div class="cb-initial-loader"><span class="combo-builder-spinner" aria-hidden="true"></span><span>Loading\u2026</span></div>';
 
     fetchBoxes(shop, apiBase, function (err, boxes, settings) {
+      cbLog('initWidget fetch callback: err=' + (err && err.message), 'boxCount=' + (boxes && boxes.length), 'orderLimitReached=' + (settings && settings.orderLimitReached));
       root.innerHTML = '';
 
       // Order limit reached — show a notice and block the widget entirely
@@ -1664,13 +1794,15 @@
         return;
       }
 
-      if (err || !boxes || boxes.length === 0) { return; }
+      if (err || !boxes || boxes.length === 0) { cbLog('initWidget fetch callback: EXIT — err/no boxes'); return; }
       var productMatchedBoxes = [];
       if (currentProductId) {
         productMatchedBoxes = boxes.filter(function (b) {
           return normalizeShopifyProductId(b && b.shopifyProductId) === currentProductId;
         });
       }
+      cbLog('initWidget fetch callback: matching', 'currentProductId=' + currentProductId,
+        'matchedBoxIds=', productMatchedBoxes.map(function (b) { return b.id + ':' + b.boxType; }));
       // Specific-product matching always outranks showAllBoxes (or any other
       // general-block setting): once the current product is linked to a
       // Single/Multiple Box, that one bundle is the only thing this page can
@@ -1679,7 +1811,7 @@
         productBoxOnly = true;
       }
       if (productBoxOnly) {
-        if (!currentProductId) { return; }
+        if (!currentProductId) { cbLog('initWidget fetch callback: EXIT — productBoxOnly but no currentProductId'); return; }
         boxes = productMatchedBoxes.slice(0, 1);
       }
       if (!productBoxOnly && boxTypeFilter !== 'all') {
@@ -1715,7 +1847,8 @@
           return false;
         });
       }
-      if (boxes.length === 0) { root.innerHTML = ''; return; }
+      if (boxes.length === 0) { cbLog('initWidget fetch callback: EXIT — 0 boxes after all filters'); root.innerHTML = ''; return; }
+      cbLog('initWidget fetch callback: proceeding to render', 'finalBoxIds=', boxes.map(function (b) { return b.id + ':' + b.boxType; }));
       if (productBoxOnly) {
         if (autoProductBox) {
           placeAutoProductRootBeforeFooter(root);
@@ -1817,16 +1950,26 @@
       // matching server-side bypass in getStorefrontBoxes().
       url += '&previewBoxCode=' + encodeURIComponent(previewBoxCode);
     }
+    cbLog('fetchBoxes: REQUEST', url);
     fetch(url, { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (data) {
         if (data && Array.isArray(data.boxes)) {
-          cb(null, data.boxes.filter(function (b) { return b && b.isActive !== false; }), data.settings || {});
+          var filtered = data.boxes.filter(function (b) { return b && b.isActive !== false; });
+          cbLog('fetchBoxes: RESPONSE', 'rawCount=' + data.boxes.length, 'afterActiveFilter=' + filtered.length,
+            filtered.map(function (b) { return { id: b.id, boxType: b.boxType, shopifyProductId: b.shopifyProductId }; }));
+          cb(null, filtered, data.settings || {});
         }
-        else if (Array.isArray(data)) cb(null, data.filter(function (b) { return b && b.isActive !== false; }), {});
-        else cb(null, [], {});
+        else if (Array.isArray(data)) {
+          cbLog('fetchBoxes: RESPONSE (legacy array shape)', 'count=' + data.length);
+          cb(null, data.filter(function (b) { return b && b.isActive !== false; }), {});
+        }
+        else {
+          cbLog('fetchBoxes: RESPONSE was not in an expected shape', data);
+          cb(null, [], {});
+        }
       })
-      .catch(function (e) { cb(e, null, {}); });
+      .catch(function (e) { cbLog('fetchBoxes: ERROR', e && e.message); cb(e, null, {}); });
   }
 
   function normalizeShopifyProductId(value) {
@@ -1967,7 +2110,9 @@
   // ─── Render Widget ────────────────────────────────────────────────────────────
 
   function renderWidget(root, ctx) {
+    cbLog('renderWidget() called', 'root=' + root.id, 'boxCount=' + (ctx.boxes && ctx.boxes.length), 'boxIds=', (ctx.boxes || []).map(function (b) { return b && b.id + ':' + b.boxType; }));
     if (ctx.autoProductBox && hasManualComboBuilderRoot(root)) {
+      cbLog('renderWidget: HIDING (render-time) — manual block root exists, self-suppressing auto embed', cbDescribeRoot(root));
       root.innerHTML = '';
       root.style.display = 'none';
       root.setAttribute('data-cb-suppressed-by-manual-block', '1');
@@ -1979,6 +2124,8 @@
     // clearAutoProductComboRoots(), which must never wipe a root once this is
     // set, regardless of when/why it runs again later.
     root.setAttribute('data-cb-rendered', '1');
+    cbLog('renderWidget: proceeding to build DOM, marked data-cb-rendered=1', cbDescribeRoot(root));
+    cbWatchRootDisappearance(root);
 
     var wrapper = document.createElement('div');
     wrapper.className = 'cb-wrapper';
@@ -2099,6 +2246,7 @@
     wrapper.appendChild(builderArea);
 
     root.appendChild(wrapper);
+    cbLog('renderWidget: content appended to root', cbDescribeRoot(root));
 
     // Single box visible: skip Step 1 entirely — hide heading + grid and auto-select
     if (ctx.productBoxOnly) {
@@ -5618,19 +5766,24 @@
   // never "all bundles" and never an empty grid.
   function reinitializeUninitializedComboRoots() {
     var roots = document.querySelectorAll('.combo-builder-root');
+    var candidates = 0;
     for (var i = 0; i < roots.length; i++) {
       var el = roots[i];
       if (!el.id) continue;
       if (el.getAttribute('data-cb-initialized') === '1') continue;
       if (el.getAttribute('data-cb-suppressed-by-manual-block') === '1') continue;
+      candidates++;
+      cbLog('reinitializeUninitializedComboRoots: found uninitialized root, reinitializing', cbDescribeRoot(el));
       try { initWidget({ mountId: el.id }); } catch (e) { console.error('[ComboBuilder]', e); }
     }
+    if (candidates === 0) cbLog('reinitializeUninitializedComboRoots: scan found nothing to (re)init', 'totalRoots=' + roots.length);
   }
 
   function observeComboRootReplacement() {
     if (typeof MutationObserver === 'undefined' || !document.body) return;
     var scheduled = false;
-    var observer = new MutationObserver(function () {
+    var observer = new MutationObserver(function (mutations) {
+      cbLog('MutationObserver fired', 'mutationRecords=' + mutations.length, 'scheduled=' + scheduled);
       if (scheduled) return;
       scheduled = true;
       setTimeout(function () {
@@ -5639,6 +5792,7 @@
       }, 50);
     });
     observer.observe(document.body, { childList: true, subtree: true });
+    cbLog('observeComboRootReplacement: MutationObserver attached to document.body');
   }
 
   // ─── Bootstrap ────────────────────────────────────────────────────────────────
@@ -5670,6 +5824,7 @@
     document.addEventListener('cart:refresh', function () { setTimeout(function () { cleanupComboCartPresentation(document); }, 20); });
     document.addEventListener('cart:updated', function () { setTimeout(function () { cleanupComboCartPresentation(document); }, 20); });
     observeComboRootReplacement();
+    cbInstallLifecycleListeners(); // TEMP DEBUG — remove with the rest of the instrumentation
 
     document.dispatchEvent(new CustomEvent('comboBuildReady', { bubbles: true, detail: { widgetCount: widgetCount } }));
   }
