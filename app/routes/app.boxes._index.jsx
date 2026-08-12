@@ -94,7 +94,6 @@ function buildBundlePreviewUrl(shopDomain, previewToken, fallbackBaseUrl) {
     // Direct /{boxId} paths can 404 on themes without that route.
     const baseUrl = fallbackBaseUrl || `https://${shopDomain}/`;
     const url = new URL(baseUrl);
-    url.searchParams.set("cb_preview_box", safeToken);
     return url.toString();
   } catch {
     return fallbackBaseUrl || null;
