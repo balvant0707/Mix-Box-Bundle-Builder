@@ -318,7 +318,6 @@
   height: var(--cb-box-image-height);
   margin-bottom: 12px;
   overflow: hidden;
-  background: #f6f6f6;
 }
 
 .cb-box-bundle-image {

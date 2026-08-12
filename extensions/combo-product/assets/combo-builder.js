@@ -1663,13 +1663,15 @@
           return normalizeShopifyProductId(b && b.shopifyProductId) === currentProductId;
         });
       }
-      if (!productBoxOnly && !showAllBoxes && productMatchedBoxes.length > 0) {
+      // Specific-product matching always outranks showAllBoxes (or any other
+      // general-block setting): once the current product is linked to a
+      // Single/Multiple Box, that one bundle is the only thing this page can
+      // show, regardless of a merchant's "show all boxes" block setting.
+      if (!productBoxOnly && currentProductId && productMatchedBoxes.length > 0) {
         productBoxOnly = true;
       }
       if (productBoxOnly) {
         if (!currentProductId) { return; }
-        boxes = productMatchedBoxes.slice(0, 1);
-      } else if (!showAllBoxes && currentProductId && productMatchedBoxes.length > 0) {
         boxes = productMatchedBoxes.slice(0, 1);
       }
       if (!productBoxOnly && boxTypeFilter !== 'all') {
@@ -5574,6 +5576,59 @@
     return opened;
   }
 
+  // ─── Root Recovery ────────────────────────────────────────────────────────────
+  //
+  // ROOT CAUSE of "bundle appears, then disappears": every `.combo-builder-root`
+  // (the manual "Build Your Box" block AND the auto-embed) is a real Liquid-
+  // rendered <div> that carries its own full config as `data-*` attributes, and
+  // is populated by a one-time inline <script> that calls initWidget()/pushes
+  // to window.__COMBO_BUILDER__ once, on initial page parse. Many themes update
+  // parts of the product page (most commonly on variant/quantity change) via
+  // Shopify's Section Rendering API — fetching fresh section HTML and swapping
+  // it in via `container.innerHTML = html`. That REPLACES our root element with
+  // a brand-new, un-initialized node (still showing just the Liquid fallback
+  // spinner markup), and — critically — <script> tags inside HTML assigned via
+  // `.innerHTML` never execute. So the one-time init script for the new node
+  // never runs, `initWidget` is never called again, and the previously-matched
+  // Single/Multiple Box configuration never comes back, even though the
+  // product/box/design data itself never changed.
+  //
+  // Fix: watch the DOM for any `.combo-builder-root` that exists but hasn't
+  // been initialized (this covers a same-id node being replaced by a theme
+  // AJAX re-render, resize-driven layout changes, or any other DOM update —
+  // whatever the trigger, if a root shows up without `data-cb-initialized`,
+  // re-run initWidget() on it). Every root's own data-* attributes already
+  // carry its full config (shop/apiBase/productId/currency/labels/etc — see
+  // combo-builder.liquid / combo-embed.liquid), and initWidget() already
+  // prefers `root.dataset.X` over any passed-in config for every field, so
+  // `initWidget({ mountId: root.id })` alone fully restores the exact same
+  // product-specific bundle (Single or Multiple) that was showing before —
+  // never "all bundles" and never an empty grid.
+  function reinitializeUninitializedComboRoots() {
+    var roots = document.querySelectorAll('.combo-builder-root');
+    for (var i = 0; i < roots.length; i++) {
+      var el = roots[i];
+      if (!el.id) continue;
+      if (el.getAttribute('data-cb-initialized') === '1') continue;
+      if (el.getAttribute('data-cb-suppressed-by-manual-block') === '1') continue;
+      try { initWidget({ mountId: el.id }); } catch (e) { console.error('[ComboBuilder]', e); }
+    }
+  }
+
+  function observeComboRootReplacement() {
+    if (typeof MutationObserver === 'undefined' || !document.body) return;
+    var scheduled = false;
+    var observer = new MutationObserver(function () {
+      if (scheduled) return;
+      scheduled = true;
+      setTimeout(function () {
+        scheduled = false;
+        reinitializeUninitializedComboRoots();
+      }, 50);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
   // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
   function bootstrap() {
@@ -5602,6 +5657,7 @@
     bindDrawerScrollRecovery();
     document.addEventListener('cart:refresh', function () { setTimeout(function () { cleanupComboCartPresentation(document); }, 20); });
     document.addEventListener('cart:updated', function () { setTimeout(function () { cleanupComboCartPresentation(document); }, 20); });
+    observeComboRootReplacement();
 
     document.dispatchEvent(new CustomEvent('comboBuildReady', { bubbles: true, detail: { widgetCount: widgetCount } }));
   }
