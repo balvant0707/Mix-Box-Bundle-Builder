@@ -646,9 +646,10 @@ function hsbaToHex({ hue, saturation, brightness, alpha = 1 }) {
 
 function ColorField({ label, value, onChange }) {
   const [popoverActive, setPopoverActive] = useState(false);
-  const colorValue = normalizeHexColor(value);
-  const swatchColor = colorValue.length === 9 ? colorValue.slice(0, 7) : colorValue;
-  const alpha = colorValue.length === 9 ? parseInt(colorValue.slice(7, 9), 16) / 255 : 1;
+  const colorValue = String(value || '').trim() || '#FFFFFF';
+  const normalizedColor = normalizeHexColor(colorValue);
+  const swatchColor = normalizedColor.length === 9 ? normalizedColor.slice(0, 7) : normalizedColor;
+  const alpha = normalizedColor.length === 9 ? parseInt(normalizedColor.slice(7, 9), 16) / 255 : 1;
   const swatchBackground = alpha < 1
     ? `linear-gradient(45deg, #d1d5db 25%, transparent 25%), linear-gradient(-45deg, #d1d5db 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #d1d5db 75%), linear-gradient(-45deg, transparent 75%, #d1d5db 75%)`
     : swatchColor;
@@ -692,7 +693,8 @@ function ColorField({ label, value, onChange }) {
     <TextField
       label={label}
       value={colorValue}
-      onChange={(nextValue) => onChange(normalizeHexColor(nextValue, nextValue))}
+      onChange={(nextValue) => onChange(nextValue)}
+      onBlur={() => onChange(normalizeHexColor(colorValue))}
       autoComplete="off"
       connectedLeft={
         <Popover
@@ -704,7 +706,7 @@ function ColorField({ label, value, onChange }) {
           <Popover.Section>
             <BlockStack gap="300">
               <ColorPicker
-                color={hexToHsba(colorValue)}
+                color={hexToHsba(normalizedColor)}
                 onChange={(color) => onChange(hsbaToHex(color))}
                 allowAlpha
                 fullWidth
@@ -712,7 +714,8 @@ function ColorField({ label, value, onChange }) {
               <TextField
                 label={`${label} hex value`}
                 value={colorValue}
-                onChange={(nextValue) => onChange(normalizeHexColor(nextValue, nextValue))}
+                onChange={(nextValue) => onChange(nextValue)}
+                onBlur={() => onChange(normalizeHexColor(colorValue))}
                 autoComplete="off"
               />
             </BlockStack>
