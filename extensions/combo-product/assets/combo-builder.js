@@ -1772,7 +1772,7 @@
       var step3Heading = root.dataset.step3Heading || config.step3Heading || 'Step 3: Complete your order';
       var step3Buttons = root.dataset.step3Buttons || config.step3Buttons || 'both';
       renderWidget(root, { shop: shop, boxes: boxes, currencySymbol: currencySymbol, currencyCode: currencyCode, layout: layout, layoutMode: layoutMode, enableStickyCart: enableStickyCart, heading: resolvedHeading, apiBase: apiBase, settings: settings || {}, rootEl: root, step1Label: step1Label, step2Label: step2Label, step3Label: step3Label, cartBtnLabel: cartBtnLabel, checkoutBtnLabel: checkoutBtnLabel, step1Heading: step1Heading, step2Heading: step2Heading, step3Heading: step3Heading, step3Buttons: step3Buttons, previewBoxId: previewBoxId, isPreviewMode: isPreviewMode, autoProductBox: autoProductBox, productBoxOnly: productBoxOnly, productId: currentProductId, boxTypeFilter: boxTypeFilter });
-    }, productBoxOnly ? currentProductId : null);
+    }, productBoxOnly ? currentProductId : null, previewBoxToken);
   }
 
   function initLegacyWidget(el) {
@@ -1795,11 +1795,17 @@
 
   // ─── API ──────────────────────────────────────────────────────────────────────
 
-  function fetchBoxes(shop, apiBase, cb, productId) {
+  function fetchBoxes(shop, apiBase, cb, productId, previewBoxCode) {
     var url = apiBase + '/api/storefront/boxes?shop=' + encodeURIComponent(shop);
     var normalizedProductId = normalizeShopifyProductId(productId);
     if (normalizedProductId) {
       url += '&productId=' + encodeURIComponent(normalizedProductId);
+    }
+    if (previewBoxCode) {
+      // Lets the admin "Live Preview" link show a draft/inactive/not-yet-
+      // scheduled bundle exactly as it will render once published — see the
+      // matching server-side bypass in getStorefrontBoxes().
+      url += '&previewBoxCode=' + encodeURIComponent(previewBoxCode);
     }
     fetch(url, { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })

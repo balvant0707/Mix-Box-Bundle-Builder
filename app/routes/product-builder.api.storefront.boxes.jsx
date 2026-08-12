@@ -73,6 +73,10 @@ export const loader = async ({ request }) => {
   const { session, admin } = await authenticate.public.appProxy(request);
   const shop = session?.shop || url.searchParams.get("shop");
   const productId = normalizeShopifyProductId(url.searchParams.get("productId"));
+  // Forwarded from the widget's `cb_preview_box` token (see combo-builder.js
+  // fetchBoxes) so the Manage Boxes "Live Preview" link can render a
+  // draft/inactive/not-yet-scheduled bundle before it goes live.
+  const previewBoxCode = url.searchParams.get("previewBoxCode");
 
   if (!shop || !admin) {
     return Response.json({ error: "shop parameter required" }, { status: 400, headers: CORS_HEADERS });
@@ -82,6 +86,7 @@ export const loader = async ({ request }) => {
     includeImageData: false,
     imageUrlBuilder: (field, _page, box) => `/api/storefront/boxes/${box.id}/image/${field}`,
     shopifyProductId: productId,
+    previewBoxCode,
   });
 
   const mappedBoxes = productId

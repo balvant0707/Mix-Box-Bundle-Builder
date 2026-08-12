@@ -7,6 +7,7 @@ import {
   deleteBox,
   toggleBoxStatus,
   reorderBoxes,
+  getProductHandlesByIds,
 } from "../models/boxes.server";
 import { AdminIcon } from "../components/admin-icons";
 import { withEmbeddedAppParams } from "../utils/embedded-app";
@@ -170,34 +171,57 @@ function getBoxListImageSrc(box) {
 }
 
 export const loader = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
   let boxes = await listBoxes(session.shop);
   boxes = boxes.filter((box) => box.simpleBoxPage || box.multipleBoxPage);
+
+  // Live Preview must open the box's own linked Shopify product page (so the
+  // preview renders through the exact same storefront widget/config as the
+  // real product page — see requirement that Manage Boxes and the Product
+  // Page share one rendering path). Resolve each linked product's handle in
+  // one batched call rather than per-row.
+  const linkedProductIds = Array.from(new Set(
+    boxes.map((b) => b.shopifyProductId).filter(Boolean),
+  ));
+  const productHandleById = linkedProductIds.length > 0
+    ? await getProductHandlesByIds(admin, linkedProductIds).catch(() => ({}))
+    : {};
+
   return {
-    boxes: boxes.map((b) => ({
-      id: b.id,
-      boxType: b.boxType || "single",
-      boxCode: b.boxCode || null,
-      boxName: b.boxName,
-      displayTitle: b.displayTitle,
-      itemCount: b.itemCount,
-      bundlePrice: parseFloat(b.bundlePrice),
-      bundlePriceType: b.bundlePriceType || "manual",
-      isGiftBox: b.isGiftBox,
-      isActive: b.isActive,
-      sortOrder: b.sortOrder,
-      createdAt: b.createdAt ? new Date(b.createdAt).toISOString() : null,
-      updatedAt: b.updatedAt ? new Date(b.updatedAt).toISOString() : null,
-      orderCount: b._count?.orders ?? 0,
-      comboConfig: getComboConfigSummary(b),
-      discount: getDiscountSummary(b),
-      listImageSrc: getBoxListImageSrc(b),
-      previewUrl: buildBundlePreviewUrl(
-        session.shop,
-        b.boxCode || b.id,
-        null,
-      ),
-    })),
+    boxes: boxes.map((b) => {
+      const numericProductId = b.shopifyProductId
+        ? String(b.shopifyProductId).split("/").pop()
+        : null;
+      const linkedProductHandle = numericProductId ? productHandleById[numericProductId] : null;
+      const previewBaseUrl = linkedProductHandle
+        ? `https://${session.shop}/products/${linkedProductHandle}`
+        : null;
+
+      return {
+        id: b.id,
+        boxType: b.boxType || "single",
+        boxCode: b.boxCode || null,
+        boxName: b.boxName,
+        displayTitle: b.displayTitle,
+        itemCount: b.itemCount,
+        bundlePrice: parseFloat(b.bundlePrice),
+        bundlePriceType: b.bundlePriceType || "manual",
+        isGiftBox: b.isGiftBox,
+        isActive: b.isActive,
+        sortOrder: b.sortOrder,
+        createdAt: b.createdAt ? new Date(b.createdAt).toISOString() : null,
+        updatedAt: b.updatedAt ? new Date(b.updatedAt).toISOString() : null,
+        orderCount: b._count?.orders ?? 0,
+        comboConfig: getComboConfigSummary(b),
+        discount: getDiscountSummary(b),
+        listImageSrc: getBoxListImageSrc(b),
+        previewUrl: buildBundlePreviewUrl(
+          session.shop,
+          b.boxCode || b.id,
+          previewBaseUrl,
+        ),
+      };
+    }),
   };
 };
 

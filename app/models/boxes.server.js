@@ -238,6 +238,34 @@ function mapGraphqlProductNode(node, { hideOutOfStockProducts = false } = {}) {
 }
 
 /**
+ * Resolves the storefront `handle` for a set of Shopify product ids/GIDs —
+ * used by Manage Boxes to build a Live Preview link that opens the box's
+ * actual linked product page (reuses the same product lookup query as
+ * resolveSelectableProducts() rather than a second bespoke query).
+ */
+export async function getProductHandlesByIds(admin, productIds = []) {
+  const ids = Array.from(new Set(
+    (productIds || [])
+      .filter(Boolean)
+      .map((id) => {
+        const raw = String(id).trim();
+        return raw.includes("/") ? raw : `gid://shopify/Product/${raw}`;
+      }),
+  ));
+  if (ids.length === 0 || !admin) return {};
+
+  const resp = await admin.graphql(RESOLVE_PRODUCTS_BY_ID_QUERY, { variables: { ids } });
+  const json = await resp.json();
+  const map = {};
+  (json?.data?.nodes || []).forEach((node) => {
+    if (node?.id && node?.handle) {
+      map[String(node.id).split("/").pop()] = node.handle;
+    }
+  });
+  return map;
+}
+
+/**
  * Resolves the live Shopify products a storefront box widget should offer,
  * based on the box's Simple/Multiple Box Page product configuration
  * ("selected_products" or "selected_collections"; "whole_store" is resolved
@@ -1438,11 +1466,35 @@ export async function getStorefrontBoxes(shop, now, options = {}) {
     ? [numericProductId, `gid://shopify/Product/${numericProductId}`]
     : [];
 
+  // Manage Boxes' "Live Preview" opens the real storefront with a
+  // `cb_preview_box` token identifying one specific box (by its unguessable
+  // boxCode or its numeric id) so the admin can see a draft/inactive/
+  // not-yet-scheduled bundle exactly as it will render once published. This
+  // bypasses the isActive/schedule filters below for that ONE matched box
+  // only — every other box in the shop is still filtered normally, so this
+  // never exposes the full list of draft bundles to regular storefront
+  // visitors who don't already have that box's token.
+  const previewBoxCode = options.previewBoxCode ? String(options.previewBoxCode).trim() : null;
+  const previewNumericId = previewBoxCode && /^\d+$/.test(previewBoxCode) ? parseInt(previewBoxCode, 10) : null;
+  const isPreviewTarget = (box) =>
+    !!previewBoxCode && (
+      (box.boxCode && String(box.boxCode).toUpperCase() === previewBoxCode.toUpperCase()) ||
+      (previewNumericId != null && box.id === previewNumericId)
+    );
+
   const boxes = await db.comboBox.findMany({
     where: {
       shop,
       deletedAt: null,
-      isActive: true,
+      ...(previewBoxCode
+        ? {
+            OR: [
+              { isActive: true },
+              { boxCode: previewBoxCode.toUpperCase() },
+              ...(previewNumericId != null ? [{ id: previewNumericId }] : []),
+            ],
+          }
+        : { isActive: true }),
       ...(shopifyProductIdCandidates.length > 0
         ? { shopifyProductId: { in: shopifyProductIdCandidates } }
         : {}),
@@ -1501,7 +1553,7 @@ export async function getStorefrontBoxes(shop, now, options = {}) {
         pageConfig,
       };
     })
-    .filter((box) => isWithinSchedule(box.pageConfig, referenceTime));
+    .filter((box) => isPreviewTarget(box) || isWithinSchedule(box.pageConfig, referenceTime));
 }
 
 export async function createBox(shop, data, admin) {
