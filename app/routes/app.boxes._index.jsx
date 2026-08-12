@@ -83,68 +83,6 @@ function getBoxTypeBadgeTone(box) {
   return "success";
 }
 
-const BUNDLE_PREVIEW_PRODUCTS_QUERY = `#graphql
-  query BundlePreviewProducts($ids: [ID!]!) {
-    nodes(ids: $ids) {
-      ... on Product {
-        id
-        handle
-        onlineStoreUrl
-      }
-    }
-  }
-`;
-
-async function getBundlePreviewUrlByProductId(admin, shop, productIds = []) {
-  const uniqueIds = Array.from(
-    new Set(
-      (Array.isArray(productIds) ? productIds : [])
-        .map((id) => (typeof id === "string" ? id.trim() : ""))
-        .filter(Boolean),
-    ),
-  );
-  if (uniqueIds.length === 0) return new Map();
-
-  try {
-    const response = await admin.graphql(BUNDLE_PREVIEW_PRODUCTS_QUERY, {
-      variables: { ids: uniqueIds },
-    });
-    if (!response?.ok) {
-      if (response?.status === 401 || response?.status === 403) {
-        console.warn(
-          "[app.boxes._index] Skipping preview URL lookup due to unauthorized admin response",
-          { status: response.status },
-        );
-        return new Map();
-      }
-      throw new Error(`Shopify admin graphql failed (${response?.status || "unknown"})`);
-    }
-    const json = await response.json();
-    const nodes = Array.isArray(json?.data?.nodes) ? json.data.nodes : [];
-
-    const map = new Map();
-    for (const node of nodes) {
-      if (!node?.id || !node?.handle) continue;
-      const fallbackUrl = `https://${shop}/products/${node.handle}`;
-      map.set(node.id, node.onlineStoreUrl || fallbackUrl);
-    }
-    return map;
-  } catch (error) {
-    if (
-      (error instanceof Response && (error.status === 401 || error.status === 403)) ||
-      ((error?.status === 401 || error?.status === 403) && typeof error?.status !== "undefined")
-    ) {
-      console.warn(
-        "[app.boxes._index] Skipping preview URL lookup due to unauthorized admin error",
-        { status: error?.status ?? null },
-      );
-      return new Map();
-    }
-    console.error("[app.boxes._index] Failed to resolve bundle preview URLs", error);
-    return new Map();
-  }
-}
-
 function buildBundlePreviewUrl(shopDomain, previewToken, fallbackBaseUrl) {
   if (!previewToken) return fallbackBaseUrl || null;
   const safeToken = String(previewToken).trim();
@@ -232,16 +170,9 @@ function getBoxListImageSrc(box) {
 }
 
 export const loader = async ({ request }) => {
-  const { session, admin } = await authenticate.admin(request);
-  // The previous analysis already removed the calls to these functions from the loader.
-  // The imports are now being removed as they are no longer used in this file.
-  let boxes = await listBoxes(session.shop, false, true); // listBoxes is still used
+  const { session } = await authenticate.admin(request);
+  let boxes = await listBoxes(session.shop);
   boxes = boxes.filter((box) => box.simpleBoxPage || box.multipleBoxPage);
-  const previewUrlByProductId = await getBundlePreviewUrlByProductId(
-    admin,
-    session.shop,
-    boxes.map((b) => b.shopifyProductId),
-  );
   return {
     boxes: boxes.map((b) => ({
       id: b.id,
@@ -264,7 +195,7 @@ export const loader = async ({ request }) => {
       previewUrl: buildBundlePreviewUrl(
         session.shop,
         b.boxCode || b.id,
-        b.shopifyProductId ? previewUrlByProductId.get(b.shopifyProductId) || null : null,
+        null,
       ),
     })),
   };

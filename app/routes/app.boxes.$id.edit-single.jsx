@@ -1472,6 +1472,7 @@ function useInfinitePickerPagination({
   initialItems,
   initialPageInfo,
   open,
+  routePath,
 }) {
   const fetcher = useFetcher();
   const pendingCursorRef = useRef(null);
@@ -1520,8 +1521,8 @@ function useInfinitePickerPagination({
       pickerResource: resource,
     });
 
-    fetcher.load(`/app/single?${params.toString()}`);
-  }, [fetcher, loadingMore, open, resource]);
+    fetcher.load(`${routePath}?${params.toString()}`);
+  }, [fetcher, loadingMore, open, resource, routePath]);
 
   useEffect(() => {
     if (open && !items.length) {
@@ -1550,8 +1551,8 @@ function useInfinitePickerPagination({
       after,
     });
 
-    fetcher.load(`/app/single?${params.toString()}`);
-  }, [fetcher, hasNextPage, loadingMore, open, pageInfo?.endCursor, resource]);
+    fetcher.load(`${routePath}?${params.toString()}`);
+  }, [fetcher, hasNextPage, loadingMore, open, pageInfo?.endCursor, resource, routePath]);
 
   return {
     items,
@@ -2172,12 +2173,14 @@ export default function EditSingleMixMatchBundlePage() {
     initialItems: initialProducts,
     initialPageInfo: initialProductsPageInfo,
     open: productModalOpen || giftProductModalOpen,
+    routePath: `/app/boxes/${id}/edit-single`,
   });
   const collectionPicker = useInfinitePickerPagination({
     resource: 'collections',
     initialItems: initialCollections,
     initialPageInfo: initialCollectionsPageInfo,
     open: collectionModalOpen,
+    routePath: `/app/boxes/${id}/edit-single`,
   });
   const products = productPicker.items;
   const collections = collectionPicker.items;

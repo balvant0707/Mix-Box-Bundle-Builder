@@ -2833,14 +2833,14 @@ export default function EditMultipleMixMatchBundlePage() {
     initialItems: initialProducts,
     initialPageInfo: initialProductsPageInfo,
     open: productModalOpen || giftProductModalOpen,
-    routePath: '/app/multiplebox',
+    routePath: `/app/boxes/${id}/edit-multiple`,
   });
   const collectionPicker = useInfinitePickerPagination({
     resource: 'collections',
     initialItems: initialCollections,
     initialPageInfo: initialCollectionsPageInfo,
     open: collectionModalOpen,
-    routePath: '/app/multiplebox',
+    routePath: `/app/boxes/${id}/edit-multiple`,
   });
   const products = productPicker.items;
   const collections = collectionPicker.items;
