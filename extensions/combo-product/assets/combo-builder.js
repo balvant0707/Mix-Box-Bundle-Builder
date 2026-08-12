@@ -165,6 +165,17 @@
     return decls.join(';');
   }
 
+  function applyBoxDesignStyle(el, designSettings) {
+    if (!el) return;
+    var style = buildBoxDesignStyle(designSettings);
+    if (!style) return;
+    style.split(';').forEach(function (decl) {
+      var idx = decl.indexOf(':');
+      if (idx <= 0) return;
+      el.style.setProperty(decl.slice(0, idx), decl.slice(idx + 1));
+    });
+  }
+
   function normalizeProductCardsPerRow(value) {
     var parsed = parseInt(value, 10);
     return [3, 4, 5, 6].indexOf(parsed) !== -1 ? parsed : 4;
@@ -1657,11 +1668,9 @@
       }
       if (productBoxOnly) {
         if (!currentProductId) { return; }
-        boxes = productMatchedBoxes.length > 0
-          ? productMatchedBoxes
-          : boxes.filter(function (b) {
-            return normalizeShopifyProductId(b && b.shopifyProductId) === currentProductId;
-          });
+        boxes = productMatchedBoxes;
+      } else if (currentProductId && productMatchedBoxes.length > 0) {
+        boxes = productMatchedBoxes;
       }
       if (!productBoxOnly && boxTypeFilter !== 'all') {
         boxes = boxes.filter(function (b) {
@@ -2072,9 +2081,12 @@
     root.appendChild(wrapper);
 
     // Single box visible: skip Step 1 entirely — hide heading + grid and auto-select
+    if (ctx.productBoxOnly) {
+      step1Head.style.display = 'none';
+    }
+
     if (ctx.boxes.length === 1) {
       if (ctx.isPreviewMode) {
-        step1Head.style.display = 'none';
         boxGrid.style.display = 'none';
       }
       var onlyCard = boxGrid.firstElementChild;
@@ -2142,6 +2154,7 @@
     if (!banner) return;
 
     banner.innerHTML = '';
+    applyBoxDesignStyle(banner, box && box.designSettings);
     if (!box || box.hideBannerImage) {
       banner.hidden = true;
       return;
@@ -2366,6 +2379,8 @@
     // style attribute isn't clobbered.
     var designStyle = buildBoxDesignStyle(box.designSettings);
     if (designStyle) builderArea.setAttribute('style', designStyle);
+    applyBoxDesignStyle(ctx.rootEl, box.designSettings);
+    applyBoxDesignStyle(wrapper, box.designSettings);
     builderArea.classList.toggle('cb-builder-area--auto-height', !!box.productImageAutoHeight);
     builderArea.style.display = 'block';
 
