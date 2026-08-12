@@ -1427,8 +1427,16 @@
   // manual combo-builder block during section/variant HTML replacement.
   function isAutoProductComboRoot(root) {
     if (!root) return false;
+    if (root.dataset && root.dataset.cbSource === 'auto') return true;
     if (root.classList && root.classList.contains('combo-builder-auto-product-root')) return true;
     return parseBooleanSetting(root.dataset && root.dataset.autoProductBox, false);
+  }
+
+  function isManualComboBuilderRoot(root) {
+    if (!root) return false;
+    if (root.dataset && root.dataset.cbSource === 'manual') return true;
+    if (root.classList && root.classList.contains('combo-builder-manual-root')) return true;
+    return !isAutoProductComboRoot(root);
   }
 
   function hasManualComboBuilderRoot(currentRoot) {
@@ -1438,7 +1446,7 @@
       var candidate = roots[i];
       if (candidate === currentRoot) continue;
       if (candidate.isConnected === false) continue;
-      if (isAutoProductComboRoot(candidate)) continue;
+      if (!isManualComboBuilderRoot(candidate)) continue;
       otherIds.push(candidate.id || '(no id)');
     }
     if (otherIds.length > 0) {
@@ -1460,10 +1468,46 @@
     root.setAttribute('data-cb-suppressed-by-manual-block', '1');
   }
 
+  function suppressManualComboBuilderRoot(root, reason) {
+    if (!root) return;
+    cbLog('suppressManualComboBuilderRoot()', reason || '', cbDescribeRoot(root));
+    root.innerHTML = '';
+    root.style.display = 'none';
+    root.removeAttribute('data-cb-rendered');
+    root.setAttribute('data-cb-suppressed-by-auto-product', '1');
+  }
+
+  function suppressManualComboBuilderRoots(activeAutoRoot) {
+    var roots = document.querySelectorAll('.combo-builder-root');
+    for (var i = 0; i < roots.length; i++) {
+      var candidate = roots[i];
+      if (candidate === activeAutoRoot) continue;
+      if (candidate.isConnected === false) continue;
+      if (!isManualComboBuilderRoot(candidate)) continue;
+      suppressManualComboBuilderRoot(candidate, 'matched product-specific auto root is active');
+    }
+  }
+
+  function hasActiveRenderedAutoProductRoot(currentRoot) {
+    var roots = document.querySelectorAll('.combo-builder-root');
+    for (var i = 0; i < roots.length; i++) {
+      var candidate = roots[i];
+      if (candidate === currentRoot) continue;
+      if (candidate.isConnected === false) continue;
+      if (!isAutoProductComboRoot(candidate)) continue;
+      if (candidate.getAttribute('data-cb-rendered') !== '1') continue;
+      if (!candidate.querySelector('.cb-wrapper')) continue;
+      if (candidate.style && candidate.style.display === 'none') continue;
+      return true;
+    }
+    return false;
+  }
+
   function restoreComboRootVisibility(root) {
     if (!root) return;
     root.style.removeProperty('display');
     root.removeAttribute('data-cb-suppressed-by-manual-block');
+    root.removeAttribute('data-cb-suppressed-by-auto-product');
     root.removeAttribute('data-cb-no-product-context');
     root.removeAttribute('data-cb-no-product-match');
   }
@@ -1480,21 +1524,23 @@
   }
 
   function clearAutoProductComboRoots(currentRoot) {
+    if (!isAutoProductComboRoot(currentRoot)) {
+      cbLog('clearAutoProductComboRoots() skipped for non-auto root', 'callerRoot=' + (currentRoot && currentRoot.id));
+      return;
+    }
     var roots = document.querySelectorAll('.combo-builder-root');
     var candidates = [];
+    var currentProductId = normalizeShopifyProductId(currentRoot && currentRoot.dataset && currentRoot.dataset.productId);
     for (var ri = 0; ri < roots.length; ri++) {
-      if (roots[ri] !== currentRoot && isAutoProductComboRoot(roots[ri])) {
-        candidates.push(roots[ri]);
-      }
+      var candidate = roots[ri];
+      if (candidate === currentRoot) continue;
+      if (!isAutoProductComboRoot(candidate)) continue;
+      if (normalizeShopifyProductId(candidate.dataset && candidate.dataset.productId) !== currentProductId) continue;
+      candidates.push(candidate);
     }
     cbLog('clearAutoProductComboRoots() called', 'callerRoot=' + (currentRoot && currentRoot.id), 'candidateCount=' + candidates.length);
     for (var i = 0; i < candidates.length; i++) {
-      // A real manual combo-builder block owns the page while it exists.
-      // Suppress the auto embed deterministically instead of relying on init
-      // timing or the JS-added auto class. If the manual block is later removed
-      // by a section re-render, lifecycle recovery below will re-enable the
-      // suppressed auto root automatically.
-      suppressAutoProductComboRoot(candidates[i], 'manual block is present');
+      suppressAutoProductComboRoot(candidates[i], 'duplicate auto product root');
     }
   }
 
@@ -1702,16 +1748,13 @@
     var boxTypeFilter = String(root.dataset.boxTypeFilter || config.boxTypeFilter || 'all').toLowerCase();
     if (boxTypeFilter !== 'single' && boxTypeFilter !== 'multiple') boxTypeFilter = 'all';
     var currentProductId = normalizeShopifyProductId(root.dataset.productId || config.productId || null);
-    // CRITICAL: a widget rendering on a real Shopify product's page
-    // (currentProductId present) must never fall back to "show all bundles" —
-    // this applies identically to a manual combo-builder.liquid block placed
-    // on/left over on a product template and to the automatic combo-embed.
-    // Either the exact bundle mapped to this product renders, or nothing
-    // does; showAllBoxes only ever applies on a page with no product context
-    // at all (home page, landing page, dedicated bundle-selection page).
-    if (currentProductId) {
-      productBoxOnly = true;
-    }
+    // productBoxOnly is derived ONLY from the root's own mode (autoProductBox,
+    // or an explicit data-product-box-only attribute) — never promoted just
+    // because currentProductId happens to be present. A manual
+    // combo-builder.liquid block always stays in general/show-all mode; only
+    // the automatic combo-embed root does exact current-product matching.
+    // See the STRICT PRODUCT-PAGE RULE block below for how a matched auto
+    // root then takes ownership of the page by suppressing manual roots.
     cbLog('initWidget: productId raw=' + (root.dataset.productId || config.productId || null) + ' normalized=' + currentProductId, 'autoProductBox=' + autoProductBox, 'productBoxOnly=' + productBoxOnly, 'showAllBoxes=' + showAllBoxes);
     if (productBoxOnly && !currentProductId) {
       cbLog('initWidget: HIDING — productBoxOnly with no product id', cbDescribeRoot(root));
@@ -1725,18 +1768,21 @@
     if (autoProductBox) {
       root.classList.add('combo-builder-auto-product-root');
     }
-    if (autoProductBox && hasManualComboBuilderRoot(root)) {
-      cbLog('initWidget: HIDING (init-time) — manual block root exists, self-suppressing auto embed', cbDescribeRoot(root));
-      suppressAutoProductComboRoot(root, 'manual block exists during init');
-      return;
-    }
     if (autoProductBox) {
       // This root may have been suppressed during an earlier manual-block phase.
       // If the manual root is gone now, restore it before fetching/rendering.
       restoreComboRootVisibility(root);
+      clearAutoProductComboRoots(root);
     } else {
+      root.classList.add('combo-builder-manual-root');
+      if (hasActiveRenderedAutoProductRoot(root)) {
+        cbLog('initWidget: HIDING manual root because a matched auto product root is active', cbDescribeRoot(root));
+        suppressManualComboBuilderRoot(root, 'matched product-specific auto root is active');
+        return;
+      }
       cbLog('initWidget: non-auto-embed root initializing — calling clearAutoProductComboRoots()', 'callerRoot=' + root.id);
       clearAutoProductComboRoots(root);
+      restoreComboRootVisibility(root);
     }
     var enableStickyCart = parseBooleanSetting(
       root.dataset.enableStickyCart != null ? root.dataset.enableStickyCart : config.enableStickyCart,
@@ -1825,6 +1871,10 @@
         cbLog('initWidget fetch callback: STALE ROOT — response discarded', cbDescribeRoot(root));
         return;
       }
+      if (!autoProductBox && root.getAttribute('data-cb-suppressed-by-auto-product') === '1') {
+        cbLog('initWidget fetch callback: EXIT - manual root is suppressed by active auto product root', cbDescribeRoot(root));
+        return;
+      }
 
       root.innerHTML = '';
 
@@ -1894,13 +1944,17 @@
         'matchedBoxIds=', productMatchedBoxes.map(function (b) { return b.id + ':' + b.boxType; }));
 
       // STRICT PRODUCT-PAGE RULE:
-      //   Any root — auto embed OR a manual combo-builder.liquid block placed
-      //   on/left over on a product template — gets forced into productBoxOnly
-      //   above the moment currentProductId is present. Exact current-product
-      //   mapping only; a manual block only ever falls back to the general
-      //   "show all bundles" list on a page with NO product context at all
-      //   (home page, landing page, dedicated bundle-selection page).
-      // There is deliberately NO fallback from productMatchedBoxes to `boxes`.
+      //   Only a root that is actually in productBoxOnly mode (the automatic
+      //   combo-embed, or an explicit data-product-box-only root) does exact
+      //   current-product mapping. A manual combo-builder.liquid block is
+      //   never promoted into this mode just because currentProductId is
+      //   present — it always stays the general "show all bundles" block.
+      //   There is deliberately NO fallback from productMatchedBoxes to
+      //   `boxes` here: a matched auto root renders exactly one bundle and
+      //   then suppresses any manual roots on the page (see
+      //   suppressManualComboBuilderRoots below); an unmatched auto root
+      //   fails closed via hideProductOnlyRoot() and leaves any manual roots
+      //   completely untouched.
       if (productBoxOnly) {
         if (!currentProductId) {
           hideProductOnlyRoot(root, 'product-only root lost product context');
@@ -1915,6 +1969,9 @@
             productMatchedBoxes.map(function (b) { return { id: b.id, boxType: b.boxType, shopifyProductId: b.shopifyProductId }; }));
         }
         boxes = [productMatchedBoxes[0]];
+        if (autoProductBox) {
+          suppressManualComboBuilderRoots(root);
+        }
       }
       if (!productBoxOnly && boxTypeFilter !== 'all') {
         boxes = boxes.filter(function (b) {
@@ -2232,10 +2289,8 @@
       cbLog('renderWidget: EXIT — root is detached/stale');
       return;
     }
-
-    if (ctx.autoProductBox && hasManualComboBuilderRoot(root)) {
-      cbLog('renderWidget: HIDING (render-time) — manual block root exists, self-suppressing auto embed', cbDescribeRoot(root));
-      suppressAutoProductComboRoot(root, 'manual block exists during render');
+    if (!ctx.autoProductBox && root.getAttribute('data-cb-suppressed-by-auto-product') === '1') {
+      cbLog('renderWidget: EXIT - manual root is suppressed by active auto product root', cbDescribeRoot(root));
       return;
     }
 
@@ -2246,8 +2301,15 @@
 
     // Preserve Liquid/theme classes rather than replacing className wholesale.
     root.classList.add('combo-builder-root', 'cb-loaded');
-    if (ctx.autoProductBox) root.classList.add('combo-builder-auto-product-root');
-    else root.classList.remove('combo-builder-auto-product-root');
+    if (ctx.autoProductBox) {
+      root.classList.add('combo-builder-auto-product-root');
+      root.classList.remove('combo-builder-manual-root');
+      root.setAttribute('data-cb-source', 'auto');
+    } else {
+      root.classList.remove('combo-builder-auto-product-root');
+      root.classList.add('combo-builder-manual-root');
+      root.setAttribute('data-cb-source', 'manual');
+    }
     // Marks this root as having real, successfully-matched content — see
     // clearAutoProductComboRoots(), which must never wipe a root once this is
     // set, regardless of when/why it runs again later.
@@ -5903,8 +5965,10 @@
       var initialized = el.getAttribute('data-cb-initialized') === '1';
       var rendered = el.getAttribute('data-cb-rendered') === '1';
       var suppressed = el.getAttribute('data-cb-suppressed-by-manual-block') === '1';
+      var suppressedByAuto = el.getAttribute('data-cb-suppressed-by-auto-product') === '1';
       var hasRenderedUi = !!el.querySelector('.cb-wrapper');
       var isAutoRoot = isAutoProductComboRoot(el);
+      var isManualRoot = isManualComboBuilderRoot(el);
 
       // If an auto root was suppressed because a manual block existed, but a
       // later Shopify section/AJAX update removed that manual block, release the
@@ -5917,6 +5981,18 @@
           el.removeAttribute('data-cb-initialized');
           el.removeAttribute('data-cb-rendered');
           try { initWidget({ mountId: el.id }); } catch (e0) { console.error('[ComboBuilder]', e0); }
+        }
+        continue;
+      }
+
+      if (suppressedByAuto) {
+        if (isManualRoot && !hasActiveRenderedAutoProductRoot(el)) {
+          candidates++;
+          cbLog('reinitializeUninitializedComboRoots: active auto root gone - restoring manual root', cbDescribeRoot(el));
+          restoreComboRootVisibility(el);
+          el.removeAttribute('data-cb-initialized');
+          el.removeAttribute('data-cb-rendered');
+          try { initWidget({ mountId: el.id }); } catch (eManual) { console.error('[ComboBuilder]', eManual); }
         }
         continue;
       }
@@ -5958,6 +6034,15 @@
   }
 
   function observeComboRootReplacement() {
+    // Every block/embed instance on a page renders its own <script src="...">
+    // tag, and a duplicate <script> tag re-executes this entire file even
+    // though the browser only fetches the bytes once (see the runtime notes
+    // on cbInstallLifecycleListeners/bindComboRootLifecycleRecoveryEvents,
+    // which already self-guard this same way). Without this guard, N block
+    // instances on one page would attach N separate MutationObservers, each
+    // independently rescanning on every mutation.
+    if (window.__cbRootObserverAttached) return;
+    window.__cbRootObserverAttached = true;
     if (typeof MutationObserver === 'undefined' || !document.body) return;
     var observer = new MutationObserver(function (mutations) {
       cbLog('MutationObserver fired', 'mutationRecords=' + mutations.length);
@@ -6018,8 +6103,11 @@
 
     cleanupComboCartPresentation(document);
     bindDrawerScrollRecovery();
-    document.addEventListener('cart:refresh', function () { setTimeout(function () { cleanupComboCartPresentation(document); }, 20); });
-    document.addEventListener('cart:updated', function () { setTimeout(function () { cleanupComboCartPresentation(document); }, 20); });
+    if (!window.__cbCartEventListenersBound) {
+      window.__cbCartEventListenersBound = true;
+      document.addEventListener('cart:refresh', function () { setTimeout(function () { cleanupComboCartPresentation(document); }, 20); });
+      document.addEventListener('cart:updated', function () { setTimeout(function () { cleanupComboCartPresentation(document); }, 20); });
+    }
     observeComboRootReplacement();
     bindComboRootLifecycleRecoveryEvents();
     // Also scan once after bootstrap in case theme/app scripts inserted a root

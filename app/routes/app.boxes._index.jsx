@@ -170,16 +170,6 @@ function getBoxListImageSrc(box) {
   return getBannerImageSrc(box);
 }
 
-function getShortProductUrl(url) {
-  if (!url) return "No linked product";
-  try {
-    const parsed = new URL(url);
-    return `${parsed.hostname}${parsed.pathname}`;
-  } catch {
-    return url;
-  }
-}
-
 export const loader = async ({ request }) => {
   const { session, admin } = await authenticate.admin(request);
   let boxes = await listBoxes(session.shop);
@@ -230,7 +220,6 @@ export const loader = async ({ request }) => {
           b.boxCode || b.id,
           previewBaseUrl,
         ),
-        productPageUrl: previewBaseUrl,
       };
     }),
   };
@@ -718,7 +707,6 @@ export default function ManageBoxesPage() {
                 itemCount={displayBoxes.length}
                 headings={[
                   { title: "Name" },
-                  { title: "Live Preview" },
                   { title: "Code" },
                   { title: "Type" },
                   { title: "Status" },
@@ -763,35 +751,6 @@ export default function ManageBoxesPage() {
                             </InlineStack>
                           </BlockStack>
                         </InlineStack>
-                      </IndexTable.Cell>
-
-                      {/* Live Preview */}
-                      <IndexTable.Cell>
-                        <BlockStack gap="100">
-                          <InlineStack gap="150" blockAlign="center" wrap={false}>
-                            <Button
-                              size="slim"
-                              disabled={!box.previewUrl}
-                              onClick={() => {
-                                if (box.previewUrl) window.open(box.previewUrl, "_blank", "noopener,noreferrer");
-                              }}
-                            >
-                              Preview
-                            </Button>
-                            <Button
-                              size="slim"
-                              disabled={!box.productPageUrl}
-                              onClick={() => {
-                                if (box.productPageUrl) window.open(box.productPageUrl, "_blank", "noopener,noreferrer");
-                              }}
-                            >
-                              Product page
-                            </Button>
-                          </InlineStack>
-                          <Text as="span" variant="bodySm" tone={box.productPageUrl ? "subdued" : "critical"}>
-                            {getShortProductUrl(box.productPageUrl)}
-                          </Text>
-                        </BlockStack>
                       </IndexTable.Cell>
 
                       {/* Code */}
