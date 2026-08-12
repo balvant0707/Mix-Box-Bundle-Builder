@@ -1702,6 +1702,16 @@
     var boxTypeFilter = String(root.dataset.boxTypeFilter || config.boxTypeFilter || 'all').toLowerCase();
     if (boxTypeFilter !== 'single' && boxTypeFilter !== 'multiple') boxTypeFilter = 'all';
     var currentProductId = normalizeShopifyProductId(root.dataset.productId || config.productId || null);
+    // CRITICAL: a widget rendering on a real Shopify product's page
+    // (currentProductId present) must never fall back to "show all bundles" —
+    // this applies identically to a manual combo-builder.liquid block placed
+    // on/left over on a product template and to the automatic combo-embed.
+    // Either the exact bundle mapped to this product renders, or nothing
+    // does; showAllBoxes only ever applies on a page with no product context
+    // at all (home page, landing page, dedicated bundle-selection page).
+    if (currentProductId) {
+      productBoxOnly = true;
+    }
     cbLog('initWidget: productId raw=' + (root.dataset.productId || config.productId || null) + ' normalized=' + currentProductId, 'autoProductBox=' + autoProductBox, 'productBoxOnly=' + productBoxOnly, 'showAllBoxes=' + showAllBoxes);
     if (productBoxOnly && !currentProductId) {
       cbLog('initWidget: HIDING — productBoxOnly with no product id', cbDescribeRoot(root));
@@ -1805,7 +1815,8 @@
     root.innerHTML = '<div class="cb-initial-loader"><span class="combo-builder-spinner" aria-hidden="true"></span><span>Loading\u2026</span></div>';
 
     fetchBoxes(shop, apiBase, function (err, boxes, settings) {
-      cbLog('initWidget fetch callback: err=' + (err && err.message), 'boxCount=' + (boxes && boxes.length), 'orderLimitReached=' + (settings && settings.orderLimitReached));
+      var apiBoxCount = (boxes && boxes.length) || 0;
+      cbLog('initWidget fetch callback: err=' + (err && err.message), 'boxCount=' + apiBoxCount, 'orderLimitReached=' + (settings && settings.orderLimitReached));
 
       // Shopify/theme AJAX can replace the root while fetchBoxes() is in flight.
       // Never let an old request render into, clear, or otherwise mutate a stale
@@ -1883,8 +1894,12 @@
         'matchedBoxIds=', productMatchedBoxes.map(function (b) { return b.id + ':' + b.boxType; }));
 
       // STRICT PRODUCT-PAGE RULE:
-      //   auto/product-only root => exact current product mapping only
-      //   manual root            => remains the general/all-bundles block
+      //   Any root — auto embed OR a manual combo-builder.liquid block placed
+      //   on/left over on a product template — gets forced into productBoxOnly
+      //   above the moment currentProductId is present. Exact current-product
+      //   mapping only; a manual block only ever falls back to the general
+      //   "show all bundles" list on a page with NO product context at all
+      //   (home page, landing page, dedicated bundle-selection page).
       // There is deliberately NO fallback from productMatchedBoxes to `boxes`.
       if (productBoxOnly) {
         if (!currentProductId) {
@@ -1934,6 +1949,14 @@
           return false;
         });
       }
+      cbLog('[PRODUCT-BUNDLE]',
+        'currentProductId=' + currentProductId,
+        'productBoxOnly=' + productBoxOnly,
+        'autoProductBox=' + autoProductBox,
+        'showAllBoxes=' + showAllBoxes,
+        'apiBoxCount=' + apiBoxCount,
+        'matchedBoxIds=' + JSON.stringify(productMatchedBoxes.map(function (b) { return b.id + ':' + b.boxType; })),
+        'finalRenderBoxIds=' + JSON.stringify(boxes.map(function (b) { return b.id + ':' + b.boxType; })));
       if (boxes.length === 0) {
         cbLog('initWidget fetch callback: EXIT — 0 boxes after all filters');
         if (productBoxOnly) hideProductOnlyRoot(root, 'no exact product bundle after filters');
