@@ -519,6 +519,35 @@ function clampDateInput(value, minDate) {
   return value < minDate ? minDate : value;
 }
 
+function combineDateAndTime(dateStr, timeStr) {
+  if (!dateStr) return null;
+  const time = /^\d{2}:\d{2}$/.test(timeStr || '') ? timeStr : '00:00';
+  const parsed = new Date(`${dateStr}T${time}:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+// Defaults the End Date/Time to (Start Date/Time + 1 hour), falling back to
+// (now + 1 hour) when no start value is set yet. Built from a real Date so
+// hour/day/month rollover (e.g. 23:30 -> 00:30 next day) is handled correctly.
+function getEndDateTimePlusOneHour(startDate, startTime) {
+  const base = combineDateAndTime(startDate, startTime) || new Date();
+  const plusOneHour = new Date(base.getTime() + 60 * 60 * 1000);
+  const year = plusOneHour.getFullYear();
+  const month = String(plusOneHour.getMonth() + 1).padStart(2, '0');
+  const day = String(plusOneHour.getDate()).padStart(2, '0');
+  const hours = String(plusOneHour.getHours()).padStart(2, '0');
+  const minutes = String(plusOneHour.getMinutes()).padStart(2, '0');
+  return { date: `${year}-${month}-${day}`, time: `${hours}:${minutes}` };
+}
+
+function isScheduleEndAfterStart(form) {
+  if (!form.hasEndDate) return true;
+  const start = combineDateAndTime(form.startDate, form.startTime);
+  const end = combineDateAndTime(form.endDate, form.endTime);
+  if (!start || !end) return true;
+  return end.getTime() > start.getTime();
+}
+
 function clampNumber(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -2777,7 +2806,11 @@ export default function EditMultipleMixMatchBundlePage() {
     productConfiguration:
       initialData?.productConfiguration || 'whole_store',
     scheduleType: initialData?.scheduleType || 'immediately',
-    startDate: clampDateInput(initialData?.startDate, minScheduleDate) || minScheduleDate,
+    // Preserve an existing bundle's saved start date/time exactly as-is (even if
+    // it's in the past); only a brand-new bundle without a saved value defaults
+    // to "now". Clamping to `minScheduleDate` only applies going forward, when
+    // the merchant actively edits the date via setField below.
+    startDate: initialData?.startDate || minScheduleDate,
     startTime: initialData?.startTime || currentSchedule.time,
     hasEndDate: initialData?.hasEndDate || false,
     endDate: initialData?.endDate
@@ -2883,6 +2916,17 @@ export default function EditMultipleMixMatchBundlePage() {
       if (field === 'endDate') {
         const minEndDate = current.startDate || minScheduleDate;
         return { ...current, endDate: clampDateInput(value, minEndDate) };
+      }
+
+      if (field === 'hasEndDate') {
+        // Only fill in a default End Date/Time when none is set yet (new bundle,
+        // or an existing bundle that never had an end date). A previously saved
+        // or already-edited end value is left untouched.
+        if (value && !current.endDate && !current.endTime) {
+          const defaults = getEndDateTimePlusOneHour(current.startDate, current.startTime);
+          return { ...current, hasEndDate: value, endDate: defaults.date, endTime: defaults.time };
+        }
+        return { ...current, hasEndDate: value };
       }
 
       return { ...current, [field]: value };
@@ -3056,6 +3100,12 @@ export default function EditMultipleMixMatchBundlePage() {
   }, [activePack, form]);
 
   const handleSubmit = useCallback(async () => {
+    if (form.scheduleType === 'scheduled' && form.hasEndDate && !isScheduleEndAfterStart(form)) {
+      const message = 'End date and time must be after the start date and time.';
+      setSubmitError(message);
+      showPolarisToast(message, { isError: true });
+      return;
+    }
     try {
       setSaving(true);
       setSubmitError('');
