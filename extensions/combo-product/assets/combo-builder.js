@@ -117,36 +117,41 @@
       if (value == null || value === '') return;
       decls.push(name + ':' + value);
     }
+    function px(value) {
+      if (value == null || value === '') return null;
+      var parsed = parseInt(String(value), 10);
+      return isNaN(parsed) ? null : parsed + 'px';
+    }
 
     set('--cb-box-bg', normalizeHexColor(designSettings.backgroundColor, null));
     set('--cb-box-border-color', normalizeHexColor(designSettings.cardBorderColor, null));
-    set('--cb-box-border-width', designSettings.borderWidth != null ? designSettings.borderWidth + 'px' : null);
-    set('--cb-box-border-radius', designSettings.borderRadius != null ? designSettings.borderRadius + 'px' : null);
-    set('--cb-box-image-height', designSettings.imageHeight != null ? designSettings.imageHeight + 'px' : null);
-    set('--cb-box-image-height-mobile', designSettings.imageHeightMobile != null ? designSettings.imageHeightMobile + 'px' : null);
+    set('--cb-box-border-width', px(designSettings.borderWidth));
+    set('--cb-box-border-radius', px(designSettings.borderRadius));
+    set('--cb-box-image-height', px(designSettings.imageHeight));
+    set('--cb-box-image-height-mobile', px(designSettings.imageHeightMobile));
     set('--cb-box-image-display-desktop', designSettings.imageDisplay === 'Mobile only' ? 'none' : 'block');
     set('--cb-box-image-display-mobile', designSettings.imageDisplay === 'Desktop only' ? 'none' : 'block');
     set('--cb-box-product-card-size', resolveProductCardSize(designSettings.productCardDesktopSize, null));
     set('--cb-box-product-card-size-mobile', resolveProductCardSize(designSettings.productCardMobileSize, null));
 
     set('--cb-box-title-color', normalizeHexColor(designSettings.titleTextColor, null));
-    set('--cb-box-title-size', designSettings.titleSize != null ? designSettings.titleSize + 'px' : null);
+    set('--cb-box-title-size', px(designSettings.titleSize));
     set('--cb-box-title-weight', resolveFontWeight(designSettings.titleStyle, null));
 
     set('--cb-box-price-color', normalizeHexColor(designSettings.productPriceColor, null));
-    set('--cb-box-price-size', designSettings.productPriceSize != null ? designSettings.productPriceSize + 'px' : null);
+    set('--cb-box-price-size', px(designSettings.productPriceSize));
     set('--cb-box-price-weight', resolveFontWeight(designSettings.productPriceStyle, null));
     set('--cb-box-compare-price-color', normalizeHexColor(designSettings.compareAtPriceColor, null));
-    set('--cb-box-compare-price-size', designSettings.compareAtPriceSize != null ? designSettings.compareAtPriceSize + 'px' : null);
+    set('--cb-box-compare-price-size', px(designSettings.compareAtPriceSize));
     set('--cb-box-compare-price-weight', resolveFontWeight(designSettings.compareAtPriceStyle, null));
 
     set('--cb-box-cta-bg', normalizeHexColor(designSettings.ctaBackgroundColor, null));
     set('--cb-box-cta-color', normalizeHexColor(designSettings.ctaTextColor, null));
-    set('--cb-box-cta-size', designSettings.ctaSize != null ? designSettings.ctaSize + 'px' : null);
+    set('--cb-box-cta-size', px(designSettings.ctaSize));
     set('--cb-box-cta-weight', resolveFontWeight(designSettings.ctaStyle, null));
 
     set('--cb-box-variant-color', normalizeHexColor(designSettings.variantSelectorColor, null));
-    set('--cb-box-variant-size', designSettings.variantSelectorSize != null ? designSettings.variantSelectorSize + 'px' : null);
+    set('--cb-box-variant-size', px(designSettings.variantSelectorSize));
     set('--cb-box-variant-weight', resolveFontWeight(designSettings.variantSelectorStyle, null));
     set('--cb-filter-title-size', designSettings.titleSize != null ? (Math.max(14, Math.min(20, parseInt(String(designSettings.titleSize), 10) || 16)) + 'px') : null);
     set('--cb-filter-section-size', designSettings.variantSelectorSize != null ? (Math.max(12, Math.min(15, parseInt(String(designSettings.variantSelectorSize), 10) || 13)) + 'px') : null);
@@ -408,7 +413,11 @@
     // Indicator is styled via CSS class — no content insertion needed
   }
 
-  function resolveAddToCartLabel(settings, ctxOverride) {
+  function resolveAddToCartLabel(settings, ctxOverride, box) {
+    if (box) {
+      var boxLabel = resolveBoxButtonLabel(box);
+      if (boxLabel && String(boxLabel).trim()) return String(boxLabel).trim();
+    }
     if (ctxOverride && String(ctxOverride).trim()) return String(ctxOverride).trim();
     var label = settings && settings.addToCartLabel != null
       ? String(settings.addToCartLabel).trim()
@@ -426,7 +435,7 @@
     return label;
   }
 
-  function resolveProductGridButtonLabel(box, settings) {
+  function resolveBoxButtonLabel(box) {
     var label = '';
     if (box && box.productButtonTitle != null) label = String(box.productButtonTitle).trim();
     if (box && box.addToCartLabel != null) label = String(box.addToCartLabel).trim();
@@ -438,6 +447,11 @@
     if (!label && box && box.comboConfig && box.comboConfig.addToCartLabel != null) {
       label = String(box.comboConfig.addToCartLabel).trim();
     }
+    return label;
+  }
+
+  function resolveProductGridButtonLabel(box, settings) {
+    var label = resolveBoxButtonLabel(box);
     if (!label && settings && settings.addToCartLabel != null) {
       label = String(settings.addToCartLabel).trim();
     }
@@ -2059,7 +2073,7 @@
 
     // Single box visible: skip Step 1 entirely — hide heading + grid and auto-select
     if (ctx.boxes.length === 1) {
-      if (ctx.isPreviewMode || ctx.autoProductBox || ctx.productBoxOnly) {
+      if (ctx.isPreviewMode) {
         step1Head.style.display = 'none';
         boxGrid.style.display = 'none';
       }
@@ -2631,7 +2645,7 @@
     inlineCartBtn.className = 'cb-inline-cart-btn';
     inlineCartBtn.type = 'button';
     inlineCartBtn.disabled = true;
-    inlineCartBtn.textContent = resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel);
+    inlineCartBtn.textContent = resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel, box);
 
     function hydrateProductPricing(done) {
       var tasks = products.map(function (p) {
@@ -2763,7 +2777,7 @@
     mobileAddBtn.className = 'cb-mobile-add-btn';
     mobileAddBtn.type = 'button';
     mobileAddBtn.disabled = true;
-    mobileAddBtn.textContent = resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel);
+    mobileAddBtn.textContent = resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel, box);
     var mobileCheckoutBtn = document.createElement('button');
     mobileCheckoutBtn.className = 'cb-mobile-checkout-btn';
     mobileCheckoutBtn.type = 'button';
@@ -2924,7 +2938,7 @@
       var filled = slots.filter(Boolean).length;
       var remaining = box.itemCount - filled;
       var allFilled = remaining === 0;
-      var addLabel = resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel);
+      var addLabel = resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel, box);
       var stepAddLabel = resolveStepCartButtonLabel(box, ctx);
 
       // Inline button
@@ -3579,7 +3593,7 @@
           giftInput ? giftInput.value : null,
           inlineCartBtn,
           _stickyBtn,
-          resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel),
+          resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel, box),
           ctx.currencySymbol,
           ctx.apiBase,
           ctx.shop,
@@ -3763,7 +3777,7 @@
     inlineCartBtn.className = 'cb-inline-cart-btn';
     inlineCartBtn.type = 'button';
     inlineCartBtn.disabled = true;
-    inlineCartBtn.textContent = resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel);
+    inlineCartBtn.textContent = resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel, box);
 
     function renderSlots() {
       slotSteps.innerHTML = '';
@@ -3874,7 +3888,7 @@
     mobileAddBtn.className = 'cb-mobile-add-btn';
     mobileAddBtn.type = 'button';
     mobileAddBtn.disabled = true;
-    mobileAddBtn.textContent = resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel);
+    mobileAddBtn.textContent = resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel, box);
     var mobileCheckoutBtn = document.createElement('button');
     mobileCheckoutBtn.className = 'cb-mobile-checkout-btn';
     mobileCheckoutBtn.type = 'button';
@@ -3998,7 +4012,7 @@
       var filled = slots.filter(Boolean).length;
       var allFilled = filled === numSteps;
       var cartReady = areRequiredStepsFilled();
-      var addLabel = resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel);
+      var addLabel = resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel, box);
       var stepAddLabel = resolveStepCartButtonLabel(box, ctx);
 
       inlineCartBtn.disabled = !cartReady;
@@ -4627,7 +4641,7 @@
         btn.innerHTML = '<span class="cb-btn-spinner" aria-hidden="true"></span><span class="cb-btn-label">Adding\u2026</span>';
       });
       showPageLoader('Adding products to cart\u2026');
-      addToCart(box, slots, sessionId, giftInput ? giftInput.value : null, inlineCartBtn, _stickyBtn, resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel), ctx.currencySymbol, ctx.apiBase, ctx.shop, resetSpecificCombo);
+      addToCart(box, slots, sessionId, giftInput ? giftInput.value : null, inlineCartBtn, _stickyBtn, resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel, box), ctx.currencySymbol, ctx.apiBase, ctx.shop, resetSpecificCombo);
     }
 
     function doMobileCheckout() {
@@ -4664,7 +4678,7 @@
           step3CartBtn.innerHTML = '<span class="cb-btn-spinner" aria-hidden="true"></span><span>Adding\u2026</span>';
           if (step3CheckoutBtn) step3CheckoutBtn.disabled = true;
           showPageLoader('Adding products to cart\u2026');
-          addToCart(box, slots, sessionId, giftInput ? giftInput.value : null, inlineCartBtn, _stickyBtn, resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel), ctx.currencySymbol, ctx.apiBase, ctx.shop, resetSpecificCombo);
+          addToCart(box, slots, sessionId, giftInput ? giftInput.value : null, inlineCartBtn, _stickyBtn, resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel, box), ctx.currencySymbol, ctx.apiBase, ctx.shop, resetSpecificCombo);
         });
       }
       if (step3CheckoutBtn) {

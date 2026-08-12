@@ -543,7 +543,12 @@ async function deleteShopifyAutomaticDiscount(admin, discountId, context = "disc
     if (errors.length > 0) {
       const msg = errors.map((e) => e?.message || "").join(" ").toLowerCase();
       // Treat "already deleted / not found" as success for cleanup flows.
-      if (msg.includes("not found") || msg.includes("doesn't exist") || msg.includes("invalid id")) {
+      if (
+        msg.includes("not found") ||
+        msg.includes("doesn't exist") ||
+        msg.includes("does not exist") ||
+        msg.includes("invalid id")
+      ) {
         return true;
       }
       console.error(`[deleteShopifyAutomaticDiscount] ${context} userErrors:`, errors);

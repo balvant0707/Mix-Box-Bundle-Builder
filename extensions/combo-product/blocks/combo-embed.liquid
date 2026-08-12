@@ -19,7 +19,9 @@
     apiBase:        '/apps/product-builder',
     productId:      '{{ product.id }}',
     productHandle:  '{{ product.handle }}',
-    autoProductBox: true
+    autoProductBox: true,
+    productBoxOnly: true,
+    layoutMode: 'grid'
   });
   {% endif %}
 </script>
@@ -35,6 +37,8 @@
     data-product-id="{{ product.id }}"
     data-product-handle="{{ product.handle }}"
     data-auto-product-box="true"
+    data-product-box-only="true"
+    data-layout-mode="grid"
   ></div>
 {% endif %}
 
