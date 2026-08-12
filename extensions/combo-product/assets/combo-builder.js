@@ -1663,17 +1663,14 @@
           return normalizeShopifyProductId(b && b.shopifyProductId) === currentProductId;
         });
       }
-      if (currentProductId) {
-        productBoxOnly = true;
-      }
       if (!productBoxOnly && !showAllBoxes && productMatchedBoxes.length > 0) {
         productBoxOnly = true;
       }
       if (productBoxOnly) {
         if (!currentProductId) { return; }
-        boxes = productMatchedBoxes;
+        boxes = productMatchedBoxes.slice(0, 1);
       } else if (!showAllBoxes && currentProductId && productMatchedBoxes.length > 0) {
-        boxes = productMatchedBoxes;
+        boxes = productMatchedBoxes.slice(0, 1);
       }
       if (!productBoxOnly && boxTypeFilter !== 'all') {
         boxes = boxes.filter(function (b) {

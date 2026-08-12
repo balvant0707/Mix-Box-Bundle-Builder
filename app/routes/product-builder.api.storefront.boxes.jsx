@@ -81,7 +81,18 @@ export const loader = async ({ request }) => {
   const boxes = await getStorefrontBoxes(shop, undefined, {
     includeImageData: false,
     imageUrlBuilder: (field, _page, box) => `/api/storefront/boxes/${box.id}/image/${field}`,
+    shopifyProductId: productId,
   });
+
+  const mappedBoxes = productId
+    ? boxes
+        .filter((box) => normalizeShopifyProductId(box.shopifyProductId) === productId)
+        .slice(0, 1)
+    : boxes;
+
+  if (productId && mappedBoxes.length === 0) {
+    return Response.json({ boxes: [], settings: {} }, { headers: CORS_HEADERS });
+  }
 
   // Check order limits by billing cycle:
   // monthly plans => count current month, yearly plans => count current year.
@@ -95,10 +106,6 @@ export const loader = async ({ request }) => {
     now: new Date(),
   });
   const orderLimitReached = orderCredit.orderLimitReached;
-
-  const mappedBoxes = productId
-    ? boxes.filter((box) => normalizeShopifyProductId(box.shopifyProductId) === productId)
-    : boxes;
 
   const publicBoxes = mappedBoxes.map((box) => {
     const pageConfig = box.pageConfig || null;

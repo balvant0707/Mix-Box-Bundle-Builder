@@ -1428,8 +1428,25 @@ export async function getBox(id, shop, options = {}) {
 export async function getStorefrontBoxes(shop, now, options = {}) {
   await ensureAppTables();
 
+  const rawProductId = options.shopifyProductId != null
+    ? String(options.shopifyProductId).trim()
+    : "";
+  const numericProductId = rawProductId
+    ? (rawProductId.includes("/") ? rawProductId.split("/").pop() : rawProductId)
+    : null;
+  const shopifyProductIdCandidates = numericProductId
+    ? [numericProductId, `gid://shopify/Product/${numericProductId}`]
+    : [];
+
   const boxes = await db.comboBox.findMany({
-    where: { shop, deletedAt: null, isActive: true },
+    where: {
+      shop,
+      deletedAt: null,
+      isActive: true,
+      ...(shopifyProductIdCandidates.length > 0
+        ? { shopifyProductId: { in: shopifyProductIdCandidates } }
+        : {}),
+    },
     select: {
       id: true,
       boxCode: true,
@@ -1711,15 +1728,40 @@ export async function updateBox(id, shop, data, admin = null) {
   const priceChanged =
     parseFloat(bundlePrice) !== parseFloat(existing.bundlePrice);
 
-  // Ensure bundle product is ACTIVE (may be DRAFT from old boxes) and update price if changed
-  let resolvedVariantId = existing.shopifyVariantId;
+  // Ensure bundle product is linked/ACTIVE (may be missing or DRAFT from old boxes)
+  // and update price if changed.
+  let linkedShopifyProductId = existing.shopifyProductId;
+  let linkedShopifyVariantId = existing.shopifyVariantId;
+  let resolvedVariantId = linkedShopifyVariantId;
   const desiredBundleTitle = data.boxName ?? existing.boxName ?? data.displayTitle ?? existing.displayTitle;
 
-  if (existing.shopifyProductId && admin) {
+  if (!linkedShopifyProductId && admin) {
+    try {
+      const imageSource =
+        data.bannerImageUrl ||
+        existing.bannerImageUrl ||
+        (data.bannerImage?.bytes
+          ? { bytes: data.bannerImage.bytes, mimeType: data.bannerImage.mimeType, fileName: data.bannerImage.fileName }
+          : null);
+      const result = await createShopifyBundleProduct(
+        admin,
+        desiredBundleTitle,
+        bundlePrice,
+        imageSource,
+      );
+      linkedShopifyProductId = result.shopifyProductId;
+      linkedShopifyVariantId = result.shopifyVariantId;
+      resolvedVariantId = linkedShopifyVariantId;
+    } catch (e) {
+      console.error("[updateBox] Failed to repair missing Shopify product", e);
+    }
+  }
+
+  if (linkedShopifyProductId && admin) {
     if (!resolvedVariantId) {
       resolvedVariantId = await resolveDefaultVariantId(
         admin,
-        existing.shopifyProductId,
+        linkedShopifyProductId,
       );
       if (resolvedVariantId) {
         try {
@@ -1744,7 +1786,7 @@ export async function updateBox(id, shop, data, admin = null) {
       await admin.graphql(ACTIVATE_BUNDLE_PRODUCT_MUTATION, {
         variables: {
           product: {
-            id: existing.shopifyProductId,
+            id: linkedShopifyProductId,
             status: "ACTIVE",
             title: desiredBundleTitle,
           },
@@ -1757,7 +1799,7 @@ export async function updateBox(id, shop, data, admin = null) {
       try {
         await admin.graphql(UPDATE_BUNDLE_PRODUCT_PRICE_MUTATION, {
           variables: {
-            productId: existing.shopifyProductId,
+            productId: linkedShopifyProductId,
             variants: [
               { id: resolvedVariantId, price: String(bundlePrice) },
             ],
@@ -1822,19 +1864,25 @@ export async function updateBox(id, shop, data, admin = null) {
             data.giftMessageEnabled === true
           : existing.giftMessageEnabled,
       bundlePriceType: discountConfig.bundlePriceType,
+      ...(!existing.shopifyProductId && linkedShopifyProductId
+        ? {
+            shopifyProductId: linkedShopifyProductId,
+            shopifyVariantId: linkedShopifyVariantId || resolvedVariantId || null,
+          }
+        : {}),
     },
   });
 
   // Sync banner image to Shopify product (replace on upload, delete on removal)
-  if (existing.shopifyProductId && admin) {
+  if (linkedShopifyProductId && admin) {
     if (hasUploadedBanner) {
-      await replaceProductImage(admin, existing.shopifyProductId, {
+      await replaceProductImage(admin, linkedShopifyProductId, {
         bytes: data.bannerImage.bytes,
         mimeType: data.bannerImage.mimeType,
         fileName: data.bannerImage.fileName,
       });
     } else if (shouldRemoveBanner) {
-      await replaceProductImage(admin, existing.shopifyProductId, null);
+      await replaceProductImage(admin, linkedShopifyProductId, null);
     }
   }
 

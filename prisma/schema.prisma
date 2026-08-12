@@ -106,6 +106,7 @@ model ComboBox {
   multipleBoxPage         MultipleBoxPage?
 
   @@index([shop])
+  @@index([shop, shopifyProductId])
   @@unique([shop, boxCode], map: "combo_box_shop_boxCode_key")
   @@map("combo_box")
 }

@@ -28,7 +28,6 @@
   data-box-type-filter="{{ block.settings.box_type_filter | default: 'all' }}"
   data-page-template="{{ template.name }}"
   data-show-all-boxes="true"
-  data-product-id="{{ product.id }}"
   {% case template.name %}
     {% when 'page' %}
     data-page-handle="page:{{ page.handle }}"
@@ -62,7 +61,6 @@
     currencySymbol: '{{ cart.currency.symbol }}',
     apiBase:        '/apps/product-builder',
     showAllBoxes:   true,
-    productId:      '{{ product.id }}',
     productHandle:  '{{ product.handle }}',
     layoutMode:        '{{ block.settings.layout_mode | default: "grid" }}',
     enableStickyCart:  {{ block.settings.enable_sticky_cart | default: true, allow_false: true | json }},
