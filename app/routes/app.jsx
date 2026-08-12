@@ -266,19 +266,25 @@ export default function App() {
   }, [reviewPrompt?.shouldShow, reviewSeenFetcher, reviewActionUrl]);
 
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const message = params.get("toast");
+    // Read the live browser URL rather than the router's `location.search`: the
+    // cleanup below clears the toast params via `history.replaceState`, which
+    // updates the real URL but not React Router's location state. Without this,
+    // `revalidator.revalidate()` changing `revalidator` (a dependency below)
+    // re-runs this effect while `location.search` still reports the old
+    // `?toast=...`, showing the same toast again on every revalidation tick.
+    const liveParams = new URLSearchParams(window.location.search);
+    const message = liveParams.get("toast");
     if (!message) return;
 
-    const tone = params.get("toastTone");
+    const tone = liveParams.get("toastTone");
     showPolarisToast(message, { isError: tone === "error" });
     // Ensure root loader gets fresh reviewPrompt immediately after actions with toast redirects.
     revalidator.revalidate();
 
-    params.delete("toast");
-    params.delete("toastTone");
-    const nextSearch = params.toString();
-    const nextUrl = `${location.pathname}${nextSearch ? `?${nextSearch}` : ""}${location.hash || ""}`;
+    liveParams.delete("toast");
+    liveParams.delete("toastTone");
+    const nextSearch = liveParams.toString();
+    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash || ""}`;
     window.history.replaceState(window.history.state, "", nextUrl);
   }, [location.hash, location.pathname, location.search, revalidator]);
 
