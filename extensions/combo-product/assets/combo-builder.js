@@ -1663,6 +1663,9 @@
           return normalizeShopifyProductId(b && b.shopifyProductId) === currentProductId;
         });
       }
+      if (currentProductId) {
+        productBoxOnly = true;
+      }
       if (!productBoxOnly && !showAllBoxes && productMatchedBoxes.length > 0) {
         productBoxOnly = true;
       }
