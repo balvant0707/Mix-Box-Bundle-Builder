@@ -1663,13 +1663,13 @@
           return normalizeShopifyProductId(b && b.shopifyProductId) === currentProductId;
         });
       }
-      if (!productBoxOnly && productMatchedBoxes.length > 0) {
+      if (!productBoxOnly && !showAllBoxes && productMatchedBoxes.length > 0) {
         productBoxOnly = true;
       }
       if (productBoxOnly) {
         if (!currentProductId) { return; }
         boxes = productMatchedBoxes;
-      } else if (currentProductId && productMatchedBoxes.length > 0) {
+      } else if (!showAllBoxes && currentProductId && productMatchedBoxes.length > 0) {
         boxes = productMatchedBoxes;
       }
       if (!productBoxOnly && boxTypeFilter !== 'all') {
@@ -2086,9 +2086,8 @@
     }
 
     if (ctx.boxes.length === 1) {
-      if (ctx.isPreviewMode) {
-        boxGrid.style.display = 'none';
-      }
+      step1Head.style.display = 'none';
+      boxGrid.style.display = 'none';
       var onlyCard = boxGrid.firstElementChild;
       if (onlyCard) onlyCard.click();
       return;
@@ -2943,8 +2942,8 @@
 
     var productGrid = document.createElement('div');
     productGrid.className = ctx.layout === 'list' ? 'cb-product-list' : 'cb-product-grid';
-    applyProductsPerRow(selectedProductsPerRow);
     productSection.appendChild(productGrid);
+    applyProductsPerRow(selectedProductsPerRow);
     container.appendChild(productSection);
     ctx._productSection = productSection;
 
@@ -4017,7 +4016,9 @@
     var productGrid = document.createElement('div');
     productGrid.className = 'cb-product-grid';
     var cols = normalizeProductCardsPerRow(ctx.settings && ctx.settings.productCardsPerRow);
-    productGrid.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+    productGrid.style.setProperty('--cb-products-per-row', String(cols));
+    productGrid.style.setProperty('--cb-products-per-row-tablet', String(Math.min(cols, 3)));
+    productGrid.style.setProperty('--cb-products-per-row-mobile', String(Math.min(cols, 2)));
     productSection.appendChild(productGrid);
     container.appendChild(productSection);
     ctx._productSection = productSection;

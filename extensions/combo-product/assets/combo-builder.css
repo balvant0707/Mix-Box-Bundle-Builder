@@ -1093,13 +1093,7 @@
   max-width: 100%;
   margin-left: auto;
   margin-right: auto;
-  grid-template-columns: repeat(auto-fit, minmax(min(var(--cb-box-product-card-size), 100%), var(--cb-box-product-card-size)));
-  justify-content: center;
-  gap: 20px;
-  border: none;
-}
-
-.cb-product-toolbar {
+  grid-template-columns: repeat(var(--cb-products-per-row, 4), minmax(0, 1fr));
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2473,7 +2467,7 @@
 
   /* Product grid: 3 cols on tablet */
   .cb-product-grid {
-    grid-template-columns: repeat(auto-fit, minmax(min(var(--cb-box-product-card-size), 100%), var(--cb-box-product-card-size))) !important;
+    grid-template-columns: repeat(var(--cb-products-per-row-tablet, 3), minmax(0, 1fr)) !important;
     gap: 16px;
   }
 
@@ -2559,7 +2553,7 @@
 
   /* Product grid: 2 cols */
   .cb-product-grid {
-    grid-template-columns: repeat(auto-fit, minmax(min(var(--cb-box-product-card-size-mobile), 100%), var(--cb-box-product-card-size-mobile))) !important;
+    grid-template-columns: repeat(var(--cb-products-per-row-mobile, 2), minmax(0, 1fr)) !important;
     justify-content: center;
     gap: 8px;
   }
@@ -2775,7 +2769,7 @@
 
   /* Product grid: 2 cols still OK, but tighter */
   .cb-product-grid {
-    grid-template-columns: repeat(auto-fit, minmax(min(var(--cb-box-product-card-size-mobile), 100%), var(--cb-box-product-card-size-mobile))) !important;
+    grid-template-columns: repeat(var(--cb-products-per-row-mobile, 2), minmax(0, 1fr)) !important;
     justify-content: center;
     gap: 6px;
   }
