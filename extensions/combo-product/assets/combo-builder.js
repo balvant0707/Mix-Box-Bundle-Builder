@@ -42,6 +42,7 @@
       cbRendered: root.getAttribute('data-cb-rendered'),
       cbSuppressed: root.getAttribute('data-cb-suppressed-by-manual-block'),
       cbNoProductContext: root.getAttribute('data-cb-no-product-context'),
+      cbNoProductMatch: root.getAttribute('data-cb-no-product-match'),
       productId: root.dataset ? root.dataset.productId : null,
       parentTag: parent ? (parent.id ? ('#' + parent.id) : parent.tagName) : null,
       parentDisplay: parent && parent.style ? parent.style.display : null,
@@ -1419,11 +1420,26 @@
     root.setAttribute('data-cb-auto-positioned', '1');
   }
 
+  // A freshly AJAX-rendered auto-embed root may not have had initWidget()
+  // called yet, so its JS-added class may not exist. Always treat the Liquid
+  // data-auto-product-box flag as the source of truth as well as the class.
+  // This prevents one uninitialized auto root from being misidentified as a
+  // manual combo-builder block during section/variant HTML replacement.
+  function isAutoProductComboRoot(root) {
+    if (!root) return false;
+    if (root.classList && root.classList.contains('combo-builder-auto-product-root')) return true;
+    return parseBooleanSetting(root.dataset && root.dataset.autoProductBox, false);
+  }
+
   function hasManualComboBuilderRoot(currentRoot) {
-    var roots = document.querySelectorAll('.combo-builder-root:not(.combo-builder-auto-product-root)');
+    var roots = document.querySelectorAll('.combo-builder-root');
     var otherIds = [];
     for (var i = 0; i < roots.length; i++) {
-      if (roots[i] !== currentRoot) otherIds.push(roots[i].id || '(no id)');
+      var candidate = roots[i];
+      if (candidate === currentRoot) continue;
+      if (candidate.isConnected === false) continue;
+      if (isAutoProductComboRoot(candidate)) continue;
+      otherIds.push(candidate.id || '(no id)');
     }
     if (otherIds.length > 0) {
       cbLog('hasManualComboBuilderRoot(' + (currentRoot && currentRoot.id) + ') => true', 'otherManualRoots=', otherIds);
@@ -1432,26 +1448,53 @@
     return false;
   }
 
+  function suppressAutoProductComboRoot(root, reason) {
+    if (!root) return;
+    cbLog('suppressAutoProductComboRoot()', reason || '', cbDescribeRoot(root));
+    root.innerHTML = '';
+    root.style.display = 'none';
+    // A suppressed root does not currently contain rendered bundle UI.
+    // Removing this flag lets lifecycle recovery accurately distinguish it
+    // from a root whose already-rendered children were unexpectedly removed.
+    root.removeAttribute('data-cb-rendered');
+    root.setAttribute('data-cb-suppressed-by-manual-block', '1');
+  }
+
+  function restoreComboRootVisibility(root) {
+    if (!root) return;
+    root.style.removeProperty('display');
+    root.removeAttribute('data-cb-suppressed-by-manual-block');
+    root.removeAttribute('data-cb-no-product-context');
+    root.removeAttribute('data-cb-no-product-match');
+  }
+
+  // Product-only/auto roots must fail closed: if the current Shopify product
+  // is not mapped to a bundle, never fall back to the general bundle list.
+  function hideProductOnlyRoot(root, reason) {
+    if (!root) return;
+    cbLog('hideProductOnlyRoot()', reason || '', cbDescribeRoot(root));
+    root.innerHTML = '';
+    root.style.display = 'none';
+    root.removeAttribute('data-cb-rendered');
+    root.setAttribute('data-cb-no-product-match', '1');
+  }
+
   function clearAutoProductComboRoots(currentRoot) {
-    var roots = document.querySelectorAll('.combo-builder-auto-product-root');
-    cbLog('clearAutoProductComboRoots() called', 'callerRoot=' + (currentRoot && currentRoot.id), 'candidateCount=' + roots.length);
-    for (var i = 0; i < roots.length; i++) {
-      if (roots[i] === currentRoot) continue;
-      // Never tear down an auto-embed root that has already rendered its
-      // matched bundle — this function only exists to stop a not-yet-rendered
-      // auto-embed from ALSO showing when a manual block is present on the
-      // same page. A manual block that only appears/initializes later (e.g.
-      // a theme AJAX section re-render recreating it, then picked up by
-      // reinitializeUninitializedComboRoots()) must not retroactively wipe an
-      // auto-embed that was already showing correctly with no real conflict.
-      if (roots[i].getAttribute('data-cb-rendered') === '1') {
-        cbLog('clearAutoProductComboRoots: SKIPPING already-rendered root', cbDescribeRoot(roots[i]));
-        continue;
+    var roots = document.querySelectorAll('.combo-builder-root');
+    var candidates = [];
+    for (var ri = 0; ri < roots.length; ri++) {
+      if (roots[ri] !== currentRoot && isAutoProductComboRoot(roots[ri])) {
+        candidates.push(roots[ri]);
       }
-      cbLog('clearAutoProductComboRoots: CLEARING root (not yet rendered)', cbDescribeRoot(roots[i]));
-      roots[i].innerHTML = '';
-      roots[i].style.display = 'none';
-      roots[i].setAttribute('data-cb-suppressed-by-manual-block', '1');
+    }
+    cbLog('clearAutoProductComboRoots() called', 'callerRoot=' + (currentRoot && currentRoot.id), 'candidateCount=' + candidates.length);
+    for (var i = 0; i < candidates.length; i++) {
+      // A real manual combo-builder block owns the page while it exists.
+      // Suppress the auto embed deterministically instead of relying on init
+      // timing or the JS-added auto class. If the manual block is later removed
+      // by a section re-render, lifecycle recovery below will re-enable the
+      // suppressed auto root automatically.
+      suppressAutoProductComboRoot(candidates[i], 'manual block is present');
     }
   }
 
@@ -1662,20 +1705,25 @@
     cbLog('initWidget: productId raw=' + (root.dataset.productId || config.productId || null) + ' normalized=' + currentProductId, 'autoProductBox=' + autoProductBox, 'productBoxOnly=' + productBoxOnly, 'showAllBoxes=' + showAllBoxes);
     if (productBoxOnly && !currentProductId) {
       cbLog('initWidget: HIDING — productBoxOnly with no product id', cbDescribeRoot(root));
-      root.innerHTML = '';
-      root.style.display = 'none';
+      hideProductOnlyRoot(root, 'missing Shopify product context');
       root.setAttribute('data-cb-no-product-context', '1');
       return;
     }
+    // Mark auto ownership before checking for manual roots. During an AJAX
+    // section replacement there can briefly be multiple fresh roots in the DOM;
+    // classifying this root first prevents another auto root from looking manual.
+    if (autoProductBox) {
+      root.classList.add('combo-builder-auto-product-root');
+    }
     if (autoProductBox && hasManualComboBuilderRoot(root)) {
       cbLog('initWidget: HIDING (init-time) — manual block root exists, self-suppressing auto embed', cbDescribeRoot(root));
-      root.innerHTML = '';
-      root.style.display = 'none';
-      root.setAttribute('data-cb-suppressed-by-manual-block', '1');
+      suppressAutoProductComboRoot(root, 'manual block exists during init');
       return;
     }
     if (autoProductBox) {
-      root.classList.add('combo-builder-auto-product-root');
+      // This root may have been suppressed during an earlier manual-block phase.
+      // If the manual root is gone now, restore it before fetching/rendering.
+      restoreComboRootVisibility(root);
     } else {
       cbLog('initWidget: non-auto-embed root initializing — calling clearAutoProductComboRoots()', 'callerRoot=' + root.id);
       clearAutoProductComboRoots(root);
@@ -1758,6 +1806,15 @@
 
     fetchBoxes(shop, apiBase, function (err, boxes, settings) {
       cbLog('initWidget fetch callback: err=' + (err && err.message), 'boxCount=' + (boxes && boxes.length), 'orderLimitReached=' + (settings && settings.orderLimitReached));
+
+      // Shopify/theme AJAX can replace the root while fetchBoxes() is in flight.
+      // Never let an old request render into, clear, or otherwise mutate a stale
+      // detached node after a new same-id root has already appeared.
+      if (!root.isConnected || document.getElementById(config.mountId) !== root) {
+        cbLog('initWidget fetch callback: STALE ROOT — response discarded', cbDescribeRoot(root));
+        return;
+      }
+
       root.innerHTML = '';
 
       // Order limit reached — show a notice and block the widget entirely
@@ -1794,25 +1851,55 @@
         return;
       }
 
-      if (err || !boxes || boxes.length === 0) { cbLog('initWidget fetch callback: EXIT — err/no boxes'); return; }
+      if (err) {
+        cbLog('initWidget fetch callback: EXIT — fetch error');
+        return;
+      }
+      if (!boxes || boxes.length === 0) {
+        cbLog('initWidget fetch callback: EXIT — API returned no boxes');
+        if (productBoxOnly) hideProductOnlyRoot(root, 'API returned no bundle for current product');
+        return;
+      }
+
       var productMatchedBoxes = [];
       if (currentProductId) {
         productMatchedBoxes = boxes.filter(function (b) {
           return normalizeShopifyProductId(b && b.shopifyProductId) === currentProductId;
         });
       }
-      cbLog('initWidget fetch callback: matching', 'currentProductId=' + currentProductId,
-        'matchedBoxIds=', productMatchedBoxes.map(function (b) { return b.id + ':' + b.boxType; }));
-      // Specific-product matching always outranks showAllBoxes (or any other
-      // general-block setting): once the current product is linked to a
-      // Single/Multiple Box, that one bundle is the only thing this page can
-      // show, regardless of a merchant's "show all boxes" block setting.
-      if (!productBoxOnly && currentProductId && productMatchedBoxes.length > 0) {
-        productBoxOnly = true;
+
+      // If the auto embed explicitly carries a Single/Multiple type constraint,
+      // apply it only AFTER the exact Shopify product-id match. This guarantees
+      // a Single product cannot accidentally display a Multiple configuration
+      // (or vice versa) even if stale/duplicate API rows exist.
+      if (productBoxOnly && boxTypeFilter !== 'all') {
+        productMatchedBoxes = productMatchedBoxes.filter(function (b) {
+          return String(b && b.boxType || '').trim().toLowerCase() === boxTypeFilter;
+        });
       }
+
+      cbLog('initWidget fetch callback: matching', 'currentProductId=' + currentProductId,
+        'boxTypeFilter=' + boxTypeFilter,
+        'matchedBoxIds=', productMatchedBoxes.map(function (b) { return b.id + ':' + b.boxType; }));
+
+      // STRICT PRODUCT-PAGE RULE:
+      //   auto/product-only root => exact current product mapping only
+      //   manual root            => remains the general/all-bundles block
+      // There is deliberately NO fallback from productMatchedBoxes to `boxes`.
       if (productBoxOnly) {
-        if (!currentProductId) { cbLog('initWidget fetch callback: EXIT — productBoxOnly but no currentProductId'); return; }
-        boxes = productMatchedBoxes.slice(0, 1);
+        if (!currentProductId) {
+          hideProductOnlyRoot(root, 'product-only root lost product context');
+          return;
+        }
+        if (productMatchedBoxes.length === 0) {
+          hideProductOnlyRoot(root, 'normal/unmapped product — no bundle UI');
+          return;
+        }
+        if (productMatchedBoxes.length > 1) {
+          console.warn('[ComboBuilder] Multiple active bundle records map to Shopify product ' + currentProductId + '. Rendering only the first exact match.',
+            productMatchedBoxes.map(function (b) { return { id: b.id, boxType: b.boxType, shopifyProductId: b.shopifyProductId }; }));
+        }
+        boxes = [productMatchedBoxes[0]];
       }
       if (!productBoxOnly && boxTypeFilter !== 'all') {
         boxes = boxes.filter(function (b) {
@@ -1847,7 +1934,12 @@
           return false;
         });
       }
-      if (boxes.length === 0) { cbLog('initWidget fetch callback: EXIT — 0 boxes after all filters'); root.innerHTML = ''; return; }
+      if (boxes.length === 0) {
+        cbLog('initWidget fetch callback: EXIT — 0 boxes after all filters');
+        if (productBoxOnly) hideProductOnlyRoot(root, 'no exact product bundle after filters');
+        else root.innerHTML = '';
+        return;
+      }
       cbLog('initWidget fetch callback: proceeding to render', 'finalBoxIds=', boxes.map(function (b) { return b.id + ':' + b.boxType; }));
       if (productBoxOnly) {
         if (autoProductBox) {
@@ -2111,15 +2203,28 @@
 
   function renderWidget(root, ctx) {
     cbLog('renderWidget() called', 'root=' + root.id, 'boxCount=' + (ctx.boxes && ctx.boxes.length), 'boxIds=', (ctx.boxes || []).map(function (b) { return b && b.id + ':' + b.boxType; }));
-    if (ctx.autoProductBox && hasManualComboBuilderRoot(root)) {
-      cbLog('renderWidget: HIDING (render-time) — manual block root exists, self-suppressing auto embed', cbDescribeRoot(root));
-      root.innerHTML = '';
-      root.style.display = 'none';
-      root.setAttribute('data-cb-suppressed-by-manual-block', '1');
+
+    // Do not render into a root that was removed/replaced between init and render.
+    if (!root || !root.isConnected) {
+      cbLog('renderWidget: EXIT — root is detached/stale');
       return;
     }
+
+    if (ctx.autoProductBox && hasManualComboBuilderRoot(root)) {
+      cbLog('renderWidget: HIDING (render-time) — manual block root exists, self-suppressing auto embed', cbDescribeRoot(root));
+      suppressAutoProductComboRoot(root, 'manual block exists during render');
+      return;
+    }
+
+    // A root may carry display:none from an earlier no-context/manual-suppression
+    // state. A successful render must explicitly restore visibility.
+    restoreComboRootVisibility(root);
     root.innerHTML = '';
-    root.className = 'combo-builder-root cb-loaded' + (ctx.autoProductBox ? ' combo-builder-auto-product-root' : '');
+
+    // Preserve Liquid/theme classes rather than replacing className wholesale.
+    root.classList.add('combo-builder-root', 'cb-loaded');
+    if (ctx.autoProductBox) root.classList.add('combo-builder-auto-product-root');
+    else root.classList.remove('combo-builder-auto-product-root');
     // Marks this root as having real, successfully-matched content — see
     // clearAutoProductComboRoots(), which must never wipe a root once this is
     // set, regardless of when/why it runs again later.
@@ -5767,32 +5872,101 @@
   function reinitializeUninitializedComboRoots() {
     var roots = document.querySelectorAll('.combo-builder-root');
     var candidates = 0;
+
     for (var i = 0; i < roots.length; i++) {
       var el = roots[i];
-      if (!el.id) continue;
-      if (el.getAttribute('data-cb-initialized') === '1') continue;
-      if (el.getAttribute('data-cb-suppressed-by-manual-block') === '1') continue;
-      candidates++;
-      cbLog('reinitializeUninitializedComboRoots: found uninitialized root, reinitializing', cbDescribeRoot(el));
-      try { initWidget({ mountId: el.id }); } catch (e) { console.error('[ComboBuilder]', e); }
+      if (!el.id || el.isConnected === false) continue;
+
+      var initialized = el.getAttribute('data-cb-initialized') === '1';
+      var rendered = el.getAttribute('data-cb-rendered') === '1';
+      var suppressed = el.getAttribute('data-cb-suppressed-by-manual-block') === '1';
+      var hasRenderedUi = !!el.querySelector('.cb-wrapper');
+      var isAutoRoot = isAutoProductComboRoot(el);
+
+      // If an auto root was suppressed because a manual block existed, but a
+      // later Shopify section/AJAX update removed that manual block, release the
+      // suppression and initialize the auto root again.
+      if (suppressed) {
+        if (isAutoRoot && !hasManualComboBuilderRoot(el)) {
+          candidates++;
+          cbLog('reinitializeUninitializedComboRoots: manual owner gone — restoring suppressed auto root', cbDescribeRoot(el));
+          restoreComboRootVisibility(el);
+          el.removeAttribute('data-cb-initialized');
+          el.removeAttribute('data-cb-rendered');
+          try { initWidget({ mountId: el.id }); } catch (e0) { console.error('[ComboBuilder]', e0); }
+        }
+        continue;
+      }
+
+      // Normal Shopify Section Rendering API case: the old node was replaced
+      // with fresh Liquid HTML. The new node has no data-cb-initialized flag.
+      if (!initialized) {
+        candidates++;
+        cbLog('reinitializeUninitializedComboRoots: found fresh/uninitialized root, reinitializing', cbDescribeRoot(el));
+        try { initWidget({ mountId: el.id }); } catch (e1) { console.error('[ComboBuilder]', e1); }
+        continue;
+      }
+
+      // Some themes keep the root element itself but replace/clear its children.
+      // In that case data-cb-rendered survives even though .cb-wrapper is gone.
+      // Reset only this proven destroyed-render state; do not retry legitimate
+      // no-box/error/order-limit states indefinitely.
+      if (rendered && !hasRenderedUi) {
+        candidates++;
+        cbLog('reinitializeUninitializedComboRoots: rendered root lost its UI — rebuilding', cbDescribeRoot(el));
+        el.removeAttribute('data-cb-initialized');
+        el.removeAttribute('data-cb-rendered');
+        try { initWidget({ mountId: el.id }); } catch (e2) { console.error('[ComboBuilder]', e2); }
+      }
     }
-    if (candidates === 0) cbLog('reinitializeUninitializedComboRoots: scan found nothing to (re)init', 'totalRoots=' + roots.length);
+
+    if (candidates === 0) {
+      cbLog('reinitializeUninitializedComboRoots: scan found nothing to (re)init', 'totalRoots=' + roots.length);
+    }
+  }
+
+  var _comboRootRecoveryTimer = null;
+  function scheduleComboRootRecovery(delay) {
+    if (_comboRootRecoveryTimer) clearTimeout(_comboRootRecoveryTimer);
+    _comboRootRecoveryTimer = setTimeout(function () {
+      _comboRootRecoveryTimer = null;
+      reinitializeUninitializedComboRoots();
+    }, delay == null ? 50 : Math.max(0, Number(delay) || 0));
   }
 
   function observeComboRootReplacement() {
     if (typeof MutationObserver === 'undefined' || !document.body) return;
-    var scheduled = false;
     var observer = new MutationObserver(function (mutations) {
-      cbLog('MutationObserver fired', 'mutationRecords=' + mutations.length, 'scheduled=' + scheduled);
-      if (scheduled) return;
-      scheduled = true;
-      setTimeout(function () {
-        scheduled = false;
-        reinitializeUninitializedComboRoots();
-      }, 50);
+      cbLog('MutationObserver fired', 'mutationRecords=' + mutations.length);
+      scheduleComboRootRecovery(50);
     });
     observer.observe(document.body, { childList: true, subtree: true });
     cbLog('observeComboRootReplacement: MutationObserver attached to document.body');
+  }
+
+  function bindComboRootLifecycleRecoveryEvents() {
+    if (window.__cbRootRecoveryEventsBound) return;
+    window.__cbRootRecoveryEventsBound = true;
+
+    // MutationObserver is the primary recovery path. These explicit Shopify
+    // lifecycle hooks make recovery deterministic for themes/theme-editor flows
+    // that emit section events around DOM replacement.
+    ['shopify:section:load', 'shopify:section:reorder', 'shopify:block:select']
+      .forEach(function (eventName) {
+        document.addEventListener(eventName, function () {
+          scheduleComboRootRecovery(50);
+        });
+      });
+
+    // Popular product themes emit one of these after variant-related HTML work.
+    // Scanning is safe even when no DOM was replaced because initialized roots
+    // with intact .cb-wrapper content are ignored.
+    ['variant:change', 'product:variant-change']
+      .forEach(function (eventName) {
+        document.addEventListener(eventName, function () {
+          scheduleComboRootRecovery(80);
+        });
+      });
   }
 
   // ─── Bootstrap ────────────────────────────────────────────────────────────────
@@ -5824,6 +5998,10 @@
     document.addEventListener('cart:refresh', function () { setTimeout(function () { cleanupComboCartPresentation(document); }, 20); });
     document.addEventListener('cart:updated', function () { setTimeout(function () { cleanupComboCartPresentation(document); }, 20); });
     observeComboRootReplacement();
+    bindComboRootLifecycleRecoveryEvents();
+    // Also scan once after bootstrap in case theme/app scripts inserted a root
+    // before the observer was attached but after the original Liquid queue ran.
+    scheduleComboRootRecovery(0);
     cbInstallLifecycleListeners(); // TEMP DEBUG — remove with the rest of the instrumentation
 
     document.dispatchEvent(new CustomEvent('comboBuildReady', { bubbles: true, detail: { widgetCount: widgetCount } }));
