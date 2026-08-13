@@ -466,6 +466,17 @@ const DISCOUNT_AUTOMATIC_BXGY_CREATE_MUTATION = `#graphql
   }
 `;
 
+const DISCOUNT_AUTOMATIC_BXGY_UPDATE_MUTATION = `#graphql
+  mutation discountAutomaticBxgyUpdate($id: ID!, $automaticBxgyDiscount: DiscountAutomaticBxgyInput!) {
+    discountAutomaticBxgyUpdate(id: $id, automaticBxgyDiscount: $automaticBxgyDiscount) {
+      automaticDiscountNode {
+        id
+      }
+      userErrors { field message }
+    }
+  }
+`;
+
 const DISCOUNT_AUTOMATIC_DELETE_MUTATION = `#graphql
   mutation discountAutomaticDelete($id: ID!) {
     discountAutomaticDelete(id: $id) {
@@ -548,7 +559,7 @@ function buildBuyXGetYDiscountInput({
     customerGets: {
       value: {
         discountOnQuantity: {
-          quantity: { quantity: String(safeGetQty) },
+          quantity: String(safeGetQty),
           effect: customerGetsValue,
         },
       },
@@ -671,9 +682,10 @@ export async function syncShopifyDiscount(admin, { boxId, existingDiscountId, ti
 }
 
 /**
- * Create a Buy X Get Y automatic discount in Shopify.
+ * Create or update this box's Buy X Get Y automatic discount in Shopify.
  * For specific combo boxes this is called only when bundlePriceType is dynamic.
- * Existing discount (basic or bxgy) is deleted and recreated to avoid type mismatch.
+ * An existing BXGY discount is updated in place; it's only deleted and recreated
+ * if the stored ID turns out to belong to a different discount class (e.g. Basic).
  */
 export async function syncShopifyBuyXGetYDiscount(
   admin,
@@ -730,8 +742,22 @@ export async function syncShopifyBuyXGetYDiscount(
   });
 
   try {
-    // Recreate as BXGY every time to guarantee correct discount type.
+    // existingDiscountId is always the boxId row's own shopifyDiscountId (never looked up
+    // by title/product/global query), so updating it in place can never touch another
+    // box's discount. Update first; only delete+recreate if the existing node turns out
+    // to be a different discount class (e.g. a Basic discount from a prior save).
     if (existingDiscountId) {
+      const updateResp = await admin.graphql(DISCOUNT_AUTOMATIC_BXGY_UPDATE_MUTATION, {
+        variables: { id: existingDiscountId, automaticBxgyDiscount: input },
+      });
+      const updateJson = await updateResp.json();
+      const updateErrors = updateJson?.data?.discountAutomaticBxgyUpdate?.userErrors || [];
+      if (updateErrors.length === 0) {
+        return existingDiscountId;
+      }
+
+      // Existing discount may be Basic (percent/fixed) from an older save; recreate as BXGY.
+      console.warn("[syncShopifyBuyXGetYDiscount] update userErrors; recreating as BXGY:", updateErrors);
       await deleteShopifyAutomaticDiscount(
         admin,
         existingDiscountId,
