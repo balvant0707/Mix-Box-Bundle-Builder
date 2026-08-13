@@ -256,7 +256,11 @@ export const loader = async ({ request, params }) => {
   const boxId = Number(params.id);
   const box = await getBox(boxId, session.shop, {
     includeImageData: false,
-    imageUrlBuilder: (field) => `/api/admin/boxes/${boxId}/image/${field}${url.search}`,
+    imageUrlBuilder: (field, page) => {
+      const version = page?.updatedAt ? new Date(page.updatedAt).getTime() : "";
+      const separator = url.search ? "&" : "?";
+      return `/api/admin/boxes/${boxId}/image/${field}${url.search}${version ? `${separator}v=${version}` : ""}`;
+    },
   });
 
   if (!box) {

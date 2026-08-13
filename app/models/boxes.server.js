@@ -546,9 +546,13 @@ function buildBuyXGetYDiscountInput({
       items: buyItems,
     },
     customerGets: {
-      value: customerGetsValue,
+      value: {
+        discountOnQuantity: {
+          quantity: { quantity: String(safeGetQty) },
+          effect: customerGetsValue,
+        },
+      },
       items: getItems,
-      quantity: { quantity: String(safeGetQty) },
     },
     combinesWith,
   };
@@ -1273,7 +1277,13 @@ function buildImageDataUri(data, mimeType, url, options = true) {
     : options !== false;
   const fallbackImageUrl = typeof options === "object" ? options.imageUrl : null;
 
-  if (!includeImageData && data) return url || fallbackImageUrl || SAVED_IMAGE_PLACEHOLDER;
+  // When includeImageData is false, getBox() deliberately omits the binary column from
+  // its query (to avoid pulling large blobs over the wire just to discard them), so `data`
+  // is undefined even when an image is actually stored — fall back to mimeType (always
+  // fetched, cheap) as the "an image exists" signal in that case.
+  const hasStoredImage = includeImageData ? Boolean(data) : Boolean(data || mimeType);
+
+  if (!includeImageData && hasStoredImage) return url || fallbackImageUrl || SAVED_IMAGE_PLACEHOLDER;
   if (data) {
     const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
     return `data:${mimeType || "image/jpeg"};base64,${buffer.toString("base64")}`;
@@ -1395,6 +1405,13 @@ export function buildPageConfigFromMultipleBoxPage(page, options = {}) {
 }
 
 export async function getBox(id, shop, options = {}) {
+  // includeImageData: false (the admin edit-page loaders) means the caller only wants a
+  // URL to fetch the image from separately — omit the MEDIUMBLOB columns from the query
+  // itself instead of fetching multi-MB image bytes just to discard them below.
+  const imageBlobOmit = options.includeImageData === false
+    ? { bundleImageData: true, bannerImageData: true }
+    : null;
+
   const box = await db.comboBox.findFirst({
     where: { id: parseInt(id), shop, deletedAt: null },
     select: {
@@ -1424,9 +1441,10 @@ export async function getBox(id, shop, options = {}) {
       comboStepsConfig: true,
       pageHandle: true,
       boxCode: true,
-      simpleBoxPage: true,
+      simpleBoxPage: imageBlobOmit ? { omit: imageBlobOmit } : true,
       multipleBoxPage: {
         include: { quantityPacks: { orderBy: { sortOrder: 'asc' } } },
+        ...(imageBlobOmit ? { omit: imageBlobOmit } : {}),
       },
     },
   });
@@ -1585,6 +1603,10 @@ export async function createBox(shop, data, admin) {
   if (admin) {
     try {
       const imageSource =
+        data.bundleImageUrl ||
+        (data.bundleImage?.bytes
+          ? { bytes: data.bundleImage.bytes, mimeType: data.bundleImage.mimeType, fileName: data.bundleImage.fileName }
+          : null) ||
         data.bannerImageUrl ||
         (data.bannerImage?.bytes
           ? { bytes: data.bannerImage.bytes, mimeType: data.bannerImage.mimeType, fileName: data.bannerImage.fileName }
@@ -1790,6 +1812,10 @@ export async function updateBox(id, shop, data, admin = null) {
   if (!linkedShopifyProductId && admin) {
     try {
       const imageSource =
+        data.bundleImageUrl ||
+        (data.bundleImage?.bytes
+          ? { bytes: data.bundleImage.bytes, mimeType: data.bundleImage.mimeType, fileName: data.bundleImage.fileName }
+          : null) ||
         data.bannerImageUrl ||
         existing.bannerImageUrl ||
         (data.bannerImage?.bytes
@@ -1864,6 +1890,7 @@ export async function updateBox(id, shop, data, admin = null) {
   }
 
   const hasUploadedBanner = Boolean(data.bannerImage?.bytes);
+  const hasUploadedBundleImage = Boolean(data.bundleImage?.bytes);
   const shouldRemoveBanner = data.removeBannerImage === true;
 
   await db.comboBox.update({
@@ -1925,9 +1952,17 @@ export async function updateBox(id, shop, data, admin = null) {
     },
   });
 
-  // Sync banner image to Shopify product (replace on upload, delete on removal)
+  // Sync bundle/banner image to Shopify product (replace on upload, delete on removal).
+  // Bundle Image is the merchant-facing product-style image, so it takes priority
+  // over the storefront-only banner image when both are present.
   if (linkedShopifyProductId && admin) {
-    if (hasUploadedBanner) {
+    if (hasUploadedBundleImage) {
+      await replaceProductImage(admin, linkedShopifyProductId, {
+        bytes: data.bundleImage.bytes,
+        mimeType: data.bundleImage.mimeType,
+        fileName: data.bundleImage.fileName,
+      });
+    } else if (hasUploadedBanner) {
       await replaceProductImage(admin, linkedShopifyProductId, {
         bytes: data.bannerImage.bytes,
         mimeType: data.bannerImage.mimeType,
