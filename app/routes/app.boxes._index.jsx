@@ -565,14 +565,13 @@ export default function ManageBoxesPage() {
                     {tab.label}
                   </button>
                 ))}
-              </div>
-
+                
               <InlineStack gap="200" blockAlign="center" wrap>
                 <Box minWidth="200px">
                   <TextField
                     label=""
                     labelHidden
-                    placeholder="Search box by name or code..."
+                    placeholder="Search Box..."
                     value={search}
                     onChange={(val) => setSearch(val)}
                     clearButton
@@ -644,6 +643,8 @@ export default function ManageBoxesPage() {
                   </Popover>
                 </Box>
               </InlineStack>
+              </div>
+
             </InlineStack>
           </Box>
 
