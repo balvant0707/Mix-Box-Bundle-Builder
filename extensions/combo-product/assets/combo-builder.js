@@ -2938,8 +2938,13 @@
 
     // Persists every Pack's own selection — never reset by moving to a
     // different Step, and read back in full by the one final submission.
+    // Keyed by each Pack's array INDEX, not by its server packKey/title —
+    // the index is always guaranteed unique per Pack, whereas packKey/title
+    // can come back blank or duplicated for a given box's data, which used
+    // to make every Pack alias the SAME packSlotsByKey entry (selecting one
+    // Pack's product then showed every other Pack as filled with it too).
     var packSlotsByKey = {};
-    var packKeysInOrder = packs.map(getPackKey);
+    var packKeysInOrder = packs.map(function (pack, i) { return i; });
     var currentIndex = 0;
     var advanceTimer = null;
 
@@ -2963,9 +2968,11 @@
       finalCartBtn.classList.add('cb-inline-cart-btn--loading');
       finalCartBtn.innerHTML = '<span class="cb-btn-spinner" aria-hidden="true"></span><span>Adding…</span>';
 
-      var packEntries = packs.map(function (p) {
-        var key = getPackKey(p);
-        return { packKey: key, packTitle: p.title, slots: packSlotsByKey[key] || [] };
+      // packSlotsByKey is read by INDEX (see above); the real server packKey
+      // is still sent in each entry — addPackStepsToCart/gift resolution
+      // need the real key, only the orchestrator's own bookkeeping doesn't.
+      var packEntries = packs.map(function (p, idx) {
+        return { packKey: getPackKey(p), packTitle: p.title, slots: packSlotsByKey[idx] || [] };
       });
       addPackStepsToCart(box, packEntries, sessionId, null, ctx, 'cart', function () {
         // Restore the button so the customer can retry after a failed submit.
@@ -2990,7 +2997,6 @@
 
       var pack = packs[index];
       var packBox = buildPackOverrideBox(box, pack);
-      var packKey = packBox._packKey;
 
       function decorateNow() {
         decoratePackRow(
@@ -3020,9 +3026,9 @@
 
         renderBuilder(stepArea, packBox, products, ctx, {
           hideOwnCartUI: true,
-          initialSlots: packSlotsByKey[packKey] || null,
+          initialSlots: packSlotsByKey[index] || null,
           onSlotsChange: function (slots) {
-            packSlotsByKey[packKey] = slots.slice();
+            packSlotsByKey[index] = slots.slice();
             if (index !== currentIndex) return;
 
             decorateNow();
