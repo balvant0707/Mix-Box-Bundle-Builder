@@ -662,6 +662,21 @@
   background: var(--cb-box-cta-bg);
 }
 
+/* ── Mix n Match: all Pack sections stacked on one page ── */
+.cb-pack-sections {
+  display: flex;
+  flex-direction: column;
+}
+
+.cb-pack-final-cart {
+  margin-top: 24px;
+  justify-content: center;
+}
+
+.cb-pack-final-cart::before {
+  display: none;
+}
+
 /* ── Builder Area ─────────────────────────────────────── */
 .cb-builder-area {
   animation: cb-fade-in 0.2s ease;
