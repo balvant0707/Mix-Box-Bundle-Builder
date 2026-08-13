@@ -567,7 +567,7 @@ export default function ManageBoxesPage() {
                 ))}
                 
               <InlineStack gap="200" blockAlign="center" wrap>
-                <Box minWidth="200px">
+                <Box minWidth="160px">
                   <TextField
                     label=""
                     labelHidden
@@ -584,7 +584,7 @@ export default function ManageBoxesPage() {
                     autoComplete="off"
                   />
                 </Box>
-                <Box minWidth="160px">
+                <Box minWidth="120px">
                   <Select
                     label="Box type"
                     labelHidden
