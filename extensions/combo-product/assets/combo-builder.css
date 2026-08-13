@@ -596,6 +596,72 @@
   text-decoration: underline;
 }
 
+/* ── Mix n Match: Pack → Step progress row ─────────────── */
+.cb-pack-step-progress {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.cb-pack-step-dot-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 48px;
+}
+
+.cb-pack-step-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--cb-border);
+  background: var(--cb-box-bg);
+  color: var(--cb-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cb-pack-step-dot--active {
+  border-color: var(--cb-primary);
+  background: var(--cb-primary);
+  color: #fff;
+}
+
+.cb-pack-step-dot--done {
+  border-color: var(--cb-box-cta-bg);
+  background: var(--cb-box-cta-bg);
+  color: var(--cb-box-cta-color);
+}
+
+.cb-pack-step-dot-label {
+  font-size: 10px;
+  color: var(--cb-text-muted);
+  text-align: center;
+  max-width: 70px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cb-pack-step-connector {
+  align-self: center;
+  width: 24px;
+  height: 2px;
+  margin-top: 13px;
+  background: var(--cb-border);
+}
+
+.cb-pack-step-connector--done {
+  background: var(--cb-box-cta-bg);
+}
+
 /* ── Builder Area ─────────────────────────────────────── */
 .cb-builder-area {
   animation: cb-fade-in 0.2s ease;

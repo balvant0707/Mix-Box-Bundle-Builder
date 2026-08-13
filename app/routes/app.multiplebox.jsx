@@ -969,6 +969,76 @@ function DesignTabPanel({ settings, onChange, onBack, onNext }) {
   );
 }
 
+// Multiple Box-level Discount — one shared discount config for the whole box,
+// not per Pack (see the Discounts panel removed from QuantityPackConfigurationList).
+function DiscountSection({ form, onChange, products, onBrowseGiftProduct, onRemoveGiftProduct }) {
+  return (
+    <BlockStack gap="400">
+      <ChoiceList
+        title="Discount mode"
+        titleHidden
+        choices={DISCOUNT_MODE_OPTIONS}
+        selected={[form.discountMode]}
+        onChange={(value) => onChange('discountMode', value[0])}
+      />
+
+      {form.discountMode === 'fixed_amount' ? (
+        <TextField
+          label="Fixed Amount"
+          type="number"
+          min={0}
+          value={form.discountValue}
+          onChange={(value) => onChange('discountValue', value)}
+          prefix="$"
+          placeholder="0"
+          autoComplete="off"
+        />
+      ) : null}
+
+      {form.discountMode === 'flat_discount' ? (
+        <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+          <Select
+            label="Discount Type"
+            options={DISCOUNT_OPTIONS}
+            value={form.discountType}
+            onChange={(value) => onChange('discountType', value)}
+          />
+          <TextField
+            label="Value"
+            type="number"
+            min={0}
+            value={form.discountValue}
+            onChange={(value) => onChange('discountValue', value)}
+            prefix={form.discountType === 'percentage' ? undefined : '$'}
+            suffix={form.discountType === 'percentage' ? '%' : undefined}
+            placeholder="0"
+            autoComplete="off"
+          />
+        </InlineGrid>
+      ) : null}
+
+      {form.discountMode === 'free_gift_product' ? (
+        <BlockStack gap="300">
+          <InlineStack align="space-between" blockAlign="center">
+            <Text as="h3" variant="headingSm">
+              Free gift product
+            </Text>
+            <Button icon={PlusIcon} onClick={onBrowseGiftProduct}>
+              Add Product
+            </Button>
+          </InlineStack>
+          <SelectedItems
+            type="products"
+            items={products}
+            selectedIds={form.selectedGiftProductIds || []}
+            onRemove={onRemoveGiftProduct}
+          />
+        </BlockStack>
+      ) : null}
+    </BlockStack>
+  );
+}
+
 function CustomerEligibilitySection({
   form,
   onChange,
@@ -1099,10 +1169,8 @@ function BundleInformationSection({
   collections,
   onBrowseProducts,
   onBrowseCollections,
-  onBrowseGiftProduct,
   onRemoveProduct,
   onRemoveCollection,
-  onRemoveGiftProduct,
   boxCodeError,
 }) {
   return (
@@ -1161,10 +1229,8 @@ function BundleInformationSection({
         collections={collections}
         onBrowseProducts={onBrowseProducts}
         onBrowseCollections={onBrowseCollections}
-        onBrowseGiftProduct={onBrowseGiftProduct}
         onRemoveProduct={onRemoveProduct}
         onRemoveCollection={onRemoveCollection}
-        onRemoveGiftProduct={onRemoveGiftProduct}
         packs={form.quantityPacks || []}
         onAddPack={() => {
           const currentPacks = form.quantityPacks || [];
@@ -1190,10 +1256,8 @@ function QuantityPackSection({
   collections,
   onBrowseProducts,
   onBrowseCollections,
-  onBrowseGiftProduct,
   onRemoveProduct,
   onRemoveCollection,
-  onRemoveGiftProduct,
   packs,
   onAddPack,
 }) {
@@ -1295,10 +1359,8 @@ function QuantityPackSection({
               collections={collections}
               onBrowseProducts={onBrowseProducts}
               onBrowseCollections={onBrowseCollections}
-              onBrowseGiftProduct={onBrowseGiftProduct}
               onRemoveProduct={onRemoveProduct}
               onRemoveCollection={onRemoveCollection}
-              onRemoveGiftProduct={onRemoveGiftProduct}
             />
           </BlockStack>
         ) : (
@@ -1334,10 +1396,8 @@ function QuantityPackConfigurationList({
   collections,
   onBrowseProducts,
   onBrowseCollections,
-  onBrowseGiftProduct,
   onRemoveProduct,
   onRemoveCollection,
-  onRemoveGiftProduct,
 }) {
   const [openPanel, setOpenPanel] = useState('');
   const togglePanel = useCallback((panel) => {
@@ -1381,77 +1441,6 @@ function QuantityPackConfigurationList({
             onChange={(value) => onChange('buttonLabel', value)}
             autoComplete="off"
           />
-        </BlockStack>
-      </PackSectionPreview>
-
-      <PackSectionPreview
-        id="discounts"
-        title="Discounts"
-        open={openPanel === 'discounts'}
-        onToggle={togglePanel}
-      >
-        <BlockStack gap="400">
-          <ChoiceList
-            title="Discount mode"
-            titleHidden
-            choices={DISCOUNT_MODE_OPTIONS}
-            selected={[pack.discountMode]}
-            onChange={(value) => onChange('discountMode', value[0])}
-          />
-
-          {pack.discountMode === 'fixed_amount' ? (
-            <TextField
-              label="Fixed Amount"
-              type="number"
-              min={0}
-              value={pack.discountValue}
-              onChange={(value) => onChange('discountValue', value)}
-              prefix="$"
-              placeholder="0"
-              autoComplete="off"
-            />
-          ) : null}
-
-          {pack.discountMode === 'flat_discount' ? (
-            <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
-              <Select
-                label="Discount Type"
-                options={DISCOUNT_OPTIONS}
-                value={pack.discountType}
-                onChange={(value) => onChange('discountType', value)}
-              />
-              <TextField
-                label="Value"
-                type="number"
-                min={0}
-                value={pack.discountValue}
-                onChange={(value) => onChange('discountValue', value)}
-                prefix={pack.discountType === 'percentage' ? undefined : '$'}
-                suffix={pack.discountType === 'percentage' ? '%' : undefined}
-                placeholder="0"
-                autoComplete="off"
-              />
-            </InlineGrid>
-          ) : null}
-
-          {pack.discountMode === 'free_gift_product' ? (
-            <BlockStack gap="300">
-              <InlineStack align="space-between" blockAlign="center">
-                <Text as="h3" variant="headingSm">
-                  Free gift product
-                </Text>
-                <Button icon={PlusIcon} onClick={onBrowseGiftProduct}>
-                  Add Product
-                </Button>
-              </InlineStack>
-              <SelectedItems
-                type="products"
-                items={products}
-                selectedIds={pack.selectedGiftProductIds || []}
-                onRemove={onRemoveGiftProduct}
-              />
-            </BlockStack>
-          ) : null}
         </BlockStack>
       </PackSectionPreview>
 
@@ -2807,6 +2796,7 @@ export default function CreateMultipleMixMatchBundlePage() {
   );
   const [openSections, setOpenSections] = useState({
     bundleInformation: true,
+    discount: false,
     customerEligibility: false,
     schedule: false,
   });
@@ -3010,23 +3000,22 @@ export default function CreateMultipleMixMatchBundlePage() {
   );
 
   const discountText = useMemo(() => {
-    const source = activePack || form;
-    const value = source.discountValue || '0';
+    const value = form.discountValue || '0';
 
-    if (source.discountMode === 'free_gift_product') {
+    if (form.discountMode === 'free_gift_product') {
       const giftProduct = products.find((product) =>
-        (source.selectedGiftProductIds || []).includes(product.id),
+        (form.selectedGiftProductIds || []).includes(product.id),
       );
       return giftProduct ? `Free gift: ${giftProduct.title}` : 'Free gift product';
     }
 
-    if (source.discountMode === 'flat_discount') {
-      if (source.discountType === 'percentage') return `${value}% off`;
-      if (source.discountType === 'fixed_amount') return `$${value} off`;
+    if (form.discountMode === 'flat_discount') {
+      if (form.discountType === 'percentage') return `${value}% off`;
+      if (form.discountType === 'fixed_amount') return `$${value} off`;
     }
 
     return `$${value} fixed amount`;
-  }, [activePack, form, products]);
+  }, [form, products]);
 
   const scheduleText = useMemo(() => {
     if (form.scheduleType === 'immediately') return 'Publish immediately';
@@ -3050,9 +3039,6 @@ export default function CreateMultipleMixMatchBundlePage() {
       stepDescription: activePack.stepDescription,
       productItems: activePack.productItems,
       buttonLabel: activePack.buttonLabel,
-      discountMode: activePack.discountMode,
-      discountType: activePack.discountType,
-      discountValue: activePack.discountValue,
       productConfiguration: activePack.productConfiguration,
     };
   }, [activePack, form]);
@@ -3077,15 +3063,30 @@ export default function CreateMultipleMixMatchBundlePage() {
         resolveImageField(form.bundleImage),
         resolveImageField(form.bannerImage),
       ]);
+      // Discount is a single Multiple Box-level configuration (not per Pack) —
+      // resolve it once from `form` and mirror it onto every pack so each pack's
+      // own stored discount fields (still read by the storefront's per-pack price
+      // preview) stay consistent with the one shared discount instead of each
+      // pack keeping stale/independent values.
+      const boxDiscountFields = getDiscountSubmissionFields(form);
       const submission = {
         ...form,
         boxCode: normalizeBoxCode(form.boxCode),
-        ...getDiscountSubmissionFields(form, activePack || form),
+        ...boxDiscountFields,
         ...designSettings,
         bundleImage,
         bannerImage,
         selectedProductIds,
         selectedCollectionIds,
+        quantityPacks: (form.quantityPacks || []).map((pack) => ({
+          ...pack,
+          discountMode: boxDiscountFields.discountMode,
+          discountType: boxDiscountFields.discountType,
+          discountValue: boxDiscountFields.discountValue,
+          buyQuantity: boxDiscountFields.buyQuantity || 1,
+          getQuantity: boxDiscountFields.getQuantity || 1,
+          selectedGiftProductIds: boxDiscountFields.selectedGiftProductIds || [],
+        })),
       };
 
       const title = form.title.trim();
@@ -3097,10 +3098,7 @@ export default function CreateMultipleMixMatchBundlePage() {
           displayTitle: title,
           boxCode: normalizeBoxCode(form.boxCode),
           itemCount: activePack?.productItems || form.productItems || '1',
-          bundlePrice:
-            (activePack || form).discountMode === 'fixed_amount'
-              ? (activePack || form).discountValue || '0'
-              : '0',
+          bundlePrice: form.discountMode === 'fixed_amount' ? (form.discountValue || '0') : '0',
           boxType: 'multiple',
           pageConfig: submission,
         }),
@@ -3169,7 +3167,6 @@ export default function CreateMultipleMixMatchBundlePage() {
                         collections={collections}
                         onBrowseProducts={() => setProductModalOpen(true)}
                         onBrowseCollections={() => setCollectionModalOpen(true)}
-                        onBrowseGiftProduct={() => setGiftProductModalOpen(true)}
                         onRemoveProduct={(id) =>
                           setActivePackField(
                             'selectedProductIds',
@@ -3186,15 +3183,30 @@ export default function CreateMultipleMixMatchBundlePage() {
                             ),
                           )
                         }
+                        boxCodeError={boxCodeError}
+                      />
+                    </AccordionSection>
+
+                    <AccordionSection
+                      id="discount"
+                      title="Discount"
+                      description="Configure one shared discount for the whole Multiple Box."
+                      open={openSections.discount}
+                      onToggle={toggleSection}
+                    >
+                      <DiscountSection
+                        form={form}
+                        onChange={setField}
+                        products={products}
+                        onBrowseGiftProduct={() => setGiftProductModalOpen(true)}
                         onRemoveGiftProduct={(id) =>
-                          setActivePackField(
+                          setField(
                             'selectedGiftProductIds',
-                            (activePack?.selectedGiftProductIds || []).filter(
+                            (form.selectedGiftProductIds || []).filter(
                               (currentId) => currentId !== id,
                             ),
                           )
                         }
-                        boxCodeError={boxCodeError}
                       />
                     </AccordionSection>
 
@@ -3321,11 +3333,11 @@ export default function CreateMultipleMixMatchBundlePage() {
         items={products}
         loadingMore={productPicker.loadingMore}
         error={productPicker.error}
-        selectedIds={activePack?.selectedGiftProductIds || []}
+        selectedIds={form.selectedGiftProductIds || []}
         onLoadMore={productPicker.loadMore}
         onClose={() => setGiftProductModalOpen(false)}
         onSave={(ids) => {
-          setActivePackField('selectedGiftProductIds', ids.slice(0, 1));
+          setField('selectedGiftProductIds', ids.slice(0, 1));
           setGiftProductModalOpen(false);
         }}
         type="products"
