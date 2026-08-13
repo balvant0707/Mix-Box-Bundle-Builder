@@ -614,6 +614,15 @@
   min-width: 48px;
 }
 
+.cb-pack-step-dot-wrap--clickable {
+  cursor: pointer;
+}
+
+.cb-pack-step-dot-wrap--clickable:hover .cb-pack-step-dot,
+.cb-pack-step-dot-wrap--clickable:focus-visible .cb-pack-step-dot {
+  box-shadow: 0 0 0 3px var(--cb-primary-glow, rgba(42,122,79,0.25));
+}
+
 .cb-pack-step-dot {
   display: flex;
   align-items: center;

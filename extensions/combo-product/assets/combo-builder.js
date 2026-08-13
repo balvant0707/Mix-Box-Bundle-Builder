@@ -2818,7 +2818,11 @@
   // completion — never inferred from a sequential position/count, since every
   // Pack's section is visible and editable at the same time (see
   // renderPackPicker) and Packs can be completed in any order.
-  function renderPackStepProgress(container, packs, doneFlags) {
+  // doneFlags: boolean per Pack (has a selection). activeIndex: which Pack's
+  // Step is currently shown (or -1 once every Pack is done). onSelectDone, if
+  // given, makes a completed Step's dot clickable so the customer can jump
+  // back to review/change that Pack's selection (see renderPackPicker).
+  function renderPackStepProgress(container, packs, doneFlags, activeIndex, onSelectDone) {
     container.innerHTML = '';
     packs.forEach(function (pack, idx) {
       if (idx > 0) {
@@ -2833,8 +2837,10 @@
 
       var dot = document.createElement('div');
       dot.className = 'cb-pack-step-dot';
-      if (doneFlags[idx]) dot.classList.add('cb-pack-step-dot--done');
-      dot.textContent = doneFlags[idx] ? '✓' : String(idx + 1);
+      var isActive = idx === activeIndex;
+      if (isActive) dot.classList.add('cb-pack-step-dot--active');
+      else if (doneFlags[idx]) dot.classList.add('cb-pack-step-dot--done');
+      dot.textContent = (doneFlags[idx] && !isActive) ? '✓' : String(idx + 1);
       dotWrap.appendChild(dot);
 
       var label = document.createElement('div');
@@ -2842,17 +2848,29 @@
       label.textContent = pack.title || ('Pack ' + (idx + 1));
       dotWrap.appendChild(label);
 
+      if (doneFlags[idx] && !isActive && typeof onSelectDone === 'function') {
+        dotWrap.classList.add('cb-pack-step-dot-wrap--clickable');
+        dotWrap.setAttribute('role', 'button');
+        dotWrap.setAttribute('tabindex', '0');
+        dotWrap.addEventListener('click', function () { onSelectDone(idx); });
+        dotWrap.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectDone(idx); }
+        });
+      }
+
       container.appendChild(dotWrap);
     });
   }
 
-  // Every Pack's own product grid is shown on the page at once (not one Pack
-  // at a time) — the customer picks one product per Pack, in any order, and a
-  // single page-level Add to Cart only appears once every Pack has a
-  // selection. Each Pack's own cart/checkout UI is suppressed entirely (see
-  // renderBuilder's stepOptions.hideOwnCartUI) so there is only ONE final
-  // action for the whole Multiple Box, submitting every Pack together (see
-  // addPackStepsToCart).
+  // Sequential Pack -> Step flow: exactly one Pack's product grid is visible
+  // at a time (Pack 1 -> Step 1, Pack 2 -> Step 2, ...). Selecting that Pack's
+  // one product auto-advances to the next incomplete Pack — no manual
+  // "Continue" click. Every Pack's own cart/checkout UI stays suppressed (see
+  // renderBuilder's stepOptions.hideOwnCartUI); a single page-level Add to
+  // Cart appears only once every Pack has a selection, submitting all of them
+  // together (see addPackStepsToCart). Completed Steps stay clickable so the
+  // customer can go back and change an earlier Pack's pick; every Pack's
+  // selection is kept in packSlotsByKey regardless of which Step is showing.
   function renderPackPicker(container, box, ctx) {
     container.innerHTML = '';
 
@@ -2880,9 +2898,9 @@
     progressRow.className = 'cb-pack-step-progress';
     container.appendChild(progressRow);
 
-    var sectionsArea = document.createElement('div');
-    sectionsArea.className = 'cb-pack-sections';
-    container.appendChild(sectionsArea);
+    var stepArea = document.createElement('div');
+    stepArea.className = 'cb-pack-builder-panel';
+    container.appendChild(stepArea);
 
     var finalCartSection = document.createElement('div');
     finalCartSection.className = 'cb-step3-cart cb-pack-final-cart';
@@ -2892,33 +2910,32 @@
     var finalCartBtn = document.createElement('button');
     finalCartBtn.type = 'button';
     finalCartBtn.className = 'cb-step3-cart-btn';
-    finalCartBtn.disabled = true;
     finalCartBtn.textContent = resolveStepCartButtonLabel(box, ctx);
     finalBtns.appendChild(finalCartBtn);
     finalCartSection.appendChild(finalBtns);
     container.appendChild(finalCartSection);
+    var finalCartBtnReadyLabel = finalCartBtn.textContent;
 
-    // Persists every Pack's own selection — never reset by another Pack's
-    // section changing, and read back in full by the one final submission.
+    // Persists every Pack's own selection — never reset by moving to a
+    // different Step, and read back in full by the one final submission.
     var packSlotsByKey = {};
     var packKeysInOrder = packs.map(getPackKey);
+    var currentIndex = 0;
+    var advanceTimer = null;
 
     function isPackComplete(key) {
       var slots = packSlotsByKey[key];
       return Array.isArray(slots) && slots.some(Boolean);
     }
 
-    function refreshCompletion() {
-      renderPackStepProgress(progressRow, packs, packKeysInOrder.map(isPackComplete));
-
-      var allComplete = packKeysInOrder.every(isPackComplete);
-      finalCartSection.style.display = allComplete ? '' : 'none';
-      finalCartBtn.disabled = !allComplete;
+    function firstIncompleteIndex() {
+      for (var i = 0; i < packs.length; i++) {
+        if (!isPackComplete(packKeysInOrder[i])) return i;
+      }
+      return -1;
     }
 
     var sessionId = generateSessionId();
-
-    var finalCartBtnReadyLabel = finalCartBtn.textContent;
 
     finalCartBtn.addEventListener('click', function () {
       if (finalCartBtn.disabled) return;
@@ -2939,34 +2956,71 @@
       });
     });
 
-    packs.forEach(function (pack) {
+    function openStep(index) {
+      if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
+      currentIndex = index;
+      renderPackStepProgress(
+        progressRow,
+        packs,
+        packKeysInOrder.map(isPackComplete),
+        currentIndex,
+        function (doneIndex) { openStep(doneIndex); },
+      );
+
+      if (firstIncompleteIndex() === -1) {
+        // Every Pack has a selection — hide the grid, reveal the one final action.
+        stepArea.innerHTML = '';
+        finalCartSection.style.display = '';
+        return;
+      }
+      finalCartSection.style.display = 'none';
+
+      var pack = packs[index];
       var packBox = buildPackOverrideBox(box, pack);
       var packKey = packBox._packKey;
 
-      var sectionEl = document.createElement('div');
-      sectionEl.className = 'cb-pack-builder-panel cb-pack-section';
-      sectionsArea.appendChild(sectionEl);
-
       showPageLoader('Loading products…');
       fetchProducts(box.id, ctx.shop, ctx.apiBase, packBox.scopeType, pack.packKey, ctx, function (err, products) {
-        hidePageLoader();
+        hidePageLoader(true);
         if (ctx._openBoxId !== box.id) return;
         if (err || !products || products.length === 0) {
-          sectionEl.innerHTML = '<p class="cb-error">Failed to load products. Please reload and try again.</p>';
+          stepArea.innerHTML = '<p class="cb-error">Failed to load products. Please reload and try again.</p>';
           return;
         }
 
-        renderBuilder(sectionEl, packBox, products, ctx, {
+        renderBuilder(stepArea, packBox, products, ctx, {
           hideOwnCartUI: true,
+          initialSlots: packSlotsByKey[packKey] || null,
           onSlotsChange: function (slots) {
             packSlotsByKey[packKey] = slots.slice();
-            refreshCompletion();
+            if (index !== currentIndex) return;
+
+            renderPackStepProgress(
+              progressRow,
+              packs,
+              packKeysInOrder.map(isPackComplete),
+              currentIndex,
+              function (doneIndex) { openStep(doneIndex); },
+            );
+
+            if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
+            if (slots.some(Boolean)) {
+              // Brief pause so the customer sees their pick highlighted before
+              // the Step transitions — not an immediate/jarring swap.
+              advanceTimer = setTimeout(function () {
+                advanceTimer = null;
+                var next = firstIncompleteIndex();
+                openStep(next === -1 ? index : next);
+              }, 450);
+            }
           },
         });
-      });
-    });
 
-    refreshCompletion();
+        stepArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+
+    openStep(0);
   }
 
   // ─── Render Builder ───────────────────────────────────────────────────────────
