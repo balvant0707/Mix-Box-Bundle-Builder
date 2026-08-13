@@ -5716,6 +5716,12 @@
       if (bundleImageSrc && !/^(data:|blob:)/i.test(String(bundleImageSrc))) {
         bundleProps['_combo_bundle_image'] = bundleImageSrc;
       }
+      // Identifies this line as the qualifying Bundle Product for a specific
+      // Box (+ pack, for Multiple Box), so the Free Gift sync below — and any
+      // later reconciliation pass — can resolve/attach the correct gift and
+      // never mixes up boxes/packs that happen to share the same variant.
+      bundleProps['_bundle_box_id'] = comboBoxId;
+      bundleProps['_bundle_pack_key'] = box && box._packKey ? String(box._packKey) : '';
 
       var shouldIncludeGiftDetails = !!(box && box.isGiftBox && box.giftMessageEnabled);
 
@@ -5811,6 +5817,12 @@
         // cart/add.js returns sections HTML when requested — use it to refresh drawer content
         syncThemeCartUI(cartResponse);
         cleanupComboCartPresentation(document);
+
+        // This box's own Free Gift Product (if configured) isn't added by Shopify's
+        // automatic BXGY discount — that only makes an existing gift line free.
+        // reconcileFreeGifts() finds this bundle line via the _bundle_box_id/
+        // _bundle_pack_key properties just stamped on it and adds/adjusts the gift line.
+        scheduleGiftReconcile(shop, resolvedApiBase, 0);
 
         document.dispatchEvent(new CustomEvent('cart:refresh', { bubbles: true }));
         document.dispatchEvent(new CustomEvent('cart:updated', { bubbles: true }));
@@ -6077,6 +6089,289 @@
       });
   }
 
+  // ─── Free Gift Product Sync ──────────────────────────────────────────────────
+  //
+  // A configured Free Gift Product (Buy X Get Y automatic discount) only makes
+  // an EXISTING gift line free — Shopify's automatic discount never inserts the
+  // gift product into the cart by itself. This section resolves each qualifying
+  // Bundle Product's Free Gift config (by Box ID/pack key — see resolveGiftForBox
+  // server-side) and adds/adjusts/removes the corresponding gift line so its
+  // quantity always matches the configured buy/get ratio, without ever touching
+  // normal products or another box's gift.
+
+  var _cbGiftConfigCache = {}; // key: boxId + ':' + packKey -> gift config, or null if checked and none
+  var _cbGiftReconcileInFlight = false;
+  var _cbGiftReconcileQueued = false;
+  var _cbGiftReconcileTimer = null;
+
+  function cbGiftCacheKey(boxId, packKey) {
+    return String(boxId) + ':' + (packKey || '');
+  }
+
+  function cbGiftSectionIds() {
+    return ['cart-drawer', 'cart-icon-bubble', 'cart-notification-button', 'cart-notification'];
+  }
+
+  function resolveGiftConfig(boxId, packKey, shop, apiBase) {
+    var key = cbGiftCacheKey(boxId, packKey);
+    if (Object.prototype.hasOwnProperty.call(_cbGiftConfigCache, key)) {
+      return Promise.resolve(_cbGiftConfigCache[key]);
+    }
+    var base = String(apiBase || DEFAULT_API_BASE).replace(/\/+$/, '');
+    var url = base + '/api/storefront/boxes/' + encodeURIComponent(String(boxId)) +
+      '/gift?shop=' + encodeURIComponent(shop) +
+      (packKey ? '&packKey=' + encodeURIComponent(packKey) : '');
+
+    return fetch(url, { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : { hasGift: false }; })
+      .catch(function () { return { hasGift: false }; })
+      .then(function (data) {
+        _cbGiftConfigCache[key] = (data && data.hasGift) ? data : null;
+        return _cbGiftConfigCache[key];
+      });
+  }
+
+  function cbGiftCartChange(line, quantity, properties) {
+    var body = {
+      line: line,
+      quantity: quantity,
+      sections: cbGiftSectionIds(),
+      sections_url: window.location.pathname + window.location.search,
+    };
+    if (properties) body.properties = properties;
+
+    return fetch('/cart/change.js', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CB-Gift-Sync': '1' },
+      body: JSON.stringify(body),
+    }).then(function (r) { return r.json(); });
+  }
+
+  function cbGiftCartAdd(variantId, quantity, properties) {
+    return fetch('/cart/add.js', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CB-Gift-Sync': '1' },
+      body: JSON.stringify({
+        items: [{ id: variantId, quantity: quantity, properties: properties || {} }],
+        sections: cbGiftSectionIds(),
+        sections_url: window.location.pathname + window.location.search,
+      }),
+    }).then(function (r) { return r.json(); });
+  }
+
+  // Walks the live cart, groups qualifying Bundle Product lines by their
+  // _bundle_box_id/_bundle_pack_key properties, resolves each group's Free Gift
+  // config (cached per box/pack), and brings the matching gift line's quantity
+  // to buyQty/getQty ratio × bundle quantity — adding it if missing, resizing it
+  // if the bundle quantity changed, or removing it once no qualifying bundle
+  // remains. Only ever touches lines carrying these markers, so normal products
+  // and other boxes' lines are never affected.
+  function reconcileFreeGifts(shop, apiBase) {
+    if (!shop) return;
+    if (_cbGiftReconcileInFlight) { _cbGiftReconcileQueued = true; return; }
+    _cbGiftReconcileInFlight = true;
+
+    fetch('/cart.js', { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (cart) {
+        var items = (cart && cart.items) || [];
+        var bundleGroups = {};
+        var giftLinesByKey = {};
+
+        items.forEach(function (item, idx) {
+          var props = item.properties || {};
+          if (props._bundle_box_id) {
+            var bundleKey = cbGiftCacheKey(props._bundle_box_id, props._bundle_pack_key);
+            if (!bundleGroups[bundleKey]) {
+              bundleGroups[bundleKey] = { boxId: props._bundle_box_id, packKey: props._bundle_pack_key || '', qty: 0 };
+            }
+            bundleGroups[bundleKey].qty += item.quantity;
+          }
+          if (props._free_gift_for_box_id) {
+            var giftKey = cbGiftCacheKey(props._free_gift_for_box_id, props._free_gift_for_pack_key);
+            giftLinesByKey[giftKey] = { line: idx + 1, item: item };
+          }
+        });
+
+        var keys = Object.keys(bundleGroups);
+        Object.keys(giftLinesByKey).forEach(function (giftKey) {
+          if (keys.indexOf(giftKey) === -1) keys.push(giftKey);
+        });
+
+        var lastCartResponse = null;
+        var chain = Promise.resolve();
+
+        keys.forEach(function (key) {
+          chain = chain.then(function () {
+            var group = bundleGroups[key];
+            var parts = key.split(':');
+            var boxId = group ? group.boxId : parts[0];
+            var packKey = group ? group.packKey : parts[1];
+            var bundleQty = group ? group.qty : 0;
+            var giftLine = giftLinesByKey[key];
+
+            return resolveGiftConfig(boxId, packKey, shop, apiBase).then(function (giftConfig) {
+              if (!giftConfig) {
+                // Not (or no longer) a Free Gift box/pack — only clean up a stray
+                // gift line if its qualifying bundle is completely gone.
+                if (giftLine && bundleQty === 0) {
+                  return cbGiftCartChange(giftLine.line, 0).then(function (resp) { lastCartResponse = resp; });
+                }
+                return null;
+              }
+
+              var desiredQty = Math.max(0, Math.floor(bundleQty / giftConfig.buyQuantity) * giftConfig.getQuantity);
+              var currentQty = giftLine ? giftLine.item.quantity : 0;
+              if (desiredQty === currentQty) return null;
+
+              if (giftLine) {
+                return cbGiftCartChange(giftLine.line, desiredQty, {
+                  _free_gift: 'true',
+                  _free_gift_for_box_id: String(boxId),
+                  _free_gift_for_pack_key: packKey || '',
+                }).then(function (resp) { lastCartResponse = resp; });
+              }
+              if (desiredQty > 0) {
+                return cbGiftCartAdd(giftConfig.giftVariantId, desiredQty, {
+                  _free_gift: 'true',
+                  _free_gift_for_box_id: String(boxId),
+                  _free_gift_for_pack_key: packKey || '',
+                }).then(function (resp) { lastCartResponse = resp; });
+              }
+              return null;
+            });
+          });
+        });
+
+        return chain.then(function () { return lastCartResponse; });
+      })
+      .then(function (cartResponse) {
+        if (cartResponse) {
+          try { syncThemeCartUIStandalone(cartResponse); } catch (e) { console.warn('[ComboBuilder] gift sync UI refresh failed:', e); }
+        }
+      })
+      .catch(function (e) { console.warn('[ComboBuilder] Free gift reconcile failed:', e); })
+      .then(function () {
+        _cbGiftReconcileInFlight = false;
+        if (_cbGiftReconcileQueued) {
+          _cbGiftReconcileQueued = false;
+          scheduleGiftReconcile(shop, apiBase, 50);
+        }
+      });
+  }
+
+  function scheduleGiftReconcile(shop, apiBase, delay) {
+    if (!shop) return;
+    if (_cbGiftReconcileTimer) clearTimeout(_cbGiftReconcileTimer);
+    _cbGiftReconcileTimer = setTimeout(function () {
+      _cbGiftReconcileTimer = null;
+      reconcileFreeGifts(shop, apiBase);
+    }, delay == null ? 300 : delay);
+  }
+
+  // Minimal standalone re-implementation of addToCart()'s syncThemeCartUI —
+  // reconcileFreeGifts runs at page/global scope (no per-widget `box` in
+  // context), so it needs its own copy of the same theme drawer/notification
+  // section-refresh logic rather than reaching into a specific widget closure.
+  function syncThemeCartUIStandalone(cartResponse) {
+    var sections = cartResponse && cartResponse.sections;
+    if (!sections) return;
+
+    var drawerExist = document.querySelector('cart-drawer');
+    var notifExist = document.querySelector('cart-notification');
+    var renderedByTheme = false;
+
+    if (drawerExist) drawerExist.classList.remove('is-empty');
+
+    if (drawerExist && typeof drawerExist.renderContents === 'function') {
+      try { drawerExist.renderContents(cartResponse); renderedByTheme = true; }
+      catch (e) { console.warn('[ComboBuilder] cart-drawer.renderContents() failed:', e); }
+    }
+    if (notifExist && typeof notifExist.renderContents === 'function') {
+      try { notifExist.renderContents(cartResponse); renderedByTheme = true; }
+      catch (e) { console.warn('[ComboBuilder] cart-notification.renderContents() failed:', e); }
+    }
+    if (renderedByTheme) return;
+
+    var parser = new DOMParser();
+    Object.keys(sections).forEach(function (key) {
+      var markup = sections[key];
+      if (!markup) return;
+      var doc = parser.parseFromString(markup, 'text/html');
+
+      if (key === 'cart-drawer') {
+        var drawerSectionExist = document.querySelector('#shopify-section-cart-drawer');
+        var drawerSectionFresh = doc.querySelector('#shopify-section-cart-drawer');
+        if (drawerSectionExist && drawerSectionFresh) {
+          drawerSectionExist.innerHTML = drawerSectionFresh.innerHTML;
+        } else {
+          var drawerFresh = doc.querySelector('cart-drawer');
+          if (drawerExist && drawerFresh) drawerExist.innerHTML = drawerFresh.innerHTML;
+        }
+      }
+      if (key === 'cart-notification') {
+        var notifSectionExist = document.querySelector('#shopify-section-cart-notification');
+        var notifSectionFresh = doc.querySelector('#shopify-section-cart-notification');
+        if (notifSectionExist && notifSectionFresh) {
+          notifSectionExist.innerHTML = notifSectionFresh.innerHTML;
+        } else {
+          var notifFresh = doc.querySelector('cart-notification');
+          if (notifExist && notifFresh) notifExist.innerHTML = notifFresh.innerHTML;
+        }
+      }
+      if (key === 'cart-icon-bubble') {
+        var bubbleSectionExist = document.querySelector('#shopify-section-cart-icon-bubble');
+        var bubbleSectionFresh = doc.querySelector('#shopify-section-cart-icon-bubble');
+        if (bubbleSectionExist && bubbleSectionFresh) {
+          bubbleSectionExist.innerHTML = bubbleSectionFresh.innerHTML;
+        }
+        var countFresh = doc.querySelector('.cart-count-bubble');
+        if (countFresh) {
+          document.querySelectorAll('.cart-count-bubble').forEach(function (el) {
+            el.innerHTML = countFresh.innerHTML;
+          });
+        }
+      }
+    });
+  }
+
+  function cbGlobalShopAndApiBase() {
+    var g = window.__COMBO_BUILDER_GLOBAL__ || {};
+    var shop = g.shop || (window.Shopify && window.Shopify.shop) || null;
+    var apiBase = g.apiBase || DEFAULT_API_BASE;
+    return { shop: shop, apiBase: apiBase };
+  }
+
+  // Detects cart mutations the THEME's own cart drawer/page UI makes (native
+  // quantity steppers, remove buttons, etc. — anything not marked with our own
+  // X-CB-Gift-Sync header) via the same /cart/*.js endpoints, and re-runs the
+  // gift reconciliation afterwards so gift quantity stays in sync and is
+  // removed when its qualifying bundle is removed, without redesigning or
+  // replacing any existing cart drawer/page behavior.
+  function installGiftCartWatcher() {
+    if (window.__cbGiftWatcherInstalled) return;
+    window.__cbGiftWatcherInstalled = true;
+
+    var nativeFetch = window.fetch;
+    if (typeof nativeFetch !== 'function') return;
+
+    window.fetch = function (input, init) {
+      var url = typeof input === 'string' ? input : ((input && input.url) || '');
+      var isCartMutation = /\/cart\/(add|change|update|clear)(\.js)?(\?|$)/.test(String(url));
+      var ownHeaders = init && init.headers;
+      var isOwnGiftCall = !!(ownHeaders && ownHeaders['X-CB-Gift-Sync'] === '1');
+
+      var result = nativeFetch.apply(this, arguments);
+      if (isCartMutation && !isOwnGiftCall) {
+        result.then(function () {
+          var g = cbGlobalShopAndApiBase();
+          scheduleGiftReconcile(g.shop, g.apiBase, 250);
+        }).catch(function () {});
+      }
+      return result;
+    };
+  }
+
   // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
   function bootstrap() {
@@ -6114,6 +6409,13 @@
     // before the observer was attached but after the original Liquid queue ran.
     scheduleComboRootRecovery(0);
     cbInstallLifecycleListeners(); // TEMP DEBUG — remove with the rest of the instrumentation
+
+    // Free Gift Product sync: watch for cart changes made by the theme's own
+    // cart UI (native quantity/remove controls) and run one correction pass now,
+    // in case a qualifying bundle's quantity changed on a previous page view.
+    installGiftCartWatcher();
+    var _cbGiftBoot = cbGlobalShopAndApiBase();
+    if (_cbGiftBoot.shop) scheduleGiftReconcile(_cbGiftBoot.shop, _cbGiftBoot.apiBase, 400);
 
     document.dispatchEvent(new CustomEvent('comboBuildReady', { bubbles: true, detail: { widgetCount: widgetCount } }));
   }

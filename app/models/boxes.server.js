@@ -1037,7 +1037,7 @@ function formatUserErrors(userErrors) {
     .join("; ");
 }
 
-async function resolveDefaultVariantId(admin, shopifyProductId) {
+export async function resolveDefaultVariantId(admin, shopifyProductId) {
   if (!shopifyProductId) return null;
 
   try {
@@ -1648,6 +1648,83 @@ export async function getStorefrontBoxes(shop, now, options = {}) {
       };
     })
     .filter((box) => isPreviewTarget(box) || isWithinSchedule(box.pageConfig, referenceTime));
+}
+
+function toNumericShopifyId(gid) {
+  if (!gid) return null;
+  const raw = String(gid);
+  return raw.includes("/") ? raw.split("/").pop() : raw;
+}
+
+/**
+ * Resolve the Free Gift Product (Buy X Get Y) configuration for a specific
+ * Single/Multiple Box, keyed strictly by boxId (+ packKey for Multiple Box
+ * packs, which each carry their own independent gift configuration even
+ * though they share one bundle Shopify product) — never by product title or
+ * any other identifier, so one box's gift can never resolve for another.
+ * Returns { hasGift: false } when the box/pack has no active Free Gift
+ * configured, or when the configured gift product has no resolvable variant.
+ */
+export async function resolveGiftForBox(shop, boxId, admin, packKey = null) {
+  const parsedId = parseInt(boxId, 10);
+  if (!admin || !Number.isFinite(parsedId)) return { hasGift: false };
+
+  const giftFieldSelect = {
+    discountType: true,
+    selectedGiftProductIdsJson: true,
+    buyQuantity: true,
+    getQuantity: true,
+  };
+
+  const box = await db.comboBox.findFirst({
+    where: { id: parsedId, shop, isActive: true, deletedAt: null },
+    select: {
+      id: true,
+      simpleBoxPage: { select: giftFieldSelect },
+      multipleBoxPage: {
+        select: {
+          ...giftFieldSelect,
+          quantityPacks: packKey
+            ? { where: { packKey: String(packKey) }, select: giftFieldSelect }
+            : false,
+        },
+      },
+    },
+  });
+  if (!box) return { hasGift: false };
+
+  let config = null;
+  if (box.multipleBoxPage) {
+    // Each pack owns its own gift config — a Multiple Box with no matching
+    // pack has no page-level gift to fall back to (see buildPackOverrideBox
+    // in combo-builder.js, which never surfaces page-level discount for packs).
+    if (packKey && box.multipleBoxPage.quantityPacks?.[0]) {
+      config = box.multipleBoxPage.quantityPacks[0];
+    }
+  } else if (box.simpleBoxPage) {
+    config = box.simpleBoxPage;
+  }
+
+  if (!config || config.discountType !== "buy_x_get_y") return { hasGift: false };
+
+  let giftProductIds = [];
+  try { giftProductIds = JSON.parse(config.selectedGiftProductIdsJson || "[]"); } catch {}
+  const giftProductId = Array.isArray(giftProductIds) ? giftProductIds[0] : null;
+  if (!giftProductId) return { hasGift: false };
+
+  const giftVariantId = await resolveDefaultVariantId(admin, giftProductId);
+  if (!giftVariantId) {
+    console.error("[resolveGiftForBox] gift product has no resolvable variant:", giftProductId);
+    return { hasGift: false };
+  }
+
+  return {
+    hasGift: true,
+    giftProductId: toNumericShopifyId(giftProductId),
+    giftVariantId: toNumericShopifyId(giftVariantId),
+    buyQuantity: Math.max(1, parseInt(String(config.buyQuantity ?? 1), 10) || 1),
+    getQuantity: Math.max(1, parseInt(String(config.getQuantity ?? 1), 10) || 1),
+  };
 }
 
 export async function createBox(shop, data, admin) {
