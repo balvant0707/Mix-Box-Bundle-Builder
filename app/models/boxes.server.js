@@ -871,16 +871,24 @@ async function getOnlineStorePublicationId(admin) {
   }
 }
 
-// imageSource: a URL string, or { bytes: Buffer, mimeType, fileName }
+// imageSource: a URL string, or { bytes: base64 string, mimeType, fileName }
 async function addImageToProduct(admin, productId, imageSource) {
   let imageUrl = null;
 
   if (typeof imageSource === "string" && imageSource.startsWith("http")) {
     imageUrl = imageSource;
   } else if (imageSource?.bytes) {
-    // Binary upload — use staged upload to get a Shopify-hosted URL
+    // Binary upload — use staged upload to get a Shopify-hosted URL.
+    // imageSource.bytes is either a base64 string (fresh client upload — see
+    // fileToUploadPayload in app/utils/image-upload.js, FileReader.readAsDataURL
+    // output with its data: prefix stripped) or a real Buffer (re-synced from a
+    // stored *ImageData column) — normalize to a Buffer before sizing/uploading it,
+    // otherwise Shopify receives the literal base64 text as the "image" file and
+    // rejects/corrupts it.
     try {
-      const byteLength = Buffer.byteLength(imageSource.bytes);
+      const buffer = Buffer.isBuffer(imageSource.bytes)
+        ? imageSource.bytes
+        : Buffer.from(imageSource.bytes, "base64");
       const stageResp = await admin.graphql(STAGED_UPLOADS_CREATE_MUTATION, {
         variables: {
           input: [{
@@ -888,7 +896,7 @@ async function addImageToProduct(admin, productId, imageSource) {
             mimeType: imageSource.mimeType || "image/jpeg",
             httpMethod: "POST",
             resource: "IMAGE",
-            fileSize: String(byteLength),
+            fileSize: String(buffer.byteLength),
           }],
         },
       });
@@ -900,7 +908,7 @@ async function addImageToProduct(admin, productId, imageSource) {
       for (const p of target.parameters) form.append(p.name, p.value);
       form.append(
         "file",
-        new Blob([imageSource.bytes], { type: imageSource.mimeType || "image/jpeg" }),
+        new Blob([buffer], { type: imageSource.mimeType || "image/jpeg" }),
         imageSource.fileName || "banner.jpg",
       );
 
@@ -916,12 +924,17 @@ async function addImageToProduct(admin, productId, imageSource) {
   if (!imageUrl) return;
 
   try {
-    await admin.graphql(PRODUCT_CREATE_MEDIA_MUTATION, {
+    const mediaResp = await admin.graphql(PRODUCT_CREATE_MEDIA_MUTATION, {
       variables: {
         productId,
         media: [{ originalSource: imageUrl, mediaContentType: "IMAGE" }],
       },
     });
+    const mediaJson = await mediaResp.json();
+    const mediaErrors = mediaJson?.data?.productCreateMedia?.mediaUserErrors || [];
+    if (mediaErrors.length) {
+      console.error("[addImageToProduct] productCreateMedia mediaUserErrors:", mediaErrors);
+    }
   } catch (e) {
     console.warn("[addImageToProduct] productCreateMedia failed:", e.message);
   }
@@ -964,6 +977,43 @@ async function replaceProductImage(admin, productId, imageSource) {
   if (imageSource) {
     await addImageToProduct(admin, productId, imageSource);
   }
+}
+
+/**
+ * Re-push a box's stored Bundle Image to its linked Shopify product's media.
+ * Manual, on-demand repair path for the Manage Boxes "Sync Bundle Image to
+ * Shopify" bulk action — covers boxes whose image never made it to Shopify
+ * (e.g. saved before the upload-encoding fix) without requiring a full re-save.
+ */
+export async function resyncBundleImageToShopify(shop, boxId, admin) {
+  if (!admin) return { ok: false, reason: "no_admin" };
+
+  const box = await db.comboBox.findFirst({
+    where: { id: parseInt(boxId), shop, deletedAt: null },
+    select: {
+      id: true,
+      shopifyProductId: true,
+      simpleBoxPage: {
+        select: { bundleImageData: true, bundleImageMimeType: true, bundleImageFileName: true, bundleImageUrl: true },
+      },
+      multipleBoxPage: {
+        select: { bundleImageData: true, bundleImageMimeType: true, bundleImageFileName: true, bundleImageUrl: true },
+      },
+    },
+  });
+  if (!box) return { ok: false, reason: "not_found" };
+  if (!box.shopifyProductId) return { ok: false, reason: "no_shopify_product" };
+
+  const page = box.simpleBoxPage || box.multipleBoxPage;
+  if (!page) return { ok: false, reason: "no_page_config" };
+
+  const imageSource = page.bundleImageData
+    ? { bytes: page.bundleImageData, mimeType: page.bundleImageMimeType, fileName: page.bundleImageFileName }
+    : page.bundleImageUrl || null;
+  if (!imageSource) return { ok: false, reason: "no_bundle_image" };
+
+  await replaceProductImage(admin, box.shopifyProductId, imageSource);
+  return { ok: true };
 }
 
 function extractGraphqlMessages(payload) {

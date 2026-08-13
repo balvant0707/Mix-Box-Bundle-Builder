@@ -8,8 +8,10 @@ import {
   toggleBoxStatus,
   reorderBoxes,
   getProductHandlesByIds,
+  resyncBundleImageToShopify,
 } from "../models/boxes.server";
 import { AdminIcon } from "../components/admin-icons";
+import { showPolarisToast } from "../utils/polaris-toast";
 import { withEmbeddedAppParams } from "../utils/embedded-app";
 import {
   ActionList,
@@ -253,6 +255,17 @@ export const action = async ({ request }) => {
     }
     return { ok: true };
   }
+  if (intent === "sync_bundle_image") {
+    const ids = JSON.parse(formData.get("ids") || "[]");
+    const targetIds = Array.isArray(ids) ? ids : [];
+    const results = await Promise.all(
+      targetIds.map((id) =>
+        resyncBundleImageToShopify(shop, id, admin).catch((e) => ({ ok: false, reason: e?.message })),
+      ),
+    );
+    const succeeded = results.filter((r) => r?.ok).length;
+    return { ok: succeeded === targetIds.length, total: targetIds.length, succeeded };
+  }
   return { ok: false };
 };
 
@@ -263,6 +276,7 @@ export default function ManageBoxesPage() {
   const navigation = useNavigation();
   const fetcher = useFetcher();
   const toggleFetcher = useFetcher();
+  const syncImageFetcher = useFetcher();
 
   const PAGE_SIZE = 10;
   const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -290,13 +304,17 @@ export default function ManageBoxesPage() {
     toggleFetcher.formData?.get("_action") === "toggle_status";
   const pendingToggleId = isToggleSubmitting ? parseInt(toggleFetcher.formData?.get("id"), 10) : null;
   const pendingToggleState = isToggleSubmitting ? toggleFetcher.formData?.get("isActive") === "true" : null;
+  const isSyncImageSubmitting =
+    syncImageFetcher.state !== "idle" &&
+    syncImageFetcher.formData?.get("_action") === "sync_bundle_image";
   const isPageLoading =
     manualPageLoading ||
     navigation.state !== "idle" ||
     isDeleteSubmitting ||
     isBulkDeleteSubmitting ||
     isReorderSubmitting ||
-    isToggleSubmitting;
+    isToggleSubmitting ||
+    isSyncImageSubmitting;
 
   function startPageLoading() {
     setManualPageLoading(true);
@@ -309,7 +327,8 @@ export default function ManageBoxesPage() {
       !isDeleteSubmitting &&
       !isBulkDeleteSubmitting &&
       !isReorderSubmitting &&
-      !isToggleSubmitting
+      !isToggleSubmitting &&
+      !isSyncImageSubmitting
     ) {
       setManualPageLoading(false);
     }
@@ -320,6 +339,7 @@ export default function ManageBoxesPage() {
     isBulkDeleteSubmitting,
     isReorderSubmitting,
     isToggleSubmitting,
+    isSyncImageSubmitting,
   ]);
 
   function navigateTo(path) {
@@ -422,7 +442,18 @@ export default function ManageBoxesPage() {
   const { selectedResources, allResourcesSelected, handleSelectionChange } =
     useIndexResourceState(displayBoxes, { resourceIDResolver });
 
+  const syncSelectedBundleImages = () => {
+    syncImageFetcher.submit(
+      { _action: "sync_bundle_image", ids: JSON.stringify(selectedResources) },
+      { method: "POST" },
+    );
+  };
+
   const bulkActions = [
+    {
+      content: `Sync Bundle Image to Shopify (${selectedResources.length})`,
+      onAction: syncSelectedBundleImages,
+    },
     {
       content: `Delete ${selectedResources.length} selected boxes`,
       destructive: true,
@@ -438,6 +469,22 @@ export default function ManageBoxesPage() {
     );
     setShowBulkDeleteModal(false);
   };
+
+  useEffect(() => {
+    if (syncImageFetcher.state !== "idle" || !syncImageFetcher.data) return;
+    const { total = 0, succeeded = 0 } = syncImageFetcher.data;
+    if (total === 0) return;
+    if (succeeded === total) {
+      showPolarisToast(
+        total === 1 ? "Bundle Image synced to Shopify." : `Bundle Image synced to Shopify for ${succeeded} boxes.`,
+      );
+    } else {
+      showPolarisToast(
+        `Synced ${succeeded} of ${total} boxes — some boxes have no Shopify product or stored Bundle Image yet.`,
+        { isError: true },
+      );
+    }
+  }, [syncImageFetcher.state, syncImageFetcher.data]);
 
   // Reset to page 1 when filter/search changes
   useEffect(() => { setCurrentPage(1); }, [statusFilter, search, boxTypeFilter, selectedDates]);
