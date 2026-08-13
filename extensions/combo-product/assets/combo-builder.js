@@ -2791,7 +2791,11 @@
     return Object.assign({}, box, {
       _packKey: getPackKey(pack),
       _packTitle: pack.title || ('Pack of ' + pack.productItems),
-      itemCount: pack.productItems,
+      // Every Pack maps to exactly one Step with exactly one product selection —
+      // the Pack's own "Product Items" count no longer determines slot count
+      // (that field is now unused by the Multiple Box selection flow; the
+      // number of selections is driven solely by the number of Packs/Steps).
+      itemCount: 1,
       stepTitle: pack.stepTitle || box.stepTitle,
       stepDescription: pack.stepDescription || box.stepDescription,
       buttonLabel: pack.buttonLabel || box.buttonLabel,

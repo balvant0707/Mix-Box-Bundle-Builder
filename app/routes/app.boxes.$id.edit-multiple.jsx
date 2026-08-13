@@ -1436,15 +1436,6 @@ function QuantityPackConfigurationList({
             autoComplete="off"
           />
           <TextField
-            label="Product Items"
-            type="number"
-            min={1}
-            value={pack.productItems}
-            onChange={(value) => onChange('productItems', value)}
-            helpText="Number of products the customer must select."
-            autoComplete="off"
-          />
-          <TextField
             label="Button Label"
             value={pack.buttonLabel}
             onChange={(value) => onChange('buttonLabel', value)}
@@ -1793,15 +1784,6 @@ function SummaryPreviewPanel({
           </Text>
 
           <Divider />
-
-          <InlineStack align="space-between">
-            <Text as="span" tone="subdued">
-              Required product items
-            </Text>
-            <Text as="span" fontWeight="semibold">
-              {form.productItems || '0'}
-            </Text>
-          </InlineStack>
 
           <InlineStack align="space-between">
             <Text as="span" tone="subdued">
