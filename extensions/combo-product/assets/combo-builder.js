@@ -2822,43 +2822,72 @@
   // Step is currently shown (or -1 once every Pack is done). onSelectDone, if
   // given, makes a completed Step's dot clickable so the customer can jump
   // back to review/change that Pack's selection (see renderPackPicker).
-  function renderPackStepProgress(container, packs, doneFlags, activeIndex, onSelectDone) {
-    container.innerHTML = '';
+  // Decorates renderBuilder's own slot row (built for whichever Pack is
+  // currently active — see renderPackPicker) with one extra box per OTHER
+  // Pack, reusing the exact same .cb-slot-step markup/classes renderBuilder
+  // already uses for a real, filled slot (no new visual language). The
+  // active Pack's own real slot box is preserved as-is at its correct
+  // position; other Packs render as read-only previews (their selected
+  // product's thumbnail once done, a plain number until then), and a done
+  // Pack's box is clickable to jump back and revisit it.
+  function decoratePackRow(slotStepsEl, packs, packKeysInOrder, packSlotsByKey, currentIndex, onRevisit) {
+    if (!slotStepsEl) return;
+    var realSlotNode = slotStepsEl.querySelector('.cb-slot-step');
+    slotStepsEl.innerHTML = '';
+
     packs.forEach(function (pack, idx) {
       if (idx > 0) {
         var connector = document.createElement('div');
-        connector.className = 'cb-pack-step-connector';
-        if (doneFlags[idx - 1]) connector.classList.add('cb-pack-step-connector--done');
-        container.appendChild(connector);
+        connector.className = 'cb-slot-connector';
+        slotStepsEl.appendChild(connector);
       }
 
-      var dotWrap = document.createElement('div');
-      dotWrap.className = 'cb-pack-step-dot-wrap';
-
-      var dot = document.createElement('div');
-      dot.className = 'cb-pack-step-dot';
-      var isActive = idx === activeIndex;
-      if (isActive) dot.classList.add('cb-pack-step-dot--active');
-      else if (doneFlags[idx]) dot.classList.add('cb-pack-step-dot--done');
-      dot.textContent = (doneFlags[idx] && !isActive) ? '✓' : String(idx + 1);
-      dotWrap.appendChild(dot);
-
-      var label = document.createElement('div');
-      label.className = 'cb-pack-step-dot-label';
-      label.textContent = pack.title || ('Pack ' + (idx + 1));
-      dotWrap.appendChild(label);
-
-      if (doneFlags[idx] && !isActive && typeof onSelectDone === 'function') {
-        dotWrap.classList.add('cb-pack-step-dot-wrap--clickable');
-        dotWrap.setAttribute('role', 'button');
-        dotWrap.setAttribute('tabindex', '0');
-        dotWrap.addEventListener('click', function () { onSelectDone(idx); });
-        dotWrap.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectDone(idx); }
-        });
+      if (idx === currentIndex && realSlotNode) {
+        slotStepsEl.appendChild(realSlotNode);
+        return;
       }
 
-      container.appendChild(dotWrap);
+      var slotProduct = (packSlotsByKey[packKeysInOrder[idx]] || []).filter(Boolean)[0] || null;
+
+      var step = document.createElement('div');
+      step.className = 'cb-slot-step';
+      if (slotProduct) step.classList.add('cb-slot-step--filled');
+
+      var numEl = document.createElement('div');
+      numEl.className = 'cb-slot-step-num';
+      if (slotProduct && slotProduct.productImageUrl) {
+        var thumb = document.createElement('img');
+        thumb.src = slotProduct.productImageUrl;
+        thumb.alt = slotProduct.productTitle || '';
+        thumb.className = 'cb-slot-step-thumb';
+        numEl.appendChild(thumb);
+      } else if (slotProduct) {
+        numEl.textContent = (slotProduct.productTitle || '?').charAt(0).toUpperCase();
+      } else {
+        numEl.textContent = String(idx + 1);
+      }
+      step.appendChild(numEl);
+
+      var labelEl = document.createElement('div');
+      labelEl.className = 'cb-slot-step-label';
+      var smallText = document.createElement('span');
+      smallText.className = 'cb-slot-step-small';
+      smallText.textContent = slotProduct ? 'Selected' : 'Select your';
+      labelEl.appendChild(smallText);
+
+      var itemLink = document.createElement('div');
+      itemLink.className = 'cb-slot-step-item';
+      itemLink.textContent = pack.title || ('Pack ' + (idx + 1));
+      if (slotProduct) itemLink.classList.add('cb-slot-step-item--filled');
+      labelEl.appendChild(itemLink);
+      step.appendChild(labelEl);
+
+      if (slotProduct && typeof onRevisit === 'function') {
+        step.style.cursor = 'pointer';
+        step.addEventListener('click', function () { onRevisit(idx); });
+      }
+
+      slotStepsEl.appendChild(step);
     });
   }
 
@@ -2871,6 +2900,9 @@
   // together (see addPackStepsToCart). Completed Steps stay clickable so the
   // customer can go back and change an earlier Pack's pick; every Pack's
   // selection is kept in packSlotsByKey regardless of which Step is showing.
+  // All Packs are shown together as slot-style boxes in the same row as the
+  // active Pack's own product slot (see decoratePackRow) — no separate progress
+  // row above the bundle.
   function renderPackPicker(container, box, ctx) {
     container.innerHTML = '';
 
@@ -2883,29 +2915,25 @@
     // No box-level heading/description here — renderBuilder already renders
     // the ACTIVE Pack's own stepTitle/stepDescription just below (packBox.stepTitle
     // falls back to this same box.stepTitle when a Pack doesn't set its own),
-    // so showing it a second time here duplicated the exact same text. The
-    // Pack/Tab progress row is the one and only navigation surface for
-    // Multiple Box — it's built here, once, from the actual configured Packs.
-    var progressRow = document.createElement('div');
-    progressRow.className = 'cb-pack-step-progress';
-    container.appendChild(progressRow);
-
+    // so showing it a second time here duplicated the exact same text.
     var stepArea = document.createElement('div');
     stepArea.className = 'cb-pack-builder-panel';
     container.appendChild(stepArea);
 
-    var finalCartSection = document.createElement('div');
-    finalCartSection.className = 'cb-step3-cart cb-pack-final-cart';
-    finalCartSection.style.display = 'none';
-    var finalBtns = document.createElement('div');
-    finalBtns.className = 'cb-step3-buttons';
+    // Sits beside the Pack slot row itself — reuses the exact same
+    // "Inline ADD TO CART in slot row" button (.cb-inline-cart-btn) every
+    // other flow already places as a sibling of .cb-slot-steps inside
+    // .cb-slot-wrapper, so it lands in the same spot the active Pack's own
+    // (now-hidden) inline button would occupy. Always visible, never
+    // hidden/revealed — matches the app's own established pattern of just
+    // toggling `disabled`. Re-attached to the freshly rendered slot row on
+    // every decorateNow() call (see below), since renderBuilder rebuilds the
+    // slot row's DOM from scratch on every render.
     var finalCartBtn = document.createElement('button');
     finalCartBtn.type = 'button';
-    finalCartBtn.className = 'cb-step3-cart-btn';
+    finalCartBtn.className = 'cb-inline-cart-btn';
+    finalCartBtn.disabled = true;
     finalCartBtn.textContent = resolveStepCartButtonLabel(box, ctx);
-    finalBtns.appendChild(finalCartBtn);
-    finalCartSection.appendChild(finalBtns);
-    container.appendChild(finalCartSection);
     var finalCartBtnReadyLabel = finalCartBtn.textContent;
 
     // Persists every Pack's own selection — never reset by moving to a
@@ -2932,7 +2960,7 @@
     finalCartBtn.addEventListener('click', function () {
       if (finalCartBtn.disabled) return;
       finalCartBtn.disabled = true;
-      finalCartBtn.classList.add('cb-step3-cart-btn--loading');
+      finalCartBtn.classList.add('cb-inline-cart-btn--loading');
       finalCartBtn.innerHTML = '<span class="cb-btn-spinner" aria-hidden="true"></span><span>Adding…</span>';
 
       var packEntries = packs.map(function (p) {
@@ -2942,34 +2970,44 @@
       addPackStepsToCart(box, packEntries, sessionId, null, ctx, 'cart', function () {
         // Restore the button so the customer can retry after a failed submit.
         finalCartBtn.disabled = false;
-        finalCartBtn.classList.remove('cb-step3-cart-btn--loading');
+        finalCartBtn.classList.remove('cb-inline-cart-btn--loading');
         finalCartBtn.textContent = finalCartBtnReadyLabel;
         window.alert('Something went wrong adding your bundle to the cart. Please try again.');
       });
     });
 
+    function refreshFinalCartState() {
+      var ready = firstIncompleteIndex() === -1;
+      finalCartBtn.disabled = !ready;
+      if (ready) finalCartBtn.classList.add('cb-inline-cart-btn--ready');
+      else finalCartBtn.classList.remove('cb-inline-cart-btn--ready');
+    }
+
     function openStep(index) {
       if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
       currentIndex = index;
-      renderPackStepProgress(
-        progressRow,
-        packs,
-        packKeysInOrder.map(isPackComplete),
-        currentIndex,
-        function (doneIndex) { openStep(doneIndex); },
-      );
-
-      if (firstIncompleteIndex() === -1) {
-        // Every Pack has a selection — hide the grid, reveal the one final action.
-        stepArea.innerHTML = '';
-        finalCartSection.style.display = '';
-        return;
-      }
-      finalCartSection.style.display = 'none';
+      refreshFinalCartState();
 
       var pack = packs[index];
       var packBox = buildPackOverrideBox(box, pack);
       var packKey = packBox._packKey;
+
+      function decorateNow() {
+        decoratePackRow(
+          stepArea.querySelector('.cb-slot-steps'),
+          packs,
+          packKeysInOrder,
+          packSlotsByKey,
+          currentIndex,
+          function (doneIndex) { openStep(doneIndex); },
+        );
+        // renderBuilder rebuilds .cb-slot-wrapper from scratch on every call,
+        // so re-attach the page-level Add to Cart button as the slot row's
+        // last sibling every time — the same spot the (hidden) per-Pack
+        // inlineCartBtn would occupy.
+        var wrapper = stepArea.querySelector('.cb-slot-wrapper');
+        if (wrapper) wrapper.appendChild(finalCartBtn);
+      }
 
       showPageLoader('Loading products…');
       fetchProducts(box.id, ctx.shop, ctx.apiBase, packBox.scopeType, pack.packKey, ctx, function (err, products) {
@@ -2987,13 +3025,8 @@
             packSlotsByKey[packKey] = slots.slice();
             if (index !== currentIndex) return;
 
-            renderPackStepProgress(
-              progressRow,
-              packs,
-              packKeysInOrder.map(isPackComplete),
-              currentIndex,
-              function (doneIndex) { openStep(doneIndex); },
-            );
+            decorateNow();
+            refreshFinalCartState();
 
             if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
             if (slots.some(Boolean)) {
@@ -3008,6 +3041,7 @@
           },
         });
 
+        decorateNow();
         stepArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     }
