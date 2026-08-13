@@ -2880,20 +2880,12 @@
       return;
     }
 
-    if (!box.hideBundleHeader) {
-      var heading = document.createElement('h2');
-      heading.className = 'cb-step-heading';
-      heading.textContent = box.stepTitle || ctx.step2Heading || 'Build your bundle';
-      container.appendChild(heading);
-
-      if (box.stepDescription) {
-        var desc = document.createElement('p');
-        desc.className = 'cb-step-description';
-        desc.textContent = box.stepDescription;
-        container.appendChild(desc);
-      }
-    }
-
+    // No box-level heading/description here — renderBuilder already renders
+    // the ACTIVE Pack's own stepTitle/stepDescription just below (packBox.stepTitle
+    // falls back to this same box.stepTitle when a Pack doesn't set its own),
+    // so showing it a second time here duplicated the exact same text. The
+    // Pack/Tab progress row is the one and only navigation surface for
+    // Multiple Box — it's built here, once, from the actual configured Packs.
     var progressRow = document.createElement('div');
     progressRow.className = 'cb-pack-step-progress';
     container.appendChild(progressRow);
