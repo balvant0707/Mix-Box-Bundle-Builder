@@ -1735,6 +1735,11 @@
   // ─── Main Widget Init ─────────────────────────────────────────────────────────
 
   function initWidget(config) {
+    if (window.__COMBO_BUILDER_EMBED__ !== true) {
+      disableFrontendWhenEmbedOff();
+      return;
+    }
+
     cbLog('initWidget() called', 'mountId=' + config.mountId);
     var root = document.getElementById(config.mountId);
     if (!root) { cbLog('initWidget: root NOT FOUND for mountId=' + config.mountId); return; }
@@ -2676,6 +2681,12 @@
         ctx._changeBoxBtnWired = true;
         var _cbBtn = ctx._changeBoxBtn;
         _cbBtn.addEventListener('click', function () {
+          // Multiple Box has an inner Pack-by-Pack flow. Give it first chance
+          // to handle Back (final review -> last Pack, Pack N -> Pack N-1).
+          if (typeof ctx._packFlowBackHandler === 'function' && ctx._packFlowBackHandler()) {
+            return;
+          }
+
           // Two-level back: if product grid is currently hidden (all slots filled),
           // first go back to showing the product grid. If product grid is already
           // visible, go all the way back to Step 1 (box selection).
@@ -2686,6 +2697,11 @@
 
           if (ctx._step1Head) ctx._step1Head.style.display = '';
           if (ctx._boxGrid) ctx._boxGrid.style.display = '';
+          if (typeof ctx._packFlowCleanup === 'function') {
+            try { ctx._packFlowCleanup(); } catch (_) {}
+          }
+          ctx._packFlowCleanup = null;
+          ctx._packFlowBackHandler = null;
           builderArea.style.display = 'none';
           builderArea.innerHTML = '';
           ctx._productSection = null;
@@ -2742,6 +2758,12 @@
     if (isDynamicBundlePrice(box)) {
       setBoxCardPrice(box, null, ctx.currencySymbol);
     }
+
+    if (typeof ctx._packFlowCleanup === 'function') {
+      try { ctx._packFlowCleanup(); } catch (_) {}
+    }
+    ctx._packFlowCleanup = null;
+    ctx._packFlowBackHandler = null;
 
     ctx._openBoxId = box.id;
 
@@ -2887,6 +2909,30 @@
     return null;
   }
 
+  function decorateRealPackStepNode(step, pack, idx, slotProduct, isSkipped) {
+    if (!step) return;
+    step.classList.toggle('cb-slot-step--filled', !!slotProduct);
+    step.classList.toggle('cb-slot-step--skipped', !slotProduct && !!isSkipped);
+    step.classList.toggle('cb-slot-step--active', !slotProduct && !isSkipped);
+
+    var numEl = step.querySelector('.cb-slot-step-num');
+    if (numEl && !slotProduct) {
+      numEl.textContent = String(idx + 1);
+    }
+
+    var smallText = step.querySelector('.cb-slot-step-small');
+    if (smallText) {
+      smallText.textContent = slotProduct ? 'Selected' : (isSkipped ? 'Skipped' : (isPackOptional(pack) ? 'Optional' : 'Select your'));
+    }
+
+    var itemLink = step.querySelector('.cb-slot-step-item');
+    if (itemLink) {
+      itemLink.textContent = slotProduct
+        ? itemLink.textContent
+        : (pack.title || ('Pack ' + (idx + 1)));
+    }
+  }
+
   function decoratePackRow(slotStepsEl, packs, packKeysInOrder, packSlotsByKey, skippedPacksByIndex, currentIndex, onRevisit) {
     if (!slotStepsEl) return;
     var realSlotNode = slotStepsEl.querySelector('.cb-slot-step');
@@ -2899,17 +2945,19 @@
         slotStepsEl.appendChild(connector);
       }
 
+      var slotProduct = (packSlotsByKey[packKeysInOrder[idx]] || []).filter(Boolean)[0] || null;
+      var isSkipped = !!skippedPacksByIndex[idx];
+
       if (idx === currentIndex && realSlotNode) {
+        decorateRealPackStepNode(realSlotNode, pack, idx, slotProduct, isSkipped);
         slotStepsEl.appendChild(realSlotNode);
         return;
       }
 
-      var slotProduct = (packSlotsByKey[packKeysInOrder[idx]] || []).filter(Boolean)[0] || null;
-      var isSkipped = !!skippedPacksByIndex[idx];
-
       var step = document.createElement('div');
       step.className = 'cb-slot-step';
       if (slotProduct) step.classList.add('cb-slot-step--filled');
+      else if (isSkipped) step.classList.add('cb-slot-step--skipped');
       else if (idx === currentIndex) step.classList.add('cb-slot-step--active');
 
       var numEl = document.createElement('div');
@@ -2955,10 +3003,11 @@
   // one product auto-advances to the next incomplete Pack — no manual
   // "Continue" click. Every Pack's own cart/checkout UI stays suppressed (see
   // renderBuilder's stepOptions.hideOwnCartUI); a single page-level Add to
-  // Cart appears only once every Pack has a selection, submitting all of them
-  // together (see addPackStepsToCart). Completed Steps stay clickable so the
-  // customer can go back and change an earlier Pack's pick; every Pack's
-  // selection is kept in packSlotsByKey regardless of which Step is showing.
+  // Cart/Checkout appear only on the dedicated Final Review stage after every
+  // Pack is selected or intentionally skipped (optional Packs only). Completed
+  // Steps stay clickable so the customer can go back and change an earlier
+  // Pack's pick; every Pack's selection is kept in packSlotsByKey regardless
+  // of which Step is showing.
   // All Packs are shown together as slot-style boxes in the same row as the
   // active Pack's own product slot (see decoratePackRow) — no separate progress
   // row above the bundle.
@@ -2966,6 +3015,19 @@
     container.innerHTML = '';
 
     var packs = Array.isArray(box.quantityPacks) ? box.quantityPacks : [];
+
+    // Exact Multiple Box storefront flow:
+    //   Pack 1 / Step 1 -> customer MUST select a product.
+    //   Pack 2+        -> customer selects a product, or may Skip only when
+    //                     that Pack is explicitly configured as optional.
+    // Keep the server/admin object immutable by cloning only Pack 1 when its
+    // stored optional flag is true. This makes the first Pack a hard gate on
+    // the storefront without changing the saved configuration.
+    packs = packs.map(function (pack, index) {
+      if (index !== 0 || !isPackOptional(pack)) return pack;
+      return Object.assign({}, pack, { optional: false });
+    });
+
     mbLog('init', {
       boxId: box && box.id,
       packCount: packs.length,
@@ -2979,68 +3041,166 @@
         };
       })
     });
+
     if (packs.length === 0) {
       mbLog('no packs configured', { boxId: box && box.id });
       container.innerHTML = '<p class="cb-error">No steps configured for this bundle.</p>';
       return;
     }
 
-    // No box-level heading/description here — renderBuilder already renders
-    // the ACTIVE Pack's own stepTitle/stepDescription just below (packBox.stepTitle
-    // falls back to this same box.stepTitle when a Pack doesn't set its own),
-    // so showing it a second time here duplicated the exact same text.
     var stepArea = document.createElement('div');
     stepArea.className = 'cb-pack-builder-panel';
     container.appendChild(stepArea);
 
-    // Sits beside the Pack slot row itself — reuses the exact same
-    // "Inline ADD TO CART in slot row" button (.cb-inline-cart-btn) every
-    // other flow already places as a sibling of .cb-slot-steps inside
-    // .cb-slot-wrapper, so it lands in the same spot the active Pack's own
-    // (now-hidden) inline button would occupy. Always visible, never
-    // hidden/revealed — matches the app's own established pattern of just
-    // toggling `disabled`. Re-attached to the freshly rendered slot row on
-    // every decorateNow() call (see below), since renderBuilder rebuilds the
-    // slot row's DOM from scratch on every render.
-    var finalCartBtn = document.createElement('button');
-    finalCartBtn.type = 'button';
-    finalCartBtn.className = 'cb-inline-cart-btn';
-    finalCartBtn.disabled = true;
-    finalCartBtn.textContent = resolveStepCartButtonLabel(box, ctx);
-    var finalCartBtnReadyLabel = finalCartBtn.textContent;
+    // Final review is a separate stage. The active Pack product grid is hidden
+    // once every Pack has been explicitly selected or skipped.
+    var finalStage = document.createElement('div');
+    finalStage.className = 'cb-pack-final-stage cb-step3-cart';
+    finalStage.style.display = 'none';
 
-    // Persists every Pack's own selection — never reset by moving to a
-    // different Step, and read back in full by the one final submission.
-    // Keyed by each Pack's array INDEX, not by its server packKey/title —
-    // the index is always guaranteed unique per Pack, whereas packKey/title
-    // can come back blank or duplicated for a given box's data, which used
-    // to make every Pack alias the SAME packSlotsByKey entry (selecting one
-    // Pack's product then showed every other Pack as filled with it too).
+    var finalHeading = document.createElement('h2');
+    finalHeading.className = 'cb-step-heading cb-step3-heading';
+    finalHeading.textContent = 'Final Review';
+    finalStage.appendChild(finalHeading);
+
+    var finalDescription = document.createElement('p');
+    finalDescription.className = 'cb-step-description';
+    finalDescription.textContent = 'Review your selections before adding this box to the cart or continuing to checkout.';
+    finalStage.appendChild(finalDescription);
+
+    var finalSummaryWrapper = document.createElement('div');
+    finalSummaryWrapper.className = 'cb-slot-wrapper';
+
+    var finalSummarySteps = document.createElement('div');
+    finalSummarySteps.className = 'cb-slot-steps';
+    finalSummaryWrapper.appendChild(finalSummarySteps);
+    finalStage.appendChild(finalSummaryWrapper);
+
+    var finalGiftInput = null;
+    if (box.giftMessageEnabled) {
+      var finalGiftSection = document.createElement('div');
+      finalGiftSection.className = 'cb-gift-section';
+      finalGiftSection.style.display = 'block';
+
+      var finalGiftLabel = document.createElement('label');
+      finalGiftLabel.className = 'cb-gift-label';
+      finalGiftLabel.textContent = 'Gift Message (optional)';
+
+      finalGiftInput = document.createElement('textarea');
+      finalGiftInput.className = 'cb-gift-input';
+      finalGiftInput.placeholder = 'Write a personal message...';
+      finalGiftInput.rows = 2;
+      finalGiftInput.maxLength = 100;
+
+      finalGiftSection.appendChild(finalGiftLabel);
+      finalGiftSection.appendChild(finalGiftInput);
+      finalStage.appendChild(finalGiftSection);
+    }
+
+    var finalActions = document.createElement('div');
+    finalActions.className = 'cb-step3-buttons';
+
+    var showCart = ctx.step3Buttons !== 'checkout_only';
+    var showCheckout = ctx.step3Buttons !== 'cart_only';
+
+    var finalCartBtn = null;
+    var finalCheckoutBtn = null;
+
+    if (showCart) {
+      finalCartBtn = document.createElement('button');
+      finalCartBtn.type = 'button';
+      finalCartBtn.className = 'cb-step3-cart-btn';
+      finalCartBtn.disabled = true;
+      finalCartBtn.textContent = resolveStepCartButtonLabel(box, ctx);
+      finalActions.appendChild(finalCartBtn);
+    }
+
+    if (showCheckout) {
+      finalCheckoutBtn = document.createElement('button');
+      finalCheckoutBtn.type = 'button';
+      finalCheckoutBtn.className = 'cb-step3-checkout-btn';
+      finalCheckoutBtn.disabled = true;
+      finalCheckoutBtn.textContent = ctx.checkoutBtnLabel || 'Checkout';
+      finalActions.appendChild(finalCheckoutBtn);
+    }
+
+    finalStage.appendChild(finalActions);
+    container.appendChild(finalStage);
+
+    // Persist every Pack selection by array index. Pack keys/titles can be
+    // missing or duplicated; array position is the only guaranteed unique
+    // identity inside a single Multiple Box configuration.
     var packSlotsByKey = {};
-    var packKeysInOrder = packs.map(function (pack, i) { return i; });
-    var skippedPacksByIndex = {};
+    var packKeysInOrder = packs.map(function (_pack, i) { return i; });
     var packProductsCache = {};
+
+    // Explicit state is required so an optional Pack that was intentionally
+    // skipped is not confused with a Pack the customer has never visited.
+    var stepStates = packs.map(function () {
+      return { status: 'pending' }; // pending | selected | skipped
+    });
+
     var currentIndex = 0;
     var advanceTimer = null;
     var stepLoadToken = 0;
+    var destroyed = false;
+    var sessionId = generateSessionId();
 
-    function isPackComplete(key, index) {
-      var slots = packSlotsByKey[key];
-      return (Array.isArray(slots) && slots.some(Boolean)) || (isPackOptional(packs[index]) && !!skippedPacksByIndex[index]);
+    function getStepStatus(index) {
+      var state = stepStates[index];
+      return state && state.status ? state.status : 'pending';
+    }
+
+    function setStepStatus(index, status) {
+      if (!stepStates[index]) stepStates[index] = { status: 'pending' };
+      stepStates[index].status = status;
+    }
+
+    function hasSelectedPack(index) {
+      return Array.isArray(packSlotsByKey[index]) && packSlotsByKey[index].some(Boolean);
+    }
+
+    function syncStepStateFromSlots(index) {
+      if (hasSelectedPack(index)) {
+        setStepStatus(index, 'selected');
+        return;
+      }
+      // An explicit skip remains skipped until the customer selects a product.
+      if (getStepStatus(index) !== 'skipped') setStepStatus(index, 'pending');
+    }
+
+    function isPackComplete(index) {
+      var status = getStepStatus(index);
+      return status === 'selected' || (status === 'skipped' && isPackOptional(packs[index]));
+    }
+
+    function isFlowComplete() {
+      for (var i = 0; i < packs.length; i++) {
+        if (!isPackComplete(i)) return false;
+      }
+      return true;
     }
 
     function firstIncompleteIndex() {
       for (var i = 0; i < packs.length; i++) {
-        if (!isPackComplete(packKeysInOrder[i], i)) return i;
+        if (!isPackComplete(i)) return i;
       }
       return -1;
     }
 
     function nextIncompleteIndexAfter(index) {
       for (var i = index + 1; i < packs.length; i++) {
-        if (!isPackComplete(packKeysInOrder[i], i)) return i;
+        if (!isPackComplete(i)) return i;
       }
       return -1;
+    }
+
+    function getSkippedMap() {
+      var skipped = {};
+      stepStates.forEach(function (state, idx) {
+        if (state && state.status === 'skipped') skipped[idx] = true;
+      });
+      return skipped;
     }
 
     function getAllOtherSelectedSlots(index) {
@@ -3070,31 +3230,45 @@
         return;
       }
 
-      if (pack && pack.productConfiguration === 'selected_collections' && Array.isArray(pack.collections) && pack.collections.length > 0) {
+      if (
+        pack &&
+        pack.productConfiguration === 'selected_collections' &&
+        Array.isArray(pack.collections) &&
+        pack.collections.length > 0
+      ) {
         var colls = pack.collections.filter(function (c) { return c && c.handle; });
-        if (!colls.length) { cb(null, []); return; }
+        if (!colls.length) {
+          cb(null, []);
+          return;
+        }
+
         var remaining = colls.length;
         var allProds = [];
         var seenIds = {};
         var firstErr = null;
+
         colls.forEach(function (coll) {
           fetchCollectionProducts(coll.handle, function (err, prods) {
             if (err) firstErr = err;
+
             (prods || []).forEach(function (p) {
               if (!p || seenIds[p.productId]) return;
               seenIds[p.productId] = true;
               allProds.push(p);
             });
+
             remaining--;
             if (remaining === 0) {
               var filtered = filterInternalComboProducts(allProds, ctx);
               if (filtered.length > 0) packProductsCache[index] = filtered;
+
               mbLog('products resolved from collections', {
                 step: index + 1,
                 collectionCount: colls.length,
                 count: filtered.length,
                 error: firstErr && firstErr.message
               });
+
               cb(filtered.length === 0 ? firstErr : null, filtered);
             }
           });
@@ -3102,103 +3276,421 @@
         return;
       }
 
-      fetchProducts(box.id, ctx.shop, ctx.apiBase, packBox.scopeType, pack.packKey, ctx, function (err, products) {
-        if (!err && products && products.length > 0) packProductsCache[index] = products;
-        mbLog('products resolved from API', {
-          step: index + 1,
-          packKey: pack && pack.packKey,
-          scopeType: packBox && packBox.scopeType,
-          count: products ? products.length : 0,
-          error: err && err.message
+      fetchProducts(
+        box.id,
+        ctx.shop,
+        ctx.apiBase,
+        packBox.scopeType,
+        getPackKey(pack),
+        ctx,
+        function (err, products) {
+          if (!err && products && products.length > 0) {
+            packProductsCache[index] = products;
+          }
+
+          mbLog('products resolved from API', {
+            step: index + 1,
+            packKey: getPackKey(pack),
+            scopeType: packBox && packBox.scopeType,
+            count: products ? products.length : 0,
+            error: err && err.message
+          });
+
+          cb(err, products);
+        }
+      );
+    }
+
+    function syncGlobalWizard(showFinal) {
+      if (ctx.layoutMode !== 'steps' || !ctx._wizardDots) return;
+
+      if (showFinal) {
+        ctx._wizardDots[0].className = 'cb-wizard-step cb-wizard-step--done';
+        ctx._wizardDots[1].className = 'cb-wizard-step cb-wizard-step--done';
+        ctx._wizardDots[2].className = 'cb-wizard-step cb-wizard-step--active';
+
+        if (ctx._wizardLines && ctx._wizardLines[0]) {
+          ctx._wizardLines[0].className = 'cb-wizard-line cb-wizard-line--done';
+        }
+        if (ctx._wizardLines && ctx._wizardLines[1]) {
+          ctx._wizardLines[1].className = 'cb-wizard-line cb-wizard-line--done';
+        }
+
+        if (ctx._wizardLabelEls && ctx._wizardStepDefs) {
+          ctx._wizardLabelEls[1].textContent = ctx._wizardStepDefs[1].doneLabel;
+          ctx._wizardLabelEls[2].textContent = ctx._wizardStepDefs[2].label;
+        }
+      } else {
+        ctx._wizardDots[0].className = 'cb-wizard-step cb-wizard-step--done';
+        ctx._wizardDots[1].className = 'cb-wizard-step cb-wizard-step--active';
+        ctx._wizardDots[2].className = 'cb-wizard-step';
+
+        if (ctx._wizardLines && ctx._wizardLines[0]) {
+          ctx._wizardLines[0].className = 'cb-wizard-line cb-wizard-line--done';
+        }
+        if (ctx._wizardLines && ctx._wizardLines[1]) {
+          ctx._wizardLines[1].className = 'cb-wizard-line';
+        }
+
+        if (ctx._wizardLabelEls && ctx._wizardStepDefs) {
+          ctx._wizardLabelEls[1].textContent = ctx._wizardStepDefs[1].label;
+          ctx._wizardLabelEls[2].textContent = ctx._wizardStepDefs[2].label;
+        }
+      }
+    }
+
+    function renderFinalSummary() {
+      finalSummarySteps.innerHTML = '';
+
+      packs.forEach(function (pack, idx) {
+        if (idx > 0) {
+          var connector = document.createElement('div');
+          connector.className = 'cb-slot-connector';
+          finalSummarySteps.appendChild(connector);
+        }
+
+        var slotProduct = (packSlotsByKey[idx] || []).filter(Boolean)[0] || null;
+        var status = getStepStatus(idx);
+        var isSkipped = status === 'skipped';
+
+        var reviewStep = document.createElement('div');
+        reviewStep.className = 'cb-slot-step cb-pack-review-step';
+        if (slotProduct) reviewStep.classList.add('cb-slot-step--filled');
+        if (isSkipped) reviewStep.classList.add('cb-slot-step--skipped');
+        reviewStep.setAttribute('role', 'button');
+        reviewStep.setAttribute('tabindex', '0');
+        reviewStep.setAttribute('aria-label', 'Edit Pack ' + (idx + 1));
+        reviewStep.title = 'Edit this step';
+
+        var numEl = document.createElement('div');
+        numEl.className = 'cb-slot-step-num';
+        if (slotProduct && slotProduct.productImageUrl) {
+          var thumb = document.createElement('img');
+          thumb.src = slotProduct.productImageUrl;
+          thumb.alt = slotProduct.productTitle || '';
+          thumb.className = 'cb-slot-step-thumb';
+          numEl.appendChild(thumb);
+        } else if (slotProduct) {
+          numEl.textContent = (slotProduct.productTitle || '?').charAt(0).toUpperCase();
+        } else {
+          numEl.textContent = String(idx + 1);
+        }
+        reviewStep.appendChild(numEl);
+
+        var labelEl = document.createElement('div');
+        labelEl.className = 'cb-slot-step-label';
+
+        var smallText = document.createElement('span');
+        smallText.className = 'cb-slot-step-small';
+        smallText.textContent = isSkipped ? 'Skipped' : 'Selected';
+        labelEl.appendChild(smallText);
+
+        var packTitle = document.createElement('div');
+        packTitle.className = 'cb-slot-step-item cb-slot-step-item--filled';
+        packTitle.textContent = pack.title || ('Pack ' + (idx + 1));
+        labelEl.appendChild(packTitle);
+
+        var selectionText = document.createElement('span');
+        selectionText.className = 'cb-pack-review-selection';
+        selectionText.style.display = 'block';
+        selectionText.style.marginTop = '2px';
+        selectionText.style.fontSize = '11px';
+        selectionText.style.lineHeight = '1.35';
+        selectionText.style.color = 'var(--cb-text-muted)';
+        if (slotProduct) {
+          var selectedLabel = slotProduct.productTitle || ('Item ' + (idx + 1));
+          if (slotProduct.selectedVariantTitle) selectedLabel += ' · ' + slotProduct.selectedVariantTitle;
+          selectionText.textContent = selectedLabel;
+        } else {
+          selectionText.textContent = 'Optional step skipped';
+        }
+        labelEl.appendChild(selectionText);
+
+        reviewStep.appendChild(labelEl);
+
+        function editStep() {
+          openStep(idx);
+        }
+        reviewStep.addEventListener('click', editStep);
+        reviewStep.addEventListener('keydown', function (event) {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            editStep();
+          }
         });
-        cb(err, products);
+
+        finalSummarySteps.appendChild(reviewStep);
       });
     }
 
-    var sessionId = generateSessionId();
-
-    finalCartBtn.addEventListener('click', function () {
-      if (finalCartBtn.disabled) return;
-      mbLog('final add clicked', {
-        boxId: box && box.id,
-        completedSteps: packs.map(function (_pack, idx) { return !!((packSlotsByKey[idx] || []).some(Boolean)); }),
-        skippedSteps: Object.keys(skippedPacksByIndex).filter(function (key) { return skippedPacksByIndex[key]; })
-      });
-      finalCartBtn.disabled = true;
-      finalCartBtn.classList.add('cb-inline-cart-btn--loading');
-      finalCartBtn.innerHTML = '<span class="cb-btn-spinner" aria-hidden="true"></span><span>Adding…</span>';
-
-      // packSlotsByKey is read by INDEX (see above); the real server packKey
-      // is still sent in each entry — addPackStepsToCart/gift resolution
-      // need the real key, only the orchestrator's own bookkeeping doesn't.
-      var packEntries = packs.map(function (p, idx) {
-        return { packKey: getPackKey(p), packTitle: p.title, slots: packSlotsByKey[idx] || [] };
+    function getPackEntriesForCart() {
+      return packs.map(function (pack, idx) {
+        return {
+          packKey: getPackKey(pack),
+          packTitle: pack.title,
+          slots: packSlotsByKey[idx] || []
+        };
       }).filter(function (entry) {
         return (entry.slots || []).some(Boolean);
       });
-      addPackStepsToCart(box, packEntries, sessionId, null, ctx, 'cart', function () {
-        mbLog('final add success; resetting flow', { boxId: box && box.id });
-        packSlotsByKey = {};
-        skippedPacksByIndex = {};
-        refreshFinalCartState();
-        openStep(0);
-      }, function () {
-        mbError('final add failed', { boxId: box && box.id });
-        // Restore the button so the customer can retry after a failed submit.
-        finalCartBtn.disabled = false;
-        finalCartBtn.classList.remove('cb-inline-cart-btn--loading');
-        finalCartBtn.textContent = finalCartBtnReadyLabel;
-        window.alert('Something went wrong adding your bundle to the cart. Please try again.');
-      });
-    });
+    }
 
-    function refreshFinalCartState() {
+    function refreshFinalState() {
       var hasAnySelected = packs.some(function (_pack, idx) {
-        return (packSlotsByKey[idx] || []).some(Boolean);
+        return hasSelectedPack(idx);
       });
-      var ready = firstIncompleteIndex() === -1 && hasAnySelected;
+      var flowComplete = isFlowComplete();
+      var ready = flowComplete && hasAnySelected;
+
       mbLog('final state', {
         ready: ready,
+        flowComplete: flowComplete,
         firstIncompleteStep: firstIncompleteIndex() === -1 ? null : firstIncompleteIndex() + 1,
-        selectedSteps: packs.map(function (_pack, idx) { return !!((packSlotsByKey[idx] || []).some(Boolean)); }),
-        skippedSteps: Object.keys(skippedPacksByIndex).filter(function (key) { return skippedPacksByIndex[key]; })
+        stepStates: stepStates.map(function (state) { return state.status; })
       });
-      finalCartBtn.disabled = !ready;
-      if (ready) finalCartBtn.classList.add('cb-inline-cart-btn--ready');
-      else finalCartBtn.classList.remove('cb-inline-cart-btn--ready');
+
+      if (finalCartBtn) finalCartBtn.disabled = !ready;
+      if (finalCheckoutBtn) finalCheckoutBtn.disabled = !ready;
+      return ready;
+    }
+
+    function showFinalReview() {
+      if (destroyed || ctx._openBoxId !== box.id) return;
+      if (!isFlowComplete()) return;
+
+      if (advanceTimer) {
+        clearTimeout(advanceTimer);
+        advanceTimer = null;
+      }
+
+      stepArea.style.display = 'none';
+      finalStage.style.display = '';
+      renderFinalSummary();
+      refreshFinalState();
+      syncGlobalWizard(true);
+
+      // The generic builder exposes its product section on ctx. Clear that
+      // reference while the Multiple Box is at its own final review stage so
+      // the global Back handler does not mistake this for a normal filled box.
+      ctx._productSection = null;
+
+      try {
+        finalStage.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (_) {}
+    }
+
+    function restoreFinalButtons() {
+      if (finalCartBtn) {
+        finalCartBtn.disabled = !refreshFinalState();
+        finalCartBtn.classList.remove('cb-step3-cart-btn--loading');
+        finalCartBtn.textContent = resolveStepCartButtonLabel(box, ctx);
+      }
+      if (finalCheckoutBtn) {
+        finalCheckoutBtn.disabled = !refreshFinalState();
+        finalCheckoutBtn.classList.remove('cb-step3-checkout-btn--loading');
+        finalCheckoutBtn.textContent = ctx.checkoutBtnLabel || 'Checkout';
+      }
+    }
+
+    function resetFlow() {
+      packSlotsByKey = {};
+      stepStates = packs.map(function () { return { status: 'pending' }; });
+      sessionId = generateSessionId();
+      if (finalGiftInput) finalGiftInput.value = '';
+      finalStage.style.display = 'none';
+      stepArea.style.display = '';
+      refreshFinalState();
+      openStep(0);
+    }
+
+    function submitPackFlow(action) {
+      if (!refreshFinalState()) return;
+
+      var packEntries = getPackEntriesForCart();
+      if (!packEntries.length) return;
+
+      if (finalCartBtn) {
+        finalCartBtn.disabled = true;
+        finalCartBtn.classList.add('cb-step3-cart-btn--loading');
+        finalCartBtn.innerHTML = '<span class="cb-btn-spinner" aria-hidden="true"></span><span>Adding…</span>';
+      }
+      if (finalCheckoutBtn) {
+        finalCheckoutBtn.disabled = true;
+        if (action === 'checkout') {
+          finalCheckoutBtn.classList.add('cb-step3-checkout-btn--loading');
+          finalCheckoutBtn.innerHTML = '<span class="cb-btn-spinner" aria-hidden="true"></span><span>Checkout…</span>';
+        }
+      }
+
+      mbLog('final submit clicked', {
+        action: action,
+        boxId: box && box.id,
+        stepStates: stepStates.map(function (state) { return state.status; }),
+        selectedSteps: packs.map(function (_pack, idx) { return hasSelectedPack(idx); })
+      });
+
+      addPackStepsToCart(
+        box,
+        packEntries,
+        sessionId,
+        finalGiftInput ? finalGiftInput.value : null,
+        ctx,
+        action,
+        function () {
+          mbLog('final submit success', { boxId: box && box.id, action: action });
+          // Checkout redirects immediately after this callback. Reset only the
+          // stay-on-page cart flow so the customer sees a clean builder next.
+          if (action !== 'checkout') resetFlow();
+        },
+        function () {
+          mbError('final submit failed', { boxId: box && box.id, action: action });
+          restoreFinalButtons();
+          window.alert('Something went wrong adding your bundle to the cart. Please try again.');
+        }
+      );
+    }
+
+    if (finalCartBtn) {
+      finalCartBtn.addEventListener('click', function () {
+        if (finalCartBtn.disabled) return;
+        submitPackFlow('cart');
+      });
+    }
+
+    if (finalCheckoutBtn) {
+      finalCheckoutBtn.addEventListener('click', function () {
+        if (finalCheckoutBtn.disabled) return;
+        submitPackFlow('checkout');
+      });
     }
 
     function advanceAfterStep(index) {
-      if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
+      if (advanceTimer) {
+        clearTimeout(advanceTimer);
+        advanceTimer = null;
+      }
+
       var next = nextIncompleteIndexAfter(index);
       if (next === -1) {
-        mbLog('advance complete', { fromStep: index + 1 });
-        refreshFinalCartState();
+        if (isFlowComplete()) {
+          mbLog('advance complete', { fromStep: index + 1 });
+          advanceTimer = setTimeout(function () {
+            advanceTimer = null;
+            showFinalReview();
+          }, 450);
+        } else {
+          // Forward-only rule: never wrap backwards automatically. If an older
+          // step somehow became pending, keep the current step active and let
+          // the customer navigate back explicitly.
+          refreshFinalState();
+        }
         return;
       }
+
       mbLog('advance scheduled', { fromStep: index + 1, toStep: next + 1 });
       advanceTimer = setTimeout(function () {
         advanceTimer = null;
+        if (destroyed || ctx._openBoxId !== box.id) return;
         openStep(next);
       }, 450);
     }
 
+    function renderUnavailableStep(index, pack, err) {
+      stepArea.innerHTML = '';
+
+      var progressWrapper = document.createElement('div');
+      progressWrapper.className = 'cb-slot-wrapper';
+      var progressSteps = document.createElement('div');
+      progressSteps.className = 'cb-slot-steps';
+      progressWrapper.appendChild(progressSteps);
+      stepArea.appendChild(progressWrapper);
+
+      decoratePackRow(
+        progressSteps,
+        packs,
+        packKeysInOrder,
+        packSlotsByKey,
+        getSkippedMap(),
+        index,
+        function (doneIndex) { openStep(doneIndex); }
+      );
+
+      if (!box.hideBundleHeader) {
+        var title = document.createElement('h2');
+        title.className = 'cb-step-heading';
+        title.textContent = pack.stepTitle || box.stepTitle || ('Step ' + (index + 1));
+        stepArea.appendChild(title);
+
+        if (pack.stepDescription || box.stepDescription) {
+          var description = document.createElement('p');
+          description.className = 'cb-step-description';
+          description.textContent = pack.stepDescription || box.stepDescription;
+          stepArea.appendChild(description);
+        }
+      }
+
+      var message = document.createElement('p');
+      message.className = 'cb-error';
+      message.textContent = err
+        ? 'Failed to load products for this step. Please reload and try again.'
+        : 'No products available for this step.';
+      stepArea.appendChild(message);
+
+      // An optional step with a genuinely empty configured source can still be
+      // intentionally skipped. A network/API failure is not silently skipped.
+      if (!err && isPackOptional(pack)) {
+        var skipBtn = document.createElement('button');
+        skipBtn.type = 'button';
+        skipBtn.className = 'cb-step-skip-btn';
+        skipBtn.textContent = 'Skip';
+        skipBtn.addEventListener('click', function () {
+          packSlotsByKey[index] = [];
+          setStepStatus(index, 'skipped');
+          refreshFinalState();
+          advanceAfterStep(index);
+        });
+        stepArea.appendChild(skipBtn);
+      }
+    }
+
     function openStep(index) {
-      if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
+      if (destroyed || ctx._openBoxId !== box.id) return;
+      if (advanceTimer) {
+        clearTimeout(advanceTimer);
+        advanceTimer = null;
+      }
       if (index < 0 || index >= packs.length) return;
+
       currentIndex = index;
+      stepArea.style.display = '';
+      finalStage.style.display = 'none';
+      syncGlobalWizard(false);
+
       mbLog('open step', {
         step: index + 1,
         packKey: getPackKey(packs[index]),
         title: packs[index] && packs[index].title,
         productConfiguration: packs[index] && packs[index].productConfiguration,
-        previouslySelected: !!((packSlotsByKey[index] || []).some(Boolean)),
-        skipped: !!skippedPacksByIndex[index]
+        previouslySelected: hasSelectedPack(index),
+        status: getStepStatus(index)
       });
-      refreshFinalCartState();
 
       var pack = packs[index];
       var packBox = buildPackOverrideBox(box, pack);
+
+      function getSelectionSignature(slots) {
+        return (slots || []).filter(Boolean).map(function (slot) {
+          return [
+            String(slot.productId || ''),
+            String(slot.selectedVariantId || '')
+          ].join(':');
+        }).join('|');
+      }
+
+      // Re-opening an already completed Pack must NOT immediately auto-advance
+      // just because renderBuilder emits its initialSlots through onSlotsChange.
+      // Advance only when the customer actually changes/selects a product.
+      var lastSelectionSignature = getSelectionSignature(packSlotsByKey[index] || []);
 
       function decorateNow() {
         decoratePackRow(
@@ -3206,35 +3698,33 @@
           packs,
           packKeysInOrder,
           packSlotsByKey,
-          skippedPacksByIndex,
+          getSkippedMap(),
           currentIndex,
-          function (doneIndex) { openStep(doneIndex); },
+          function (doneIndex) { openStep(doneIndex); }
         );
-        // renderBuilder rebuilds .cb-slot-wrapper from scratch on every call,
-        // so re-attach the page-level Add to Cart button as the slot row's
-        // last sibling every time — the same spot the (hidden) per-Pack
-        // inlineCartBtn would occupy.
-        var wrapper = stepArea.querySelector('.cb-slot-wrapper');
-        if (wrapper) wrapper.appendChild(finalCartBtn);
       }
 
       showPageLoader('Loading products…');
       var loadToken = ++stepLoadToken;
       stepArea.innerHTML = '';
+
       getPackProducts(index, packBox, function (err, products) {
         hidePageLoader(true);
-        if (loadToken !== stepLoadToken) return;
+
+        if (destroyed || loadToken !== stepLoadToken) return;
         if (ctx._openBoxId !== box.id) return;
+
         if (err || !products || products.length === 0) {
-          mbError('step products failed', {
+          mbError('step products unavailable', {
             step: index + 1,
             packKey: getPackKey(pack),
             error: err && err.message,
             count: products ? products.length : 0
           });
-          stepArea.innerHTML = '<p class="cb-error">Failed to load products. Please reload and try again.</p>';
+          renderUnavailableStep(index, pack, err);
           return;
         }
+
         mbLog('render step products', {
           step: index + 1,
           packKey: getPackKey(pack),
@@ -3243,23 +3733,39 @@
 
         renderBuilder(stepArea, packBox, products, ctx, {
           hideOwnCartUI: true,
+          nestedStepFlow: true,
           initialSlots: packSlotsByKey[index] || null,
           externalSlots: getAllOtherSelectedSlots(index),
           optional: isPackOptional(pack),
           onSkip: function () {
+            if (index !== currentIndex) return;
+
             mbLog('skip step', { step: index + 1, packKey: getPackKey(pack) });
             packSlotsByKey[index] = [];
-            skippedPacksByIndex[index] = true;
+            setStepStatus(index, 'skipped');
             decorateNow();
-            refreshFinalCartState();
+            refreshFinalState();
             advanceAfterStep(index);
           },
           onSlotsChange: function (slots) {
+            var nextSelectionSignature = getSelectionSignature(slots);
+            var selectionChanged = nextSelectionSignature !== lastSelectionSignature;
+            lastSelectionSignature = nextSelectionSignature;
+
             packSlotsByKey[index] = slots.slice();
-            if (slots.some(Boolean)) skippedPacksByIndex[index] = false;
+
+            if (slots.some(Boolean)) {
+              setStepStatus(index, 'selected');
+            } else if (getStepStatus(index) !== 'skipped') {
+              setStepStatus(index, 'pending');
+            }
+
             if (index !== currentIndex) return;
+
             mbLog('step selection changed', {
               step: index + 1,
+              status: getStepStatus(index),
+              selectionChanged: selectionChanged,
               selected: slots.filter(Boolean).map(function (slot) {
                 return {
                   productId: slot.productId,
@@ -3270,22 +3776,63 @@
             });
 
             decorateNow();
-            refreshFinalCartState();
+            refreshFinalState();
 
-            if (slots.some(Boolean)) {
-              // Brief pause so the customer sees their pick highlighted before
-              // the Step transitions — not an immediate/jarring swap.
+            if (selectionChanged && slots.some(Boolean)) {
+              // Brief pause so the customer sees the selected state before the
+              // next Pack replaces the active product grid. Restoring a Pack's
+              // existing initial selection does not count as a new selection.
               advanceAfterStep(index);
             }
-          },
+          }
         });
 
+        // Initial slots can be restored when revisiting a completed Pack.
+        syncStepStateFromSlots(index);
         decorateNow();
-        stepArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        refreshFinalState();
+
+        try {
+          stepArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch (_) {}
       });
     }
 
-    mbLog('default open first pack grid', { step: 1, packKey: getPackKey(packs[0]) });
+    // Integrate Multiple Box's inner Pack flow with the existing global Back
+    // button. At the final review it returns to the last Pack; inside Pack N it
+    // returns to Pack N-1. From Pack 1 the generic handler continues back to
+    // box selection.
+    ctx._packFlowBackHandler = function () {
+      if (destroyed || ctx._openBoxId !== box.id) return false;
+
+      if (finalStage.style.display !== 'none') {
+        openStep(Math.max(0, packs.length - 1));
+        return true;
+      }
+
+      if (currentIndex > 0) {
+        openStep(currentIndex - 1);
+        return true;
+      }
+
+      return false;
+    };
+
+    // Called by openBuilder before a different box replaces this builder.
+    ctx._packFlowCleanup = function () {
+      destroyed = true;
+      stepLoadToken++;
+      if (advanceTimer) {
+        clearTimeout(advanceTimer);
+        advanceTimer = null;
+      }
+      if (ctx._packFlowBackHandler) ctx._packFlowBackHandler = null;
+    };
+
+    mbLog('default open first pack grid', {
+      step: 1,
+      packKey: getPackKey(packs[0])
+    });
     openStep(0);
   }
 
@@ -3779,7 +4326,7 @@
       }
 
       // Steps mode: hide product grid when all filled; enable/disable cart buttons; update wizard dot
-      if (ctx.layoutMode === 'steps') {
+      if (ctx.layoutMode === 'steps' && !hideOwnCartUI && !(stepOptions && stepOptions.nestedStepFlow)) {
         var savedScrollY = window.scrollY;
         productSection.style.display = allFilled ? 'none' : '';
         if (step3CartSection) step3CartSection.style.display = allFilled ? '' : 'none';
@@ -6930,7 +7477,28 @@
 
   // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
+  function disableFrontendWhenEmbedOff() {
+    var roots = document.querySelectorAll('.combo-builder-root, #combo-builder-widget, [id^="combo-builder-widget-legacy"]');
+    for (var i = 0; i < roots.length; i++) {
+      roots[i].innerHTML = '';
+      roots[i].style.display = 'none';
+      roots[i].setAttribute('data-cb-embed-disabled', '1');
+      roots[i].removeAttribute('data-cb-initialized');
+      roots[i].removeAttribute('data-cb-rendered');
+    }
+    window.__COMBO_BUILDER__ = {
+      push: function () {
+        disableFrontendWhenEmbedOff();
+      },
+    };
+  }
+
   function bootstrap() {
+    if (window.__COMBO_BUILDER_EMBED__ !== true) {
+      disableFrontendWhenEmbedOff();
+      return;
+    }
+
     var widgetCount = 0;
     var queue = window.__COMBO_BUILDER__;
     if (Array.isArray(queue)) {
