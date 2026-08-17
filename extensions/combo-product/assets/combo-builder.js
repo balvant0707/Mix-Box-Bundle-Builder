@@ -3052,8 +3052,8 @@
     stepArea.className = 'cb-pack-builder-panel';
     container.appendChild(stepArea);
 
-    // Final action is a separate control area. The active Pack product grid
-    // remains visible once every Pack has been explicitly selected or skipped.
+    // Final action reuses the existing inline slot-row cart button so the
+    // completed Multiple Box view keeps the current Pack grid visible.
     var finalStage = document.createElement('div');
     finalStage.className = 'cb-pack-final-stage cb-step3-cart';
     finalStage.style.display = 'none';
@@ -3079,19 +3079,14 @@
       finalStage.appendChild(finalGiftSection);
     }
 
-    var finalActions = document.createElement('div');
-    finalActions.className = 'cb-step3-buttons';
-
     var finalCartBtn = null;
 
     finalCartBtn = document.createElement('button');
     finalCartBtn.type = 'button';
-    finalCartBtn.className = 'cb-step3-cart-btn';
+    finalCartBtn.className = 'cb-inline-cart-btn cb-pack-final-cart-btn';
     finalCartBtn.disabled = true;
+    finalCartBtn.style.display = 'none';
     finalCartBtn.textContent = resolveStepCartButtonLabel(box, ctx);
-    finalActions.appendChild(finalCartBtn);
-
-    finalStage.appendChild(finalActions);
     container.appendChild(finalStage);
 
     // Persist every Pack selection by array index. Pack keys/titles can be
@@ -3402,6 +3397,28 @@
       });
     }
 
+    function setFinalCartButtonState(ready) {
+      if (!finalCartBtn) return;
+      finalCartBtn.disabled = !ready;
+      finalCartBtn.style.display = ready ? '' : 'none';
+      if (ready) finalCartBtn.classList.add('cb-inline-cart-btn--ready');
+      else finalCartBtn.classList.remove('cb-inline-cart-btn--ready');
+    }
+
+    function attachFinalCartButton() {
+      if (!finalCartBtn) return;
+
+      var wrapper = stepArea.querySelector('.cb-slot-wrapper');
+      if (wrapper && finalCartBtn.parentNode !== wrapper) {
+        wrapper.appendChild(finalCartBtn);
+      }
+
+      var hasAnySelected = packs.some(function (_pack, idx) {
+        return hasSelectedPack(idx);
+      });
+      setFinalCartButtonState(isFlowComplete() && hasAnySelected);
+    }
+
     function refreshFinalState() {
       var hasAnySelected = packs.some(function (_pack, idx) {
         return hasSelectedPack(idx);
@@ -3416,7 +3433,7 @@
         stepStates: stepStates.map(function (state) { return state.status; })
       });
 
-      if (finalCartBtn) finalCartBtn.disabled = !ready;
+      setFinalCartButtonState(ready);
       return ready;
     }
 
@@ -3430,18 +3447,19 @@
       }
 
       stepArea.style.display = '';
-      finalStage.style.display = '';
+      finalStage.style.display = 'none';
+      attachFinalCartButton();
       refreshFinalState();
       syncGlobalWizard(true);
 
       // Keep the last Pack product grid in view; the final Add to Cart button
-      // appears below it without forcing the viewport away from the grid.
+      // appears beside the selected Pack row.
     }
 
     function restoreFinalButtons() {
       if (finalCartBtn) {
         finalCartBtn.disabled = !refreshFinalState();
-        finalCartBtn.classList.remove('cb-step3-cart-btn--loading');
+        finalCartBtn.classList.remove('cb-inline-cart-btn--loading');
         finalCartBtn.textContent = resolveStepCartButtonLabel(box, ctx);
       }
     }
@@ -3465,7 +3483,7 @@
 
       if (finalCartBtn) {
         finalCartBtn.disabled = true;
-        finalCartBtn.classList.add('cb-step3-cart-btn--loading');
+        finalCartBtn.classList.add('cb-inline-cart-btn--loading');
         finalCartBtn.innerHTML = '<span class="cb-btn-spinner" aria-hidden="true"></span><span>Adding…</span>';
       }
       mbLog('final submit clicked', {
@@ -3553,6 +3571,7 @@
         index,
         function (doneIndex) { openStep(doneIndex); }
       );
+      attachFinalCartButton();
 
       if (!box.hideBundleHeader) {
         var title = document.createElement('h2');
@@ -3641,6 +3660,7 @@
           currentIndex,
           function (doneIndex) { openStep(doneIndex); }
         );
+        attachFinalCartButton();
       }
 
       showPageLoader('Loading products…');
@@ -6858,27 +6878,46 @@
     var isDynamic = String(box.bundlePriceType || 'manual') === 'dynamic';
     var shouldIncludeGiftDetails = !!(box && box.isGiftBox && box.giftMessageEnabled);
 
-    var items = packEntries.map(function (entry) {
+    var bundleProps = {};
+    var selectedCount = 0;
+    var packKeys = [];
+
+    packEntries.forEach(function (entry, packIdx) {
       var slots = entry.slots || [];
-      var bundleProps = {};
+      var packTitle = entry.packTitle ? String(entry.packTitle) : '';
+      var packLabel = packTitle || ('Pack ' + (packIdx + 1));
+      if (entry.packKey) packKeys.push(String(entry.packKey));
+
       slots.forEach(function (p, idx) {
         if (p) {
-          var label = p.productTitle || ('Item ' + (idx + 1));
+          selectedCount++;
+          var label = p.productTitle || ('Item ' + selectedCount);
           if (p.selectedVariantTitle) label += ' (' + p.selectedVariantTitle + ')';
-          bundleProps['Item ' + (idx + 1)] = label;
-          bundleProps['_item_' + (idx + 1)] = label;
-          if (p.productImageUrl) bundleProps['_item_' + (idx + 1) + '_image'] = p.productImageUrl;
+          bundleProps['Item ' + selectedCount] = label;
+          bundleProps['_item_' + selectedCount] = label;
+          if (p.productImageUrl) bundleProps['_item_' + selectedCount + '_image'] = p.productImageUrl;
+
+          // Show the selected product under the Pack/Step it belongs to.
+          if (packLabel) {
+            var packItemKey = slots.filter(Boolean).length > 1
+              ? packLabel + ' - Item ' + (idx + 1)
+              : packLabel;
+            bundleProps[packItemKey] = label;
+            bundleProps['_pack_' + (packIdx + 1) + '_item_' + (idx + 1)] = label;
+          }
         }
       });
-      bundleProps['_combo_selected_count'] = String(slots.filter(Boolean).length);
-      if (bundleImageSrc && !/^(data:|blob:)/i.test(String(bundleImageSrc))) {
-        bundleProps['_combo_bundle_image'] = bundleImageSrc;
-      }
-      bundleProps['_bundle_box_id'] = comboBoxId;
-      bundleProps['_bundle_pack_key'] = entry.packKey ? String(entry.packKey) : '';
-      if (entry.packTitle) bundleProps['Pack'] = String(entry.packTitle);
-      return { id: box.shopifyVariantId, quantity: 1, properties: bundleProps };
     });
+
+    bundleProps['_combo_selected_count'] = String(selectedCount);
+    if (bundleImageSrc && !/^(data:|blob:)/i.test(String(bundleImageSrc))) {
+      bundleProps['_combo_bundle_image'] = bundleImageSrc;
+    }
+    bundleProps['_bundle_box_id'] = comboBoxId;
+    bundleProps['_bundle_pack_key'] = '';
+    if (packKeys.length) bundleProps['_bundle_pack_keys'] = packKeys.join(',');
+
+    var items = [{ id: box.shopifyVariantId, quantity: 1, properties: bundleProps }];
 
     var additionalSettingAttributes = {};
     if (shouldIncludeGiftDetails) {

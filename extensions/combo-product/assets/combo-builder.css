@@ -3445,6 +3445,13 @@
 /* ── 750px–900px: hide inline cart btn (slot row too narrow for both) ──── */
 @media (max-width: 900px) {
   .cb-inline-cart-btn { display: none !important; }
+  .cb-slot-wrapper .cb-pack-final-cart-btn.cb-inline-cart-btn--ready {
+    display: inline-flex !important;
+    align-self: center;
+    width: calc(100% - 24px);
+    max-width: 300px;
+    margin: 10px auto 0;
+  }
 }
 
 /* ── 450px–750px: medium slot boxes (bigger than tiny mobile, fits tablet) ── */
