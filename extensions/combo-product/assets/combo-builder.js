@@ -3269,7 +3269,7 @@
                 error: firstErr && firstErr.message
               });
 
-              cb(filtered.length === 0 ? firstErr : null, filtered);
+              cb(firstErr && filtered.length === 0 ? firstErr : null, filtered);
             }
           });
         });
