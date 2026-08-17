@@ -2381,8 +2381,8 @@
   border: 0;
   background: transparent;
   color: var(--cb-text);
-  font-size: 38px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 500;
 }
 
 .cb-product-modal--info .cb-product-modal-body {
@@ -2408,7 +2408,7 @@
   width: 100%;
   height: 100%;
   display: block;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .cb-product-info-modal-placeholder {
