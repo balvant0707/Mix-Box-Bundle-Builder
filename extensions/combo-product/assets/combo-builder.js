@@ -9,10 +9,13 @@
   // ═══ TEMPORARY DIAGNOSTIC INSTRUMENTATION — remove this whole block once the ═══
   // ═══ live disappearance root cause is confirmed from real console output.   ═══
   // Enable/disable without a redeploy via the browser console:
-  //   localStorage.setItem('cbDebug', '0')   // turn off
-  //   localStorage.removeItem('cbDebug')     // back to default (on)
+  //   localStorage.setItem('cbDebug', '1')   // turn on general diagnostics
+  //   localStorage.removeItem('cbDebug')     // back to default (off)
   var __CB_DEBUG__ = (function () {
-    try { return localStorage.getItem('cbDebug') !== '0'; } catch (_) { return true; }
+    try { return localStorage.getItem('cbDebug') === '1'; } catch (_) { return false; }
+  })();
+  var __CB_MULTIPLE_BOX_DEBUG__ = (function () {
+    try { return localStorage.getItem('cbMultipleBoxDebug') !== '0'; } catch (_) { return true; }
   })();
   var __cbDebugStart = (window.performance && performance.now) ? performance.now() : Date.now();
   function cbNow() {
@@ -23,6 +26,18 @@
     var args = Array.prototype.slice.call(arguments);
     args.unshift('[COMBO-DEBUG] +' + cbNow() + 'ms');
     try { console.log.apply(console, args); } catch (_) {}
+  }
+  function mbLog() {
+    if (!__CB_MULTIPLE_BOX_DEBUG__) return;
+    var args = Array.prototype.slice.call(arguments);
+    args.unshift('[MultipleBox] +' + cbNow() + 'ms');
+    try { console.log.apply(console, args); } catch (_) {}
+  }
+  function mbError() {
+    if (!__CB_MULTIPLE_BOX_DEBUG__) return;
+    var args = Array.prototype.slice.call(arguments);
+    args.unshift('[MultipleBox] +' + cbNow() + 'ms');
+    try { console.error.apply(console, args); } catch (_) {}
   }
   function cbDescribeRoot(root) {
     if (!root) return { exists: false };
@@ -52,6 +67,7 @@
   // log the EXACT moment/mutation/attribute-change responsible if it ever goes
   // away — instead of guessing from static code reading.
   function cbWatchRootDisappearance(root) {
+    if (!__CB_DEBUG__) return;
     if (!root || typeof MutationObserver === 'undefined') return;
     if (root.__cbWatched) return; // one watcher per element instance
     root.__cbWatched = true;
@@ -88,6 +104,7 @@
     } catch (_) {}
   }
   function cbInstallLifecycleListeners() {
+    if (!__CB_DEBUG__) return;
     if (window.__cbLifecycleListenersInstalled) return;
     window.__cbLifecycleListenersInstalled = true;
     function snapshotAllRoots(label) {
@@ -1965,7 +1982,7 @@
           return;
         }
         if (productMatchedBoxes.length > 1) {
-          console.warn('[ComboBuilder] Multiple active bundle records map to Shopify product ' + currentProductId + '. Rendering only the first exact match.',
+          if (__CB_DEBUG__) console.warn('[ComboBuilder] Multiple active bundle records map to Shopify product ' + currentProductId + '. Rendering only the first exact match.',
             productMatchedBoxes.map(function (b) { return { id: b.id, boxType: b.boxType, shopifyProductId: b.shopifyProductId }; }));
         }
         boxes = [productMatchedBoxes[0]];
@@ -2741,16 +2758,18 @@
     builderArea.classList.toggle('cb-builder-area--auto-height', !!box.productImageAutoHeight);
     builderArea.style.display = 'block';
 
-    if (box.comboConfig && Array.isArray(box.comboConfig.steps) && box.comboConfig.steps.length > 0) {
+    if (Array.isArray(box.quantityPacks) && box.quantityPacks.length > 0) {
+      // Multiple Box: each quantity pack is a frontend step in array order.
+      // Pack 1 -> Step 1, Pack 2 -> Step 2, Pack 3 -> Step 3, etc.
+      // The first pack opens immediately after the customer selects the box.
+      renderPackPicker(builderArea, box, ctx);
+      builderArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else if (box.comboConfig && Array.isArray(box.comboConfig.steps) && box.comboConfig.steps.length > 0) {
       // Inline grid spinner shown by loadAndRenderGrid inside renderSpecificComboBuilder
       setTimeout(function () {
         renderSpecificComboBuilder(builderArea, box, ctx);
         builderArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 0);
-    } else if (Array.isArray(box.quantityPacks) && box.quantityPacks.length > 0) {
-      // Mix n Match: customer picks ONE pack, fills it, adds ONE bundle to cart.
-      renderPackPicker(builderArea, box, ctx);
-      builderArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } else {
       showPageLoader('Loading products…');
       fetchProducts(box.id, ctx.shop, ctx.apiBase, box.scopeType, null, ctx, function (err, products) {
@@ -2947,7 +2966,21 @@
     container.innerHTML = '';
 
     var packs = Array.isArray(box.quantityPacks) ? box.quantityPacks : [];
+    mbLog('init', {
+      boxId: box && box.id,
+      packCount: packs.length,
+      packs: packs.map(function (pack, idx) {
+        return {
+          index: idx,
+          packKey: getPackKey(pack),
+          title: pack && pack.title,
+          productConfiguration: pack && pack.productConfiguration,
+          optional: isPackOptional(pack)
+        };
+      })
+    });
     if (packs.length === 0) {
+      mbLog('no packs configured', { boxId: box && box.id });
       container.innerHTML = '<p class="cb-error">No steps configured for this bundle.</p>';
       return;
     }
@@ -3022,12 +3055,17 @@
     }
 
     function getPackProducts(index, packBox, cb) {
-      if (packProductsCache[index]) { cb(null, packProductsCache[index]); return; }
+      if (packProductsCache[index]) {
+        mbLog('products cache hit', { step: index + 1, count: packProductsCache[index].length });
+        cb(null, packProductsCache[index]);
+        return;
+      }
 
       var pack = packs[index];
       var inlineProducts = getInlineStepProducts(pack, ctx);
       if (inlineProducts) {
         packProductsCache[index] = inlineProducts;
+        mbLog('products resolved inline', { step: index + 1, count: inlineProducts.length });
         cb(null, inlineProducts);
         return;
       }
@@ -3051,6 +3089,12 @@
             if (remaining === 0) {
               var filtered = filterInternalComboProducts(allProds, ctx);
               if (filtered.length > 0) packProductsCache[index] = filtered;
+              mbLog('products resolved from collections', {
+                step: index + 1,
+                collectionCount: colls.length,
+                count: filtered.length,
+                error: firstErr && firstErr.message
+              });
               cb(filtered.length === 0 ? firstErr : null, filtered);
             }
           });
@@ -3060,6 +3104,13 @@
 
       fetchProducts(box.id, ctx.shop, ctx.apiBase, packBox.scopeType, pack.packKey, ctx, function (err, products) {
         if (!err && products && products.length > 0) packProductsCache[index] = products;
+        mbLog('products resolved from API', {
+          step: index + 1,
+          packKey: pack && pack.packKey,
+          scopeType: packBox && packBox.scopeType,
+          count: products ? products.length : 0,
+          error: err && err.message
+        });
         cb(err, products);
       });
     }
@@ -3068,6 +3119,11 @@
 
     finalCartBtn.addEventListener('click', function () {
       if (finalCartBtn.disabled) return;
+      mbLog('final add clicked', {
+        boxId: box && box.id,
+        completedSteps: packs.map(function (_pack, idx) { return !!((packSlotsByKey[idx] || []).some(Boolean)); }),
+        skippedSteps: Object.keys(skippedPacksByIndex).filter(function (key) { return skippedPacksByIndex[key]; })
+      });
       finalCartBtn.disabled = true;
       finalCartBtn.classList.add('cb-inline-cart-btn--loading');
       finalCartBtn.innerHTML = '<span class="cb-btn-spinner" aria-hidden="true"></span><span>Adding…</span>';
@@ -3081,11 +3137,13 @@
         return (entry.slots || []).some(Boolean);
       });
       addPackStepsToCart(box, packEntries, sessionId, null, ctx, 'cart', function () {
+        mbLog('final add success; resetting flow', { boxId: box && box.id });
         packSlotsByKey = {};
         skippedPacksByIndex = {};
         refreshFinalCartState();
         openStep(0);
       }, function () {
+        mbError('final add failed', { boxId: box && box.id });
         // Restore the button so the customer can retry after a failed submit.
         finalCartBtn.disabled = false;
         finalCartBtn.classList.remove('cb-inline-cart-btn--loading');
@@ -3099,6 +3157,12 @@
         return (packSlotsByKey[idx] || []).some(Boolean);
       });
       var ready = firstIncompleteIndex() === -1 && hasAnySelected;
+      mbLog('final state', {
+        ready: ready,
+        firstIncompleteStep: firstIncompleteIndex() === -1 ? null : firstIncompleteIndex() + 1,
+        selectedSteps: packs.map(function (_pack, idx) { return !!((packSlotsByKey[idx] || []).some(Boolean)); }),
+        skippedSteps: Object.keys(skippedPacksByIndex).filter(function (key) { return skippedPacksByIndex[key]; })
+      });
       finalCartBtn.disabled = !ready;
       if (ready) finalCartBtn.classList.add('cb-inline-cart-btn--ready');
       else finalCartBtn.classList.remove('cb-inline-cart-btn--ready');
@@ -3108,9 +3172,11 @@
       if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
       var next = nextIncompleteIndexAfter(index);
       if (next === -1) {
+        mbLog('advance complete', { fromStep: index + 1 });
         refreshFinalCartState();
         return;
       }
+      mbLog('advance scheduled', { fromStep: index + 1, toStep: next + 1 });
       advanceTimer = setTimeout(function () {
         advanceTimer = null;
         openStep(next);
@@ -3121,6 +3187,14 @@
       if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
       if (index < 0 || index >= packs.length) return;
       currentIndex = index;
+      mbLog('open step', {
+        step: index + 1,
+        packKey: getPackKey(packs[index]),
+        title: packs[index] && packs[index].title,
+        productConfiguration: packs[index] && packs[index].productConfiguration,
+        previouslySelected: !!((packSlotsByKey[index] || []).some(Boolean)),
+        skipped: !!skippedPacksByIndex[index]
+      });
       refreshFinalCartState();
 
       var pack = packs[index];
@@ -3152,9 +3226,20 @@
         if (loadToken !== stepLoadToken) return;
         if (ctx._openBoxId !== box.id) return;
         if (err || !products || products.length === 0) {
+          mbError('step products failed', {
+            step: index + 1,
+            packKey: getPackKey(pack),
+            error: err && err.message,
+            count: products ? products.length : 0
+          });
           stepArea.innerHTML = '<p class="cb-error">Failed to load products. Please reload and try again.</p>';
           return;
         }
+        mbLog('render step products', {
+          step: index + 1,
+          packKey: getPackKey(pack),
+          count: products.length
+        });
 
         renderBuilder(stepArea, packBox, products, ctx, {
           hideOwnCartUI: true,
@@ -3162,6 +3247,7 @@
           externalSlots: getAllOtherSelectedSlots(index),
           optional: isPackOptional(pack),
           onSkip: function () {
+            mbLog('skip step', { step: index + 1, packKey: getPackKey(pack) });
             packSlotsByKey[index] = [];
             skippedPacksByIndex[index] = true;
             decorateNow();
@@ -3172,6 +3258,16 @@
             packSlotsByKey[index] = slots.slice();
             if (slots.some(Boolean)) skippedPacksByIndex[index] = false;
             if (index !== currentIndex) return;
+            mbLog('step selection changed', {
+              step: index + 1,
+              selected: slots.filter(Boolean).map(function (slot) {
+                return {
+                  productId: slot.productId,
+                  title: slot.productTitle,
+                  variantId: slot.selectedVariantId || null
+                };
+              })
+            });
 
             decorateNow();
             refreshFinalCartState();
@@ -3189,6 +3285,7 @@
       });
     }
 
+    mbLog('default open first pack grid', { step: 1, packKey: getPackKey(packs[0]) });
     openStep(0);
   }
 
@@ -5759,7 +5856,7 @@
         }),
       }).then(function (r) {
         if (!r.ok) return r.json().then(function (d) {
-          console.error('[ComboBuilder] Cart 422 details:', d);
+          if (__CB_DEBUG__) console.error('[ComboBuilder] Cart 422 details:', d);
           throw new Error(d.description || d.message || 'Cart error');
         });
         return r.json();
@@ -5917,7 +6014,7 @@
           drawerExist.renderContents(cartResponse);
           renderedByTheme = true;
         } catch (e) {
-          console.warn('[ComboBuilder] cart-drawer.renderContents() failed:', e);
+          if (__CB_DEBUG__) console.warn('[ComboBuilder] cart-drawer.renderContents() failed:', e);
         }
       }
 
@@ -5926,7 +6023,7 @@
           notifExist.renderContents(cartResponse);
           renderedByTheme = true;
         } catch (e) {
-          console.warn('[ComboBuilder] cart-notification.renderContents() failed:', e);
+          if (__CB_DEBUG__) console.warn('[ComboBuilder] cart-notification.renderContents() failed:', e);
         }
       }
 
@@ -6077,11 +6174,11 @@
     function ensurePublishedThenCart() {
       return resolveBundleVariantId()
         .then(function (variantId) {
-          console.log('[ComboBuilder] resolveBundleVariantId resolved:', variantId);
+          if (__CB_DEBUG__) console.log('[ComboBuilder] resolveBundleVariantId resolved:', variantId);
           items[0].id = variantId;
         })
         .catch(function (e) {
-          console.warn('[ComboBuilder] resolveBundleVariantId failed (using stored id):', e && e.message, '| stored shopifyVariantId:', box.shopifyVariantId, '| box.shopifyProductId:', box.shopifyProductId);
+          if (__CB_DEBUG__) console.warn('[ComboBuilder] resolveBundleVariantId failed (using stored id):', e && e.message, '| stored shopifyVariantId:', box.shopifyVariantId, '| box.shopifyProductId:', box.shopifyProductId);
         })
         // Brief pause so Shopify can propagate the publish/activate from the variant endpoint
         .then(function () { return new Promise(function (r) { setTimeout(r, 800); }); })
@@ -6149,7 +6246,7 @@
       })
       .catch(function (err) {
         hidePageLoader(true);
-        console.error('[ComboBuilder] Add to cart error:', err);
+        if (__CB_DEBUG__) console.error('[ComboBuilder] Add to cart error:', err);
         setBtns('error', 'Error — Try Again');
         setTimeout(function () { setBtns('ready', resolvedReadyLabel); }, 2500);
       });
@@ -6178,7 +6275,7 @@
         }),
       }).then(function (r) {
         if (!r.ok) return r.json().then(function (d) {
-          console.error('[ComboBuilder] Cart 422 details:', d);
+          mbError('cart rejected Multiple Box add', d);
           throw new Error(d.description || d.message || 'Cart error');
         });
         return r.json();
@@ -6290,7 +6387,7 @@
     cartPromise
       .then(function (cartResponse) {
         hidePageLoader(true);
-        try { syncThemeCartUIStandalone(cartResponse); } catch (e) { console.warn('[ComboBuilder] cart UI refresh failed:', e); }
+        try { syncThemeCartUIStandalone(cartResponse); } catch (e) { mbError('cart UI refresh failed after Multiple Box add', e); }
         scheduleGiftReconcile(shop, resolvedApiBase, 0);
         document.dispatchEvent(new CustomEvent('cart:refresh', { bubbles: true }));
         document.dispatchEvent(new CustomEvent('cart:updated', { bubbles: true }));
@@ -6307,7 +6404,7 @@
       })
       .catch(function (err) {
         hidePageLoader(true);
-        console.error('[ComboBuilder] Multi-pack add to cart error:', err);
+        mbError('add to cart error', err);
         if (typeof onError === 'function') {
           onError(err);
         } else {
@@ -6331,7 +6428,7 @@
       try {
         document.dispatchEvent(new CustomEvent(eventName, { bubbles: true }));
       } catch (e) {
-        console.warn('[ComboBuilder] Failed to dispatch drawer event', eventName, e);
+        if (__CB_DEBUG__) console.warn('[ComboBuilder] Failed to dispatch drawer event', eventName, e);
       }
     });
 
@@ -6344,7 +6441,7 @@
           webComponentDrawer.open();
           opened = true;
         } catch (e) {
-          console.warn('[ComboBuilder] cart-drawer.open() failed:', e);
+          if (__CB_DEBUG__) console.warn('[ComboBuilder] cart-drawer.open() failed:', e);
         }
       }
 
@@ -6377,7 +6474,7 @@
         cartTrigger.click();
         opened = true;
       } catch (e) {
-        console.warn('[ComboBuilder] Cart trigger click failed:', e);
+        if (__CB_DEBUG__) console.warn('[ComboBuilder] Cart trigger click failed:', e);
       }
     }
 
@@ -6451,7 +6548,7 @@
           restoreComboRootVisibility(el);
           el.removeAttribute('data-cb-initialized');
           el.removeAttribute('data-cb-rendered');
-          try { initWidget({ mountId: el.id }); } catch (e0) { console.error('[ComboBuilder]', e0); }
+          try { initWidget({ mountId: el.id }); } catch (e0) { if (__CB_DEBUG__) console.error('[ComboBuilder]', e0); }
         }
         continue;
       }
@@ -6463,7 +6560,7 @@
           restoreComboRootVisibility(el);
           el.removeAttribute('data-cb-initialized');
           el.removeAttribute('data-cb-rendered');
-          try { initWidget({ mountId: el.id }); } catch (eManual) { console.error('[ComboBuilder]', eManual); }
+          try { initWidget({ mountId: el.id }); } catch (eManual) { if (__CB_DEBUG__) console.error('[ComboBuilder]', eManual); }
         }
         continue;
       }
@@ -6473,7 +6570,7 @@
       if (!initialized) {
         candidates++;
         cbLog('reinitializeUninitializedComboRoots: found fresh/uninitialized root, reinitializing', cbDescribeRoot(el));
-        try { initWidget({ mountId: el.id }); } catch (e1) { console.error('[ComboBuilder]', e1); }
+        try { initWidget({ mountId: el.id }); } catch (e1) { if (__CB_DEBUG__) console.error('[ComboBuilder]', e1); }
         continue;
       }
 
@@ -6486,7 +6583,7 @@
         cbLog('reinitializeUninitializedComboRoots: rendered root lost its UI — rebuilding', cbDescribeRoot(el));
         el.removeAttribute('data-cb-initialized');
         el.removeAttribute('data-cb-rendered');
-        try { initWidget({ mountId: el.id }); } catch (e2) { console.error('[ComboBuilder]', e2); }
+        try { initWidget({ mountId: el.id }); } catch (e2) { if (__CB_DEBUG__) console.error('[ComboBuilder]', e2); }
       }
     }
 
@@ -6706,10 +6803,10 @@
       })
       .then(function (cartResponse) {
         if (cartResponse) {
-          try { syncThemeCartUIStandalone(cartResponse); } catch (e) { console.warn('[ComboBuilder] gift sync UI refresh failed:', e); }
+          try { syncThemeCartUIStandalone(cartResponse); } catch (e) { if (__CB_DEBUG__) console.warn('[ComboBuilder] gift sync UI refresh failed:', e); }
         }
       })
-      .catch(function (e) { console.warn('[ComboBuilder] Free gift reconcile failed:', e); })
+      .catch(function (e) { if (__CB_DEBUG__) console.warn('[ComboBuilder] Free gift reconcile failed:', e); })
       .then(function () {
         _cbGiftReconcileInFlight = false;
         if (_cbGiftReconcileQueued) {
@@ -6744,11 +6841,11 @@
 
     if (drawerExist && typeof drawerExist.renderContents === 'function') {
       try { drawerExist.renderContents(cartResponse); renderedByTheme = true; }
-      catch (e) { console.warn('[ComboBuilder] cart-drawer.renderContents() failed:', e); }
+      catch (e) { if (__CB_DEBUG__) console.warn('[ComboBuilder] cart-drawer.renderContents() failed:', e); }
     }
     if (notifExist && typeof notifExist.renderContents === 'function') {
       try { notifExist.renderContents(cartResponse); renderedByTheme = true; }
-      catch (e) { console.warn('[ComboBuilder] cart-notification.renderContents() failed:', e); }
+      catch (e) { if (__CB_DEBUG__) console.warn('[ComboBuilder] cart-notification.renderContents() failed:', e); }
     }
     if (renderedByTheme) return;
 
@@ -6838,21 +6935,21 @@
     var queue = window.__COMBO_BUILDER__;
     if (Array.isArray(queue)) {
       queue.forEach(function (config) {
-        try { initWidget(config); widgetCount++; } catch (e) { console.error('[ComboBuilder]', e); }
+        try { initWidget(config); widgetCount++; } catch (e) { if (__CB_DEBUG__) console.error('[ComboBuilder]', e); }
       });
     }
     window.__COMBO_BUILDER__ = {
       push: function (config) {
-        try { initWidget(config); } catch (e) { console.error('[ComboBuilder]', e); }
+        try { initWidget(config); } catch (e) { if (__CB_DEBUG__) console.error('[ComboBuilder]', e); }
       },
     };
 
     var legacyEl = document.getElementById('combo-builder-widget');
-    if (legacyEl) { try { initLegacyWidget(legacyEl); widgetCount++; } catch (e) { console.error('[ComboBuilder]', e); } }
+    if (legacyEl) { try { initLegacyWidget(legacyEl); widgetCount++; } catch (e) { if (__CB_DEBUG__) console.error('[ComboBuilder]', e); } }
 
     var legacyEls = document.querySelectorAll('[id^="combo-builder-widget-legacy"]');
     for (var i = 0; i < legacyEls.length; i++) {
-      try { initLegacyWidget(legacyEls[i]); widgetCount++; } catch (e) { console.error('[ComboBuilder]', e); }
+      try { initLegacyWidget(legacyEls[i]); widgetCount++; } catch (e) { if (__CB_DEBUG__) console.error('[ComboBuilder]', e); }
     }
 
     cleanupComboCartPresentation(document);
