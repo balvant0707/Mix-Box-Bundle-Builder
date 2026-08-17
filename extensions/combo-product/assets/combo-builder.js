@@ -2106,7 +2106,7 @@
       var step2Heading = root.dataset.step2Heading || config.step2Heading || 'Step 2: Select your products';
       var step3Heading = root.dataset.step3Heading || config.step3Heading || 'Step 3: Complete your order';
       var step3Buttons = root.dataset.step3Buttons || config.step3Buttons || 'both';
-      renderWidget(root, { shop: shop, boxes: boxes, currencySymbol: currencySymbol, currencyCode: currencyCode, layout: layout, layoutMode: layoutMode, enableStickyCart: enableStickyCart, heading: resolvedHeading, apiBase: apiBase, settings: settings || {}, rootEl: root, step1Label: step1Label, step2Label: step2Label, step3Label: step3Label, cartBtnLabel: cartBtnLabel, checkoutBtnLabel: checkoutBtnLabel, step1Heading: step1Heading, step2Heading: step2Heading, step3Heading: step3Heading, step3Buttons: step3Buttons, previewBoxId: previewBoxId, isPreviewMode: isPreviewMode, autoProductBox: autoProductBox, productBoxOnly: productBoxOnly, productId: currentProductId, boxTypeFilter: boxTypeFilter });
+      renderWidget(root, { shop: shop, boxes: boxes, currencySymbol: currencySymbol, currencyCode: currencyCode, layout: layout, layoutMode: layoutMode, enableStickyCart: enableStickyCart, heading: resolvedHeading, apiBase: apiBase, settings: settings || {}, rootEl: root, step1Label: step1Label, step2Label: step2Label, step3Label: step3Label, cartBtnLabel: cartBtnLabel, checkoutBtnLabel: checkoutBtnLabel, step1Heading: step1Heading, step2Heading: step2Heading, step3Heading: step3Heading, step3Buttons: step3Buttons, previewBoxId: previewBoxId, previewBoxCode: previewBoxToken, isPreviewMode: isPreviewMode, autoProductBox: autoProductBox, productBoxOnly: productBoxOnly, productId: currentProductId, boxTypeFilter: boxTypeFilter });
     }, productBoxOnly ? currentProductId : null, previewBoxToken);
   }
 
@@ -2293,6 +2293,7 @@
     }
     var url = apiBase + '/api/storefront/boxes/' + boxId + '/products?shop=' + encodeURIComponent(shop);
     if (packKey) url += '&packKey=' + encodeURIComponent(packKey);
+    if (ctx && ctx.previewBoxCode) url += '&previewBoxCode=' + encodeURIComponent(ctx.previewBoxCode);
     fetch(url, { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (data) { cb(null, filterInternalComboProducts(data, ctx)); })
@@ -2911,6 +2912,14 @@
 
   function decorateRealPackStepNode(step, pack, idx, slotProduct, isSkipped) {
     if (!step) return;
+    if (!step.__cbPackClickGuard) {
+      step.__cbPackClickGuard = true;
+      step.addEventListener('click', function (event) {
+        if (event.target && event.target.closest && event.target.closest('.cb-slot-remove')) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }, true);
+    }
     step.classList.toggle('cb-slot-step--filled', !!slotProduct);
     step.classList.toggle('cb-slot-step--skipped', !slotProduct && !!isSkipped);
     step.classList.toggle('cb-slot-step--active', !slotProduct && !isSkipped);
@@ -2927,9 +2936,23 @@
 
     var itemLink = step.querySelector('.cb-slot-step-item');
     if (itemLink) {
-      itemLink.textContent = slotProduct
-        ? itemLink.textContent
-        : (pack.title || ('Pack ' + (idx + 1)));
+      itemLink.textContent = pack.title || ('Pack ' + (idx + 1));
+      if (slotProduct) itemLink.classList.add('cb-slot-step-item--filled');
+    }
+
+    var labelEl = step.querySelector('.cb-slot-step-label');
+    if (labelEl) {
+      var oldDetail = labelEl.querySelector('.cb-pack-selected-detail');
+      if (oldDetail) oldDetail.remove();
+      if (slotProduct) {
+        var detail = document.createElement('span');
+        detail.className = 'cb-pack-selected-detail';
+        var detailTitle = slotProduct.productTitle || ('Item ' + (idx + 1));
+        if (slotProduct.selectedVariantTitle) detailTitle += ' (' + slotProduct.selectedVariantTitle + ')';
+        detail.textContent = detailTitle;
+        detail.title = detailTitle;
+        labelEl.appendChild(detail);
+      }
     }
   }
 
@@ -2987,11 +3010,25 @@
       itemLink.textContent = pack.title || ('Pack ' + (idx + 1));
       if (slotProduct) itemLink.classList.add('cb-slot-step-item--filled');
       labelEl.appendChild(itemLink);
+
+      if (slotProduct) {
+        var detail = document.createElement('span');
+        detail.className = 'cb-pack-selected-detail';
+        var detailTitle = slotProduct.productTitle || ('Item ' + (idx + 1));
+        if (slotProduct.selectedVariantTitle) detailTitle += ' (' + slotProduct.selectedVariantTitle + ')';
+        detail.textContent = detailTitle;
+        detail.title = detailTitle;
+        labelEl.appendChild(detail);
+      }
       step.appendChild(labelEl);
 
       if ((slotProduct || isSkipped) && typeof onRevisit === 'function') {
         step.style.cursor = 'pointer';
-        step.addEventListener('click', function () { onRevisit(idx); });
+        step.addEventListener('click', function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          onRevisit(idx);
+        });
       }
 
       slotStepsEl.appendChild(step);

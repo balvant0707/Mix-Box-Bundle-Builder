@@ -30,13 +30,24 @@ export const loader = async ({ request, params }) => {
   }
 
   const packKey = url.searchParams.get("packKey") || null;
+  const previewBoxCode = (url.searchParams.get("previewBoxCode") || "").trim();
+  const isPreviewRequest = !!previewBoxCode;
 
   // Verify box belongs to shop and is active, and pull whichever page config
   // (Simple or Multiple box) actually drives its product selection.
   const box = await db.comboBox.findFirst({
-    where: { id: boxId, shop, isActive: true, deletedAt: null },
+    where: {
+      id: boxId,
+      shop,
+      deletedAt: null,
+      ...(isPreviewRequest ? {} : { isActive: true }),
+    },
     select: {
       id: true,
+      boxCode: true,
+      boxName: true,
+      displayTitle: true,
+      isActive: true,
       simpleBoxPage: {
         select: { productConfiguration: true, selectedProductIdsJson: true, selectedCollectionIdsJson: true, hideOutOfStockProducts: true },
       },
@@ -56,6 +67,21 @@ export const loader = async ({ request, params }) => {
 
   if (!box) {
     return Response.json({ error: "Box not found" }, { status: 404, headers: CORS_HEADERS });
+  }
+
+  if (!box.isActive) {
+    const token = previewBoxCode.toLowerCase();
+    const previewMatches =
+      token &&
+      (
+        token === String(box.id).toLowerCase() ||
+        token === String(box.boxCode || "").toLowerCase() ||
+        token === String(box.boxName || "").toLowerCase() ||
+        token === String(box.displayTitle || "").toLowerCase()
+      );
+    if (!previewMatches) {
+      return Response.json({ error: "Box not found" }, { status: 404, headers: CORS_HEADERS });
+    }
   }
 
   // A chosen pack's own product selection wins over the page-level one — each
