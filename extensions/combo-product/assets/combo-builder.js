@@ -2279,7 +2279,7 @@
     fetchPage(1);
   }
 
-  function fetchProducts(boxId, shop, apiBase, scopeType, packKey, ctx, cb, packIndex) {
+  function fetchProducts(boxId, shop, apiBase, scopeType, packKey, ctx, cb, packIndex, options) {
     if (scopeType === 'wholestore') {
       // Whole-store scope has no per-box/per-pack product list to speak of —
       // it's every storefront product, resolved the same way regardless of packKey.
@@ -2298,7 +2298,12 @@
     if (ctx && ctx.previewBoxCode) url += '&previewBoxCode=' + encodeURIComponent(ctx.previewBoxCode);
     fetch(url, { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function (data) { cb(null, filterInternalComboProducts(data, ctx)); })
+      .then(function (data) {
+        var products = options && options.allowInternalProducts
+          ? (Array.isArray(data) ? data : [])
+          : filterInternalComboProducts(data, ctx);
+        cb(null, products);
+      })
       .catch(function (e) { cb(e, null); });
   }
 
@@ -3324,7 +3329,8 @@
 
           cb(err, products);
         },
-        index
+        index,
+        { allowInternalProducts: true }
       );
     }
 
