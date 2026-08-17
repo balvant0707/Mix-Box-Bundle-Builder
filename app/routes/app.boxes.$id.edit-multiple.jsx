@@ -3130,7 +3130,7 @@ export default function EditMultipleMixMatchBundlePage() {
         const json = await response.json().catch(() => null);
         throw new Error(json?.error || 'Failed to save bundle');
       }
-      navigate(withEmbeddedAppParams('/app/boxes?toast=Multiple%20Box%20Bundle%20configuration%20saved%20successfully.', location.search));
+      navigate(withEmbeddedAppParams('/app/boxes?toast=Save%20configuration', location.search));
     } catch (error) {
       const message = error?.message || 'Failed to save bundle';
       setSubmitError(message);

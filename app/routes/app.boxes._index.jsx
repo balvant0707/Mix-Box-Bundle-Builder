@@ -1,5 +1,6 @@
 ﻿import { useState, useMemo, useEffect } from "react";
 import { useFetcher, useLoaderData, useLocation, useNavigate, useNavigation } from "react-router";
+import { useRef } from "react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import {
@@ -234,7 +235,7 @@ export const action = async ({ request }) => {
   if (intent === "delete") {
     const id = formData.get("id");
     await deleteBox(id, shop, admin);
-    return { ok: true };
+    return { ok: true, action: "delete" };
   }
   if (intent === "reorder") {
     const orderedIds = JSON.parse(formData.get("orderedIds") || "[]");
@@ -253,7 +254,7 @@ export const action = async ({ request }) => {
       // In a real app, you'd likely want to delete these in a transaction
       await Promise.all(ids.map(id => deleteBox(id, shop, admin)));
     }
-    return { ok: true };
+    return { ok: true, action: "bulk_delete", count: Array.isArray(ids) ? ids.length : 0 };
   }
   if (intent === "sync_bundle_image") {
     const ids = JSON.parse(formData.get("ids") || "[]");
@@ -277,6 +278,7 @@ export default function ManageBoxesPage() {
   const fetcher = useFetcher();
   const toggleFetcher = useFetcher();
   const syncImageFetcher = useFetcher();
+  const lastDeleteToastKey = useRef("");
 
   const PAGE_SIZE = 10;
   const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -485,6 +487,17 @@ export default function ManageBoxesPage() {
       );
     }
   }, [syncImageFetcher.state, syncImageFetcher.data]);
+
+  useEffect(() => {
+    if (fetcher.state !== "idle" || !fetcher.data?.ok) return;
+    if (fetcher.data.action !== "delete" && fetcher.data.action !== "bulk_delete") return;
+
+    const toastKey = `${fetcher.data.action}:${fetcher.data.count || fetcher.formData?.get("id") || ""}`;
+    if (lastDeleteToastKey.current === toastKey) return;
+
+    lastDeleteToastKey.current = toastKey;
+    showPolarisToast("Delete");
+  }, [fetcher.state, fetcher.data, fetcher.formData]);
 
   // Reset to page 1 when filter/search changes
   useEffect(() => { setCurrentPage(1); }, [statusFilter, search, boxTypeFilter, selectedDates]);
