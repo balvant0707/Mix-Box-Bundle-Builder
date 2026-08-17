@@ -175,10 +175,8 @@
   function getBoxDiscountConfig(box) {
     if (!box) return null;
     if (box.comboConfig) return box.comboConfig;
-    // A Multiple Box with packs has no single page-level discount to show —
-    // each pack carries its own (fed in via comboConfig once a pack is chosen,
-    // see renderPackPicker) — so pageDiscount only applies to boxes without packs.
-    if (Array.isArray(box.quantityPacks) && box.quantityPacks.length > 0) return null;
+    // Single and Multiple Box discounts are page-level. Pack overrides only
+    // remain as a fallback for older saved Multiple Box data.
     return box.pageDiscount || null;
   }
 
@@ -2828,7 +2826,9 @@
   // their box) — only presentational/pricing/product-selection fields are
   // overridden, so renderBuilder/addToCart need zero pack-specific branching.
   function buildPackOverrideBox(box, pack) {
-    var isManual = String(pack.bundlePriceType || 'manual') === 'manual';
+    var discountSource = (box && box.pageDiscount) || pack || {};
+    var bundlePriceType = discountSource.bundlePriceType || (pack && pack.bundlePriceType) || (box && box.bundlePriceType) || 'manual';
+    var isManual = String(bundlePriceType || 'manual') === 'manual';
     return Object.assign({}, box, {
       _packKey: getPackKey(pack),
       _packTitle: pack.title || ('Pack of ' + pack.productItems),
@@ -2842,14 +2842,14 @@
       buttonLabel: pack.buttonLabel || box.buttonLabel,
       productButtonTitle: pack.buttonLabel || box.productButtonTitle,
       scopeType: pack.productConfiguration === 'whole_store' ? 'wholestore' : 'specific',
-      bundlePriceType: pack.bundlePriceType || 'manual',
-      bundlePrice: isManual ? (pack.discountValue != null ? pack.discountValue : 0) : 0,
+      bundlePriceType: bundlePriceType,
+      bundlePrice: isManual ? (discountSource.discountValue != null ? discountSource.discountValue : 0) : 0,
       comboConfig: !isManual
         ? {
-            discountType: pack.discountType,
-            discountValue: pack.discountValue,
-            buyQuantity: pack.buyQuantity,
-            getQuantity: pack.getQuantity
+            discountType: discountSource.discountType,
+            discountValue: discountSource.discountValue,
+            buyQuantity: discountSource.buyQuantity,
+            getQuantity: discountSource.getQuantity
           }
         : null
     });
@@ -6875,7 +6875,8 @@
 
     var comboBoxId = box && box.id != null ? String(box.id) : '';
     var bundleImageSrc = getBoxCardBundleImageSrc(box, { apiBase: resolvedApiBase, shop: shop });
-    var isDynamic = String(box.bundlePriceType || 'manual') === 'dynamic';
+    var discountConfig = getBoxDiscountConfig(box);
+    var isDynamic = String((discountConfig && discountConfig.bundlePriceType) || box.bundlePriceType || 'manual') === 'dynamic';
     var shouldIncludeGiftDetails = !!(box && box.isGiftBox && box.giftMessageEnabled);
 
     var bundleProps = {};
@@ -6884,8 +6885,6 @@
 
     packEntries.forEach(function (entry, packIdx) {
       var slots = entry.slots || [];
-      var packTitle = entry.packTitle ? String(entry.packTitle) : '';
-      var packLabel = packTitle || ('Pack ' + (packIdx + 1));
       if (entry.packKey) packKeys.push(String(entry.packKey));
 
       slots.forEach(function (p, idx) {
@@ -6897,14 +6896,7 @@
           bundleProps['_item_' + selectedCount] = label;
           if (p.productImageUrl) bundleProps['_item_' + selectedCount + '_image'] = p.productImageUrl;
 
-          // Show the selected product under the Pack/Step it belongs to.
-          if (packLabel) {
-            var packItemKey = slots.filter(Boolean).length > 1
-              ? packLabel + ' - Item ' + (idx + 1)
-              : packLabel;
-            bundleProps[packItemKey] = label;
-            bundleProps['_pack_' + (packIdx + 1) + '_item_' + (idx + 1)] = label;
-          }
+          bundleProps['_pack_' + (packIdx + 1) + '_item_' + (idx + 1)] = label;
         }
       });
     });

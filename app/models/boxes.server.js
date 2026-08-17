@@ -1700,6 +1700,8 @@ export async function resolveGiftForBox(shop, boxId, admin, packKey = null) {
     // in combo-builder.js, which never surfaces page-level discount for packs).
     if (packKey && box.multipleBoxPage.quantityPacks?.[0]) {
       config = box.multipleBoxPage.quantityPacks[0];
+    } else {
+      config = box.multipleBoxPage;
     }
   } else if (box.simpleBoxPage) {
     config = box.simpleBoxPage;
