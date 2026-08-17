@@ -30,6 +30,8 @@ export const loader = async ({ request, params }) => {
   }
 
   const packKey = url.searchParams.get("packKey") || null;
+  const rawPackIndex = url.searchParams.get("packIndex");
+  const packIndex = rawPackIndex != null ? Number.parseInt(rawPackIndex, 10) : null;
   const previewBoxCode = (url.searchParams.get("previewBoxCode") || "").trim();
   const isPreviewRequest = !!previewBoxCode;
 
@@ -57,9 +59,15 @@ export const loader = async ({ request, params }) => {
           selectedProductIdsJson: true,
           selectedCollectionIdsJson: true,
           hideOutOfStockProducts: true,
-          quantityPacks: packKey
-            ? { where: { packKey }, select: { productConfiguration: true, selectedProductIdsJson: true, selectedCollectionIdsJson: true } }
-            : false,
+          quantityPacks: {
+            orderBy: { sortOrder: "asc" },
+            select: {
+              packKey: true,
+              productConfiguration: true,
+              selectedProductIdsJson: true,
+              selectedCollectionIdsJson: true,
+            },
+          },
         },
       },
     },
@@ -88,7 +96,15 @@ export const loader = async ({ request, params }) => {
   // pack is an independent bundle tier with its own product configuration.
   // Packs have no hideOutOfStockProducts column of their own, so that toggle
   // always comes from the page.
-  const pack = packKey ? box.multipleBoxPage?.quantityPacks?.[0] : null;
+  const quantityPacks = box.multipleBoxPage?.quantityPacks || [];
+  const packByIndex =
+    Number.isInteger(packIndex) && packIndex >= 0 && packIndex < quantityPacks.length
+      ? quantityPacks[packIndex]
+      : null;
+  const packByKey = packKey
+    ? quantityPacks.find((quantityPack) => String(quantityPack.packKey || "") === String(packKey))
+    : null;
+  const pack = packByIndex || packByKey || null;
   const pageConfig = box.simpleBoxPage || box.multipleBoxPage;
   if (!pageConfig) {
     return Response.json([], { headers: CORS_HEADERS });
