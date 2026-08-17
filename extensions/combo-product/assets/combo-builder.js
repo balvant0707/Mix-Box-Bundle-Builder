@@ -3052,29 +3052,11 @@
     stepArea.className = 'cb-pack-builder-panel';
     container.appendChild(stepArea);
 
-    // Final review is a separate stage. The active Pack product grid is hidden
-    // once every Pack has been explicitly selected or skipped.
+    // Final action is a separate control area. The active Pack product grid
+    // remains visible once every Pack has been explicitly selected or skipped.
     var finalStage = document.createElement('div');
     finalStage.className = 'cb-pack-final-stage cb-step3-cart';
     finalStage.style.display = 'none';
-
-    var finalHeading = document.createElement('h2');
-    finalHeading.className = 'cb-step-heading cb-step3-heading';
-    finalHeading.textContent = 'Final Review';
-    finalStage.appendChild(finalHeading);
-
-    var finalDescription = document.createElement('p');
-    finalDescription.className = 'cb-step-description';
-    finalDescription.textContent = 'Review your selections before adding this box to the cart or continuing to checkout.';
-    finalStage.appendChild(finalDescription);
-
-    var finalSummaryWrapper = document.createElement('div');
-    finalSummaryWrapper.className = 'cb-slot-wrapper';
-
-    var finalSummarySteps = document.createElement('div');
-    finalSummarySteps.className = 'cb-slot-steps';
-    finalSummaryWrapper.appendChild(finalSummarySteps);
-    finalStage.appendChild(finalSummaryWrapper);
 
     var finalGiftInput = null;
     if (box.giftMessageEnabled) {
@@ -3100,29 +3082,14 @@
     var finalActions = document.createElement('div');
     finalActions.className = 'cb-step3-buttons';
 
-    var showCart = ctx.step3Buttons !== 'checkout_only';
-    var showCheckout = ctx.step3Buttons !== 'cart_only';
-
     var finalCartBtn = null;
-    var finalCheckoutBtn = null;
 
-    if (showCart) {
-      finalCartBtn = document.createElement('button');
-      finalCartBtn.type = 'button';
-      finalCartBtn.className = 'cb-step3-cart-btn';
-      finalCartBtn.disabled = true;
-      finalCartBtn.textContent = resolveStepCartButtonLabel(box, ctx);
-      finalActions.appendChild(finalCartBtn);
-    }
-
-    if (showCheckout) {
-      finalCheckoutBtn = document.createElement('button');
-      finalCheckoutBtn.type = 'button';
-      finalCheckoutBtn.className = 'cb-step3-checkout-btn';
-      finalCheckoutBtn.disabled = true;
-      finalCheckoutBtn.textContent = ctx.checkoutBtnLabel || 'Checkout';
-      finalActions.appendChild(finalCheckoutBtn);
-    }
+    finalCartBtn = document.createElement('button');
+    finalCartBtn.type = 'button';
+    finalCartBtn.className = 'cb-step3-cart-btn';
+    finalCartBtn.disabled = true;
+    finalCartBtn.textContent = resolveStepCartButtonLabel(box, ctx);
+    finalActions.appendChild(finalCartBtn);
 
     finalStage.appendChild(finalActions);
     container.appendChild(finalStage);
@@ -3450,7 +3417,6 @@
       });
 
       if (finalCartBtn) finalCartBtn.disabled = !ready;
-      if (finalCheckoutBtn) finalCheckoutBtn.disabled = !ready;
       return ready;
     }
 
@@ -3463,20 +3429,13 @@
         advanceTimer = null;
       }
 
-      stepArea.style.display = 'none';
+      stepArea.style.display = '';
       finalStage.style.display = '';
-      renderFinalSummary();
       refreshFinalState();
       syncGlobalWizard(true);
 
-      // The generic builder exposes its product section on ctx. Clear that
-      // reference while the Multiple Box is at its own final review stage so
-      // the global Back handler does not mistake this for a normal filled box.
-      ctx._productSection = null;
-
-      try {
-        finalStage.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      } catch (_) {}
+      // Keep the last Pack product grid in view; the final Add to Cart button
+      // appears below it without forcing the viewport away from the grid.
     }
 
     function restoreFinalButtons() {
@@ -3484,11 +3443,6 @@
         finalCartBtn.disabled = !refreshFinalState();
         finalCartBtn.classList.remove('cb-step3-cart-btn--loading');
         finalCartBtn.textContent = resolveStepCartButtonLabel(box, ctx);
-      }
-      if (finalCheckoutBtn) {
-        finalCheckoutBtn.disabled = !refreshFinalState();
-        finalCheckoutBtn.classList.remove('cb-step3-checkout-btn--loading');
-        finalCheckoutBtn.textContent = ctx.checkoutBtnLabel || 'Checkout';
       }
     }
 
@@ -3514,14 +3468,6 @@
         finalCartBtn.classList.add('cb-step3-cart-btn--loading');
         finalCartBtn.innerHTML = '<span class="cb-btn-spinner" aria-hidden="true"></span><span>Adding…</span>';
       }
-      if (finalCheckoutBtn) {
-        finalCheckoutBtn.disabled = true;
-        if (action === 'checkout') {
-          finalCheckoutBtn.classList.add('cb-step3-checkout-btn--loading');
-          finalCheckoutBtn.innerHTML = '<span class="cb-btn-spinner" aria-hidden="true"></span><span>Checkout…</span>';
-        }
-      }
-
       mbLog('final submit clicked', {
         action: action,
         boxId: box && box.id,
@@ -3554,13 +3500,6 @@
       finalCartBtn.addEventListener('click', function () {
         if (finalCartBtn.disabled) return;
         submitPackFlow('cart');
-      });
-    }
-
-    if (finalCheckoutBtn) {
-      finalCheckoutBtn.addEventListener('click', function () {
-        if (finalCheckoutBtn.disabled) return;
-        submitPackFlow('checkout');
       });
     }
 
@@ -3737,6 +3676,18 @@
           initialSlots: packSlotsByKey[index] || null,
           externalSlots: getAllOtherSelectedSlots(index),
           optional: isPackOptional(pack),
+          canGoPrev: function () {
+            return index > 0;
+          },
+          canGoNext: function () {
+            return index < packs.length - 1 && isPackComplete(index);
+          },
+          onPrevPack: function () {
+            if (index > 0) openStep(index - 1);
+          },
+          onNextPack: function () {
+            if (index < packs.length - 1 && isPackComplete(index)) openStep(index + 1);
+          },
           onSkip: function () {
             if (index !== currentIndex) return;
 
@@ -3777,6 +3728,10 @@
 
             decorateNow();
             refreshFinalState();
+            if (!isFlowComplete()) {
+              finalStage.style.display = 'none';
+              syncGlobalWizard(false);
+            }
 
             if (selectionChanged && slots.some(Boolean)) {
               // Brief pause so the customer sees the selected state before the
@@ -4138,6 +4093,40 @@
       });
     }
 
+    var packNavWrap = null;
+    var prevPackBtn = null;
+    var nextPackBtn = null;
+    if (stepOptions && (typeof stepOptions.onPrevPack === 'function' || typeof stepOptions.onNextPack === 'function')) {
+      packNavWrap = document.createElement('span');
+      packNavWrap.className = 'cb-pack-nav-controls';
+
+      if (typeof stepOptions.onPrevPack === 'function') {
+        prevPackBtn = document.createElement('button');
+        prevPackBtn.type = 'button';
+        prevPackBtn.className = 'cb-step-skip-btn cb-pack-nav-btn cb-pack-nav-btn--prev';
+        prevPackBtn.textContent = '<';
+        prevPackBtn.setAttribute('aria-label', 'Previous pack');
+        prevPackBtn.addEventListener('click', function () {
+          if (prevPackBtn.disabled) return;
+          stepOptions.onPrevPack();
+        });
+        packNavWrap.appendChild(prevPackBtn);
+      }
+
+      if (typeof stepOptions.onNextPack === 'function') {
+        nextPackBtn = document.createElement('button');
+        nextPackBtn.type = 'button';
+        nextPackBtn.className = 'cb-step-skip-btn cb-pack-nav-btn cb-pack-nav-btn--next';
+        nextPackBtn.textContent = '>';
+        nextPackBtn.setAttribute('aria-label', 'Next pack');
+        nextPackBtn.addEventListener('click', function () {
+          if (nextPackBtn.disabled) return;
+          stepOptions.onNextPack();
+        });
+        packNavWrap.appendChild(nextPackBtn);
+      }
+    }
+
     var productToolbar = document.createElement('div');
     productToolbar.className = 'cb-product-toolbar';
     productSection.appendChild(productToolbar);
@@ -4376,6 +4365,19 @@
     // ── Product Grid ──
     function renderProductGrid() {
       productLabel.textContent = 'Choose your Item ' + (activeSlotIndex + 1);
+      if (packNavWrap) {
+        if (prevPackBtn) {
+          prevPackBtn.disabled = typeof stepOptions.canGoPrev === 'function'
+            ? !stepOptions.canGoPrev()
+            : stepOptions && stepOptions.canGoPrev === false;
+        }
+        if (nextPackBtn) {
+          nextPackBtn.disabled = typeof stepOptions.canGoNext === 'function'
+            ? !stepOptions.canGoNext()
+            : stepOptions && stepOptions.canGoNext === false;
+        }
+        productLabel.appendChild(packNavWrap);
+      }
       if (skipStepBtn) {
         skipStepBtn.style.display = slots[activeSlotIndex] ? 'none' : 'inline-flex';
         productLabel.appendChild(skipStepBtn);
