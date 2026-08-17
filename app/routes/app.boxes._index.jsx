@@ -496,7 +496,7 @@ export default function ManageBoxesPage() {
     if (lastDeleteToastKey.current === toastKey) return;
 
     lastDeleteToastKey.current = toastKey;
-    showPolarisToast("Delete");
+    showPolarisToast("Image box deleted");
   }, [fetcher.state, fetcher.data, fetcher.formData]);
 
   // Reset to page 1 when filter/search changes

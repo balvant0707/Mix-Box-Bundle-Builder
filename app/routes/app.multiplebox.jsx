@@ -3089,7 +3089,7 @@ export default function CreateMultipleMixMatchBundlePage() {
         const json = await response.json().catch(() => null);
         throw new Error(json?.error || 'Failed to save bundle');
       }
-      navigate(withEmbeddedAppParams('/app/boxes?toast=Save%20configuration', location.search));
+      navigate(withEmbeddedAppParams('/app/boxes?toast=Configuration%20saved', location.search));
     } catch (error) {
       setSubmitError(error?.message || 'Failed to save bundle');
     } finally {

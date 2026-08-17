@@ -1359,7 +1359,7 @@ function buildImageDataUri(data, mimeType, url, options = true) {
   // fetched, cheap) as the "an image exists" signal in that case.
   const hasStoredImage = includeImageData ? Boolean(data) : Boolean(data || mimeType);
 
-  if (!includeImageData && hasStoredImage) return url || fallbackImageUrl || SAVED_IMAGE_PLACEHOLDER;
+  if (!includeImageData && hasStoredImage) return fallbackImageUrl || url || SAVED_IMAGE_PLACEHOLDER;
   if (data) {
     const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
     return `data:${mimeType || "image/jpeg"};base64,${buffer.toString("base64")}`;

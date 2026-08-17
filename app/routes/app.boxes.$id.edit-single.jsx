@@ -129,6 +129,62 @@ const COLLECTIONS_QUERY = `#graphql
   }
 `;
 
+const SELECTED_PRODUCTS_QUERY = `#graphql
+  query SelectedSimpleBundleProducts($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on Product {
+        id
+        title
+        handle
+        featuredImage {
+          url
+        }
+        variants(first: 1) {
+          edges {
+            node {
+              price
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+const SELECTED_COLLECTIONS_QUERY = `#graphql
+  query SelectedSimpleBundleCollections($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on Collection {
+        id
+        title
+        handle
+        image {
+          url
+        }
+        products(first: 10) {
+          edges {
+            node {
+              id
+              title
+              handle
+              featuredImage {
+                url
+              }
+              variants(first: 1) {
+                edges {
+                  node {
+                    price
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 function mapProductEdges(edges) {
   return (edges || []).map(({ node }) => {
     const price = node.variants?.edges?.[0]?.node?.price;
@@ -220,6 +276,60 @@ async function loadPickerPage(admin, resource, after = null) {
   };
 }
 
+function uniqueIds(values) {
+  return [...new Set((values || []).filter(Boolean))];
+}
+
+function collectSelectedResourceIds(pageConfig = {}) {
+  return {
+    productIds: uniqueIds([
+      ...(pageConfig.selectedProductIds || []),
+      ...(pageConfig.selectedGiftProductIds || []),
+    ]),
+    collectionIds: uniqueIds(pageConfig.selectedCollectionIds || []),
+  };
+}
+
+async function loadSelectedProducts(admin, ids) {
+  if (!ids.length) return [];
+
+  const response = await admin.graphql(SELECTED_PRODUCTS_QUERY, {
+    variables: { ids },
+  });
+  const json = await response.json();
+
+  if (json?.errors?.length) {
+    console.warn('[app.simple] selected products GraphQL errors', json.errors);
+    return [];
+  }
+
+  return mapProductEdges(
+    (json?.data?.nodes || [])
+      .filter(Boolean)
+      .map((node) => ({ node })),
+  );
+}
+
+async function loadSelectedCollections(admin, ids) {
+  if (!ids.length) return [];
+
+  const response = await admin.graphql(SELECTED_COLLECTIONS_QUERY, {
+    variables: { ids },
+  });
+  const json = await response.json();
+
+  if (json?.errors?.length) {
+    console.warn('[app.simple] selected collections GraphQL errors', json.errors);
+    return [];
+  }
+
+  return mapCollectionEdges(
+    (json?.data?.nodes || [])
+      .filter(Boolean)
+      .map((node) => ({ node })),
+  );
+}
+
 async function loadJsonOrNull(promise, label) {
   try {
     const response = await promise;
@@ -271,15 +381,22 @@ export const loader = async ({ request, params }) => {
     });
   }
 
+  const pageConfig = box.pageConfig || {};
+  const selectedResourceIds = collectSelectedResourceIds(pageConfig);
+  const [selectedProducts, selectedCollections] = await Promise.all([
+    loadSelectedProducts(admin, selectedResourceIds.productIds),
+    loadSelectedCollections(admin, selectedResourceIds.collectionIds),
+  ]);
+
   return {
     initialData: {
-      ...(box.pageConfig || {}),
+      ...pageConfig,
       ...box,
     },
     customers: [],
     customerTags: [],
-    products: [],
-    collections: [],
+    products: selectedProducts,
+    collections: selectedCollections,
     productsPageInfo: EMPTY_PAGE_INFO,
     collectionsPageInfo: EMPTY_PAGE_INFO,
   };
@@ -1562,10 +1679,10 @@ function useInfinitePickerPagination({
   }, [fetcher, loadingMore, open, resource, routePath]);
 
   useEffect(() => {
-    if (open && !items.length) {
+    if (open) {
       loadFirstPage();
     }
-  }, [items.length, loadFirstPage, open]);
+  }, [loadFirstPage, open]);
 
   const loadMore = useCallback(() => {
     const after = pageInfo?.endCursor;
@@ -2404,7 +2521,7 @@ export default function EditSingleMixMatchBundlePage() {
         const json = await response.json().catch(() => null);
         throw new Error(json?.error || 'Failed to save bundle');
       }
-      navigate(withEmbeddedAppParams('/app/boxes?toast=Save%20configuration', location.search));
+      navigate(withEmbeddedAppParams('/app/boxes?toast=Configuration%20saved', location.search));
     } catch (error) {
       const message = error?.message || 'Failed to save bundle';
       setSubmitError(message);
