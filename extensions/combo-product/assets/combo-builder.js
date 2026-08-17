@@ -2830,7 +2830,45 @@
   // position; other Packs render as read-only previews (their selected
   // product's thumbnail once done, a plain number until then), and a done
   // Pack's box is clickable to jump back and revisit it.
-  function decoratePackRow(slotStepsEl, packs, packKeysInOrder, packSlotsByKey, currentIndex, onRevisit) {
+  function isPackOptional(pack) {
+    if (!pack) return false;
+    return pack.optional === true || String(pack.optional).toLowerCase() === 'true';
+  }
+
+  function normalizeStepProduct(p) {
+    p = p || {};
+    var rawVarId = p && (p.variantId || p.selectedVariantId || null);
+    var numericVarId = rawVarId && String(rawVarId).indexOf('/') !== -1
+      ? String(rawVarId).split('/').pop()
+      : (rawVarId ? String(rawVarId) : null);
+    return {
+      productId: p.id || p.productId,
+      productTitle: p.title || p.productTitle || '',
+      productHandle: p.handle || p.productHandle || '',
+      productImageUrl: p.imageUrl || p.productImageUrl || null,
+      productPrice: parseFloat(p.price || p.productPrice) || 0,
+      productCompareAtPrice: parseFloat(p.compareAtPrice || p.productCompareAtPrice) || null,
+      productAvailable: p.productAvailable,
+      productOptions: p.productOptions,
+      colorValues: p.colorValues,
+      variants: p.variants,
+      variantIds: numericVarId ? [numericVarId] : (Array.isArray(p.variantIds) ? p.variantIds : []),
+      isCollection: !!p.isCollection,
+    };
+  }
+
+  function getInlineStepProducts(stepCfg, ctx) {
+    if (!stepCfg) return null;
+    if (Array.isArray(stepCfg.resolvedProducts) && stepCfg.resolvedProducts.length > 0) {
+      return filterInternalComboProducts(stepCfg.resolvedProducts.map(normalizeStepProduct), ctx);
+    }
+    if (Array.isArray(stepCfg.selectedProducts) && stepCfg.selectedProducts.length > 0) {
+      return filterInternalComboProducts(stepCfg.selectedProducts.map(normalizeStepProduct), ctx);
+    }
+    return null;
+  }
+
+  function decoratePackRow(slotStepsEl, packs, packKeysInOrder, packSlotsByKey, skippedPacksByIndex, currentIndex, onRevisit) {
     if (!slotStepsEl) return;
     var realSlotNode = slotStepsEl.querySelector('.cb-slot-step');
     slotStepsEl.innerHTML = '';
@@ -2848,10 +2886,12 @@
       }
 
       var slotProduct = (packSlotsByKey[packKeysInOrder[idx]] || []).filter(Boolean)[0] || null;
+      var isSkipped = !!skippedPacksByIndex[idx];
 
       var step = document.createElement('div');
       step.className = 'cb-slot-step';
       if (slotProduct) step.classList.add('cb-slot-step--filled');
+      else if (idx === currentIndex) step.classList.add('cb-slot-step--active');
 
       var numEl = document.createElement('div');
       numEl.className = 'cb-slot-step-num';
@@ -2872,7 +2912,7 @@
       labelEl.className = 'cb-slot-step-label';
       var smallText = document.createElement('span');
       smallText.className = 'cb-slot-step-small';
-      smallText.textContent = slotProduct ? 'Selected' : 'Select your';
+      smallText.textContent = slotProduct ? 'Selected' : (isSkipped ? 'Skipped' : (isPackOptional(pack) ? 'Optional' : 'Select your'));
       labelEl.appendChild(smallText);
 
       var itemLink = document.createElement('div');
@@ -2882,7 +2922,7 @@
       labelEl.appendChild(itemLink);
       step.appendChild(labelEl);
 
-      if (slotProduct && typeof onRevisit === 'function') {
+      if ((slotProduct || isSkipped) && typeof onRevisit === 'function') {
         step.style.cursor = 'pointer';
         step.addEventListener('click', function () { onRevisit(idx); });
       }
@@ -2945,19 +2985,83 @@
     // Pack's product then showed every other Pack as filled with it too).
     var packSlotsByKey = {};
     var packKeysInOrder = packs.map(function (pack, i) { return i; });
+    var skippedPacksByIndex = {};
+    var packProductsCache = {};
     var currentIndex = 0;
     var advanceTimer = null;
+    var stepLoadToken = 0;
 
-    function isPackComplete(key) {
+    function isPackComplete(key, index) {
       var slots = packSlotsByKey[key];
-      return Array.isArray(slots) && slots.some(Boolean);
+      return (Array.isArray(slots) && slots.some(Boolean)) || (isPackOptional(packs[index]) && !!skippedPacksByIndex[index]);
     }
 
     function firstIncompleteIndex() {
       for (var i = 0; i < packs.length; i++) {
-        if (!isPackComplete(packKeysInOrder[i])) return i;
+        if (!isPackComplete(packKeysInOrder[i], i)) return i;
       }
       return -1;
+    }
+
+    function nextIncompleteIndexAfter(index) {
+      for (var i = index + 1; i < packs.length; i++) {
+        if (!isPackComplete(packKeysInOrder[i], i)) return i;
+      }
+      return -1;
+    }
+
+    function getAllOtherSelectedSlots(index) {
+      var selected = [];
+      packs.forEach(function (_pack, idx) {
+        if (idx === index) return;
+        (packSlotsByKey[idx] || []).forEach(function (slot) {
+          if (slot) selected.push(slot);
+        });
+      });
+      return selected;
+    }
+
+    function getPackProducts(index, packBox, cb) {
+      if (packProductsCache[index]) { cb(null, packProductsCache[index]); return; }
+
+      var pack = packs[index];
+      var inlineProducts = getInlineStepProducts(pack, ctx);
+      if (inlineProducts) {
+        packProductsCache[index] = inlineProducts;
+        cb(null, inlineProducts);
+        return;
+      }
+
+      if (pack && pack.productConfiguration === 'selected_collections' && Array.isArray(pack.collections) && pack.collections.length > 0) {
+        var colls = pack.collections.filter(function (c) { return c && c.handle; });
+        if (!colls.length) { cb(null, []); return; }
+        var remaining = colls.length;
+        var allProds = [];
+        var seenIds = {};
+        var firstErr = null;
+        colls.forEach(function (coll) {
+          fetchCollectionProducts(coll.handle, function (err, prods) {
+            if (err) firstErr = err;
+            (prods || []).forEach(function (p) {
+              if (!p || seenIds[p.productId]) return;
+              seenIds[p.productId] = true;
+              allProds.push(p);
+            });
+            remaining--;
+            if (remaining === 0) {
+              var filtered = filterInternalComboProducts(allProds, ctx);
+              if (filtered.length > 0) packProductsCache[index] = filtered;
+              cb(filtered.length === 0 ? firstErr : null, filtered);
+            }
+          });
+        });
+        return;
+      }
+
+      fetchProducts(box.id, ctx.shop, ctx.apiBase, packBox.scopeType, pack.packKey, ctx, function (err, products) {
+        if (!err && products && products.length > 0) packProductsCache[index] = products;
+        cb(err, products);
+      });
     }
 
     var sessionId = generateSessionId();
@@ -2973,8 +3077,15 @@
       // need the real key, only the orchestrator's own bookkeeping doesn't.
       var packEntries = packs.map(function (p, idx) {
         return { packKey: getPackKey(p), packTitle: p.title, slots: packSlotsByKey[idx] || [] };
+      }).filter(function (entry) {
+        return (entry.slots || []).some(Boolean);
       });
       addPackStepsToCart(box, packEntries, sessionId, null, ctx, 'cart', function () {
+        packSlotsByKey = {};
+        skippedPacksByIndex = {};
+        refreshFinalCartState();
+        openStep(0);
+      }, function () {
         // Restore the button so the customer can retry after a failed submit.
         finalCartBtn.disabled = false;
         finalCartBtn.classList.remove('cb-inline-cart-btn--loading');
@@ -2984,14 +3095,31 @@
     });
 
     function refreshFinalCartState() {
-      var ready = firstIncompleteIndex() === -1;
+      var hasAnySelected = packs.some(function (_pack, idx) {
+        return (packSlotsByKey[idx] || []).some(Boolean);
+      });
+      var ready = firstIncompleteIndex() === -1 && hasAnySelected;
       finalCartBtn.disabled = !ready;
       if (ready) finalCartBtn.classList.add('cb-inline-cart-btn--ready');
       else finalCartBtn.classList.remove('cb-inline-cart-btn--ready');
     }
 
+    function advanceAfterStep(index) {
+      if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
+      var next = nextIncompleteIndexAfter(index);
+      if (next === -1) {
+        refreshFinalCartState();
+        return;
+      }
+      advanceTimer = setTimeout(function () {
+        advanceTimer = null;
+        openStep(next);
+      }, 450);
+    }
+
     function openStep(index) {
       if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
+      if (index < 0 || index >= packs.length) return;
       currentIndex = index;
       refreshFinalCartState();
 
@@ -3004,6 +3132,7 @@
           packs,
           packKeysInOrder,
           packSlotsByKey,
+          skippedPacksByIndex,
           currentIndex,
           function (doneIndex) { openStep(doneIndex); },
         );
@@ -3016,8 +3145,11 @@
       }
 
       showPageLoader('Loading products…');
-      fetchProducts(box.id, ctx.shop, ctx.apiBase, packBox.scopeType, pack.packKey, ctx, function (err, products) {
+      var loadToken = ++stepLoadToken;
+      stepArea.innerHTML = '';
+      getPackProducts(index, packBox, function (err, products) {
         hidePageLoader(true);
+        if (loadToken !== stepLoadToken) return;
         if (ctx._openBoxId !== box.id) return;
         if (err || !products || products.length === 0) {
           stepArea.innerHTML = '<p class="cb-error">Failed to load products. Please reload and try again.</p>';
@@ -3027,22 +3159,27 @@
         renderBuilder(stepArea, packBox, products, ctx, {
           hideOwnCartUI: true,
           initialSlots: packSlotsByKey[index] || null,
+          externalSlots: getAllOtherSelectedSlots(index),
+          optional: isPackOptional(pack),
+          onSkip: function () {
+            packSlotsByKey[index] = [];
+            skippedPacksByIndex[index] = true;
+            decorateNow();
+            refreshFinalCartState();
+            advanceAfterStep(index);
+          },
           onSlotsChange: function (slots) {
             packSlotsByKey[index] = slots.slice();
+            if (slots.some(Boolean)) skippedPacksByIndex[index] = false;
             if (index !== currentIndex) return;
 
             decorateNow();
             refreshFinalCartState();
 
-            if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
             if (slots.some(Boolean)) {
               // Brief pause so the customer sees their pick highlighted before
               // the Step transitions — not an immediate/jarring swap.
-              advanceTimer = setTimeout(function () {
-                advanceTimer = null;
-                var next = firstIncompleteIndex();
-                openStep(next === -1 ? index : next);
-              }, 450);
+              advanceAfterStep(index);
             }
           },
         });
@@ -3342,6 +3479,21 @@
     productLabel.className = 'cb-product-label';
     productSection.appendChild(productLabel);
 
+    var skipStepBtn = null;
+    if (stepOptions && stepOptions.optional && typeof stepOptions.onSkip === 'function') {
+      skipStepBtn = document.createElement('button');
+      skipStepBtn.type = 'button';
+      skipStepBtn.className = 'cb-step-skip-btn';
+      skipStepBtn.textContent = 'Skip';
+      skipStepBtn.addEventListener('click', function () {
+        slots[activeSlotIndex] = null;
+        renderSlots();
+        renderProductGrid();
+        updateCartButton();
+        stepOptions.onSkip();
+      });
+    }
+
     var productToolbar = document.createElement('div');
     productToolbar.className = 'cb-product-toolbar';
     productSection.appendChild(productToolbar);
@@ -3580,12 +3732,24 @@
     // ── Product Grid ──
     function renderProductGrid() {
       productLabel.textContent = 'Choose your Item ' + (activeSlotIndex + 1);
+      if (skipStepBtn) {
+        skipStepBtn.style.display = slots[activeSlotIndex] ? 'none' : 'inline-flex';
+        productLabel.appendChild(skipStepBtn);
+      }
       productGrid.innerHTML = '';
 
       var usedIds = [];
+      var externalUsedIds = [];
       var usedVariantIdsByProduct = {};
       if (!box.allowDuplicates) {
-        slots.forEach(function (p) {
+        var duplicateCheckSlots = slots.slice();
+        if (stepOptions && Array.isArray(stepOptions.externalSlots)) {
+          stepOptions.externalSlots.forEach(function (p) {
+            if (p) externalUsedIds.push(p.productId);
+          });
+          duplicateCheckSlots = duplicateCheckSlots.concat(stepOptions.externalSlots);
+        }
+        duplicateCheckSlots.forEach(function (p) {
           if (!p) return;
           usedIds.push(p.productId);
           if (p.selectedVariantId) {
@@ -3640,6 +3804,7 @@
         // When duplicate products are disabled, block the whole product card once the
         // product is already selected in another slot. Variant selection still applies
         // for the initial add, but the same product cannot be added a second time.
+        var isUsedByExternal = !box.allowDuplicates && externalUsedIds.indexOf(product.productId) !== -1 && !isCurrentSlot;
         var isUsed = productUsedById || allKnownVariantsUsed;
 
         var card = document.createElement('div');
@@ -3847,7 +4012,12 @@
         addBtn.type = 'button';
         if (isCurrentSlot || isUsed) {
           addBtn.className = 'cb-add-btn cb-add-btn--remove';
-          addBtn.innerHTML = '&times; REMOVE FROM BOX';
+          if (isUsedByExternal) {
+            addBtn.disabled = true;
+            addBtn.textContent = 'Already in box';
+          } else {
+            addBtn.innerHTML = '&times; REMOVE FROM BOX';
+          }
         } else {
           addBtn.className = 'cb-add-btn';
           addBtn.textContent = productGridBtnLabel;
@@ -3870,6 +4040,8 @@
               if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRemove(e); }
             });
           })(addBtn);
+        } else if (isUsedByExternal) {
+          card.setAttribute('aria-disabled', 'true');
         } else if (isUsed) {
           ;(function (p, aBtn) {
             function onRemove(e) {
@@ -5989,7 +6161,7 @@
   // their own _bundle_pack_key/_item_N properties — submitted together. Mirrors
   // addToCart()'s single-pack item/pricing/cart-refresh logic (that function
   // can't be reused directly here since it assumes exactly one Pack's slots).
-  function addPackStepsToCart(box, packEntries, sessionId, giftMessage, ctx, action, onError) {
+  function addPackStepsToCart(box, packEntries, sessionId, giftMessage, ctx, action, onSuccess, onError) {
     var resolvedApiBase = String((ctx && ctx.apiBase) || DEFAULT_API_BASE || '').replace(/\/+$/, '');
     var shop = ctx && ctx.shop;
     var sectionIds = ['cart-drawer', 'cart-icon-bubble', 'cart-notification-button', 'cart-notification'];
@@ -6122,6 +6294,7 @@
         scheduleGiftReconcile(shop, resolvedApiBase, 0);
         document.dispatchEvent(new CustomEvent('cart:refresh', { bubbles: true }));
         document.dispatchEvent(new CustomEvent('cart:updated', { bubbles: true }));
+        if (typeof onSuccess === 'function') onSuccess();
 
         if (action === 'checkout') {
           window.location.href = '/checkout';
