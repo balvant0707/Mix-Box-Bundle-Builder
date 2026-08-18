@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLoaderData, useLocation, useNavigate, useNavigation } from "react-router";
 import {
   Badge,
@@ -47,8 +47,6 @@ import {
 } from "../utils/theme-editor.server";
 import { withEmbeddedAppParams } from "../utils/embedded-app";
 import { formatCurrencyAmount } from "../utils/currency";
-import { fetchOrderLabelsByOrderIds } from "../utils/shopify-orders.server";
-import { fetchProductIdsByLabels, normalizeProductLookupLabel } from "../utils/shopify-products.server";
 
 function parseOrderSelectedProducts(value) {
   if (Array.isArray(value)) {
@@ -89,71 +87,38 @@ function getComboTypeFromBox(box) {
   return "single";
 }
 
-async function getShopifyOrdersCount(admin, fromIso, toIso) {
-  const ORDERS_COUNT_QUERY = `#graphql
-    query OrdersCount($query: String!) {
-      ordersCount(query: $query)
-    }
-  `;
-
-  const fromDate = new Date(fromIso).toISOString().slice(0, 10);
-  const toDate = new Date(toIso).toISOString().slice(0, 10);
-  const query = `status:any created_at:>=${fromDate} created_at:<=${toDate}`;
-
-  try {
-    const response = await admin.graphql(ORDERS_COUNT_QUERY, { variables: { query } });
-    const json = await response.json();
-    const raw = json?.data?.ordersCount;
-    if (Array.isArray(json?.errors) && json.errors.length > 0) {
-      return await getShopifyOrdersCountByPagination(admin, query);
-    }
-
-    if (typeof raw === "number") return raw;
-    if (raw && typeof raw.count === "number") return raw.count;
-    const fallback = await getShopifyOrdersCountByPagination(admin, query);
-    return fallback == null ? 0 : fallback;
-  } catch {
-    return await getShopifyOrdersCountByPagination(admin, query);
-  }
+function getStoreHandle(shop) {
+  return String(shop || "").replace(/\.myshopify\.com$/i, "");
 }
 
-async function getShopifyOrdersCountByPagination(admin, query) {
-  const ORDERS_PAGE_QUERY = `#graphql
-    query OrdersPage($query: String!, $after: String) {
-      orders(first: 250, query: $query, after: $after, sortKey: CREATED_AT, reverse: true) {
-        pageInfo { hasNextPage endCursor }
-        nodes { id }
-      }
-    }
-  `;
-
-  try {
-    let total = 0;
-    let after = null;
-    let safety = 0;
-
-    do {
-      const response = await admin.graphql(ORDERS_PAGE_QUERY, {
-        variables: { query, after },
-      });
-      const json = await response.json();
-      if (Array.isArray(json?.errors) && json.errors.length > 0) return null;
-      const nodes = json?.data?.orders?.nodes || [];
-      const pageInfo = json?.data?.orders?.pageInfo;
-
-      total += nodes.length;
-      after = pageInfo?.endCursor || null;
-      safety += 1;
-
-      if (!pageInfo?.hasNextPage) break;
-      if (!after) break;
-      if (safety > 40) break; // Hard cap: 10k orders for dashboard KPI.
-    } while (true);
-
-    return total;
-  } catch {
-    return null;
+function buildThemeEditorFallbackUrl(shop) {
+  const storeHandle = getStoreHandle(shop);
+  const apiKey = process.env.SHOPIFY_API_KEY?.trim();
+  const destination = new URL(`https://admin.shopify.com/store/${storeHandle}/themes/current/editor`);
+  destination.searchParams.set("template", "product");
+  if (apiKey) {
+    destination.searchParams.set("addAppBlockId", `${apiKey}/combo-builder`);
+    destination.searchParams.set("target", "newAppsSection");
   }
+  return destination.toString();
+}
+
+function buildEmbedFallbackUrl(shop) {
+  const storeHandle = getStoreHandle(shop);
+  const apiKey = process.env.SHOPIFY_API_KEY?.trim();
+  const destination = new URL(`https://admin.shopify.com/store/${storeHandle}/themes/current/editor`);
+  destination.searchParams.set("context", "apps");
+  if (apiKey) {
+    destination.searchParams.set("activateAppId", `${apiKey}/combo-embed`);
+  }
+  return destination.toString();
+}
+
+function withTimeout(promise, fallback, ms = 800) {
+  return Promise.race([
+    promise.catch(() => fallback),
+    new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
 }
 
 export const loader = async ({ request }) => {
@@ -191,24 +156,21 @@ export const loader = async ({ request }) => {
     }
   }
 
-  const now = new Date();
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-
   const [activeBoxCount, bundlesSold, bundleRevenue, recentOrders, currencyCode, totalStoreOrdersLast30Days, storeOwnerName] =
     await Promise.all([
       getActiveBoxCount(shop),
       getBundlesSoldCount(shop),
       getBundleRevenue(shop),
-      getRecentOrders(shop, 100),
+      getRecentOrders(shop, 10),
       getShopCurrencyCode(shop),
-      getShopifyOrdersCount(admin, thirtyDaysAgo.toISOString(), now.toISOString()),
+      Promise.resolve(null),
       getShopOwnerDisplayName(shop),
     ]);
 
   const [themeEditorUrl, embedBlockUrl, embedBlockEnabled] = await Promise.all([
-    buildThemeEditorUrl({ shop, admin }),
-    buildEmbedBlockUrl({ shop, admin }),
-    getEmbedBlockStatus({ shop, admin, session }),
+    withTimeout(buildThemeEditorUrl({ shop, admin }), buildThemeEditorFallbackUrl(shop)),
+    withTimeout(buildEmbedBlockUrl({ shop, admin }), buildEmbedFallbackUrl(shop)),
+    withTimeout(getEmbedBlockStatus({ shop, admin, session }), false),
   ]);
 
   // Order limit tracking for upgrade prompt
@@ -238,15 +200,6 @@ export const loader = async ({ request }) => {
       ? (bundlesSold / totalStoreOrdersLast30Days) * 100
       : 0;
 
-  const orderLabelsFromAdmin = await fetchOrderLabelsByOrderIds(
-    admin,
-    recentOrders.map((order) => order.orderId),
-  );
-  const selectedProductLabels = recentOrders.flatMap((order) =>
-    parseOrderSelectedProducts(order.selectedProducts),
-  );
-  const productIdByLabel = await fetchProductIdsByLabels(admin, selectedProductLabels);
-
   return {
     activeBoxCount,
     bundlesSold,
@@ -273,18 +226,14 @@ export const loader = async ({ request }) => {
     storeOwnerName,
     shopDomain: shop,
     recentOrders: recentOrders.map((order) => {
-      const normalizedOrderId = String(order.orderId || "").replace(/\D/g, "");
-      const adminLabel = orderLabelsFromAdmin.get(normalizedOrderId);
       return {
       id: order.id,
       orderId: order.orderId,
       orderName:
         order.orderName ||
-        adminLabel?.orderName ||
         null,
       orderNumber:
         order.orderNumber ??
-        adminLabel?.orderNumber ??
         null,
       boxTitle: order.box?.displayTitle || "Unknown Box",
       itemCount: order.box?.itemCount || 0,
@@ -293,7 +242,7 @@ export const loader = async ({ request }) => {
       selectedProducts: parseOrderSelectedProducts(order.selectedProducts),
       selectedProductEntries: parseOrderSelectedProducts(order.selectedProducts).map((label) => ({
         label,
-        productId: productIdByLabel.get(normalizeProductLookupLabel(label)) || null,
+        productId: null,
       })),
       bundlePrice: parseFloat(order.bundlePrice),
       orderDate: order.orderDate.toISOString(),
@@ -323,6 +272,22 @@ const promotedApps = [
     url: "https://apps.shopify.com/fomoify-sales-popup-proof",
     image: "/images/fomoify.png",
     description: "Increase trust using real-time sales popups and conversion proof nudges.",
+  },
+  {
+    key: "nex-ai-seo-product-description",
+    title: "Nex AI SEO Product Description",
+    tag: "AI SEO",
+    url: "https://apps.shopify.com/ai-seo-product-description",
+    image: "/images/AI Content App - Final Logo 1.png",
+    description: "Create optimized product descriptions and SEO content with AI.",
+  },
+  {
+    key: "boltr-bulk-price-editor",
+    title: "Boltr Bulk Price Editor",
+    tag: "Pricing",
+    url: "https://apps.shopify.com/boltr-bulk-price-editor",
+    image: "/images/c0a4f57c6f2803211055e011288accb6_200x200.png",
+    description: "Update product prices in bulk and manage pricing changes faster.",
   },
 ];
 function StatCard({ label, value, sub }) {
@@ -423,6 +388,32 @@ export default function DashboardPage() {
   const justSubscribed = new URLSearchParams(location.search).get("subscribed") === "1";
   const isPageLoading = navigation.state !== "idle";
   const RECENT_ORDERS_PAGE_SIZE = 10;
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.PerformanceObserver === "undefined") return;
+
+    let observer;
+    try {
+      observer = new window.PerformanceObserver((entryList) => {
+        const entries = entryList.getEntries();
+        const lastEntry = entries[entries.length - 1];
+        if (!lastEntry) return;
+
+        console.log("[Dashboard LCP]", {
+          timeMs: Math.round(lastEntry.startTime),
+          element: lastEntry.element?.tagName || null,
+          url: lastEntry.url || null,
+        });
+      });
+      observer.observe({ type: "largest-contentful-paint", buffered: true });
+    } catch (_) {
+      // PerformanceObserver support varies in embedded contexts.
+    }
+
+    return () => {
+      if (observer) observer.disconnect();
+    };
+  }, []);
 
   function navigateTo(path) {
     if (navInFlightRef.current || navigation.state !== "idle") return;

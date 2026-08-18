@@ -19,62 +19,66 @@ export const action = async ({ request }) => {
 
   console.log(`Received ${topic} webhook for ${shop}`);
 
-  const appSubscription = payload?.app_subscription || payload || {};
-  const status = String(appSubscription.status || "").toUpperCase();
-  const subscriptionId =
-    appSubscription.admin_graphql_api_id ||
-    appSubscription.id ||
-    null;
-  const subscriptionName =
-    appSubscription.name ||
-    appSubscription.plan_name ||
-    appSubscription.planName ||
-    "";
+  try {
+    const appSubscription = payload?.app_subscription || payload || {};
+    const status = String(appSubscription.status || "").toUpperCase();
+    const subscriptionId =
+      appSubscription.admin_graphql_api_id ||
+      appSubscription.id ||
+      null;
+    const subscriptionName =
+      appSubscription.name ||
+      appSubscription.plan_name ||
+      appSubscription.planName ||
+      "";
 
-  const existing = await getSubscription(shop);
-  const currentPeriodEnd =
-    toDateOrNull(appSubscription.current_period_end) ||
-    toDateOrNull(appSubscription.currentPeriodEnd) ||
-    existing?.currentPeriodEnd ||
-    null;
+    const existing = await getSubscription(shop);
+    const currentPeriodEnd =
+      toDateOrNull(appSubscription.current_period_end) ||
+      toDateOrNull(appSubscription.currentPeriodEnd) ||
+      existing?.currentPeriodEnd ||
+      null;
 
-  if (!status) {
-    console.warn("[webhooks.app_subscriptions.update] Missing subscription status", { shop, payload });
-    return new Response(null, { status: 200 });
-  }
-
-  switch (status) {
-    case "ACTIVE":
-      await saveSubscription(shop, {
-        plan: getPlanKeyFromName(subscriptionName) || existing?.plan || "PLUS",
-        status: "ACTIVE",
-        subscriptionId: subscriptionId || existing?.subscriptionId || null,
-        trialEndsAt: existing?.trialEndsAt || null,
-        currentPeriodEnd,
-      });
-      await setShopPlanStatus(shop, "active").catch(() => {});
-      break;
-
-    case "CANCELLED": {
-      const nextSubscription = await cancelPlan(shop, {
-        subscriptionId: subscriptionId || existing?.subscriptionId || null,
-        currentPeriodEnd,
-      });
-      const isPaid = nextSubscription?.plan && nextSubscription.plan !== "FREE";
-      await setShopPlanStatus(shop, isPaid ? "active" : "free").catch(() => {});
-      break;
+    if (!status) {
+      console.warn("[webhooks.app_subscriptions.update] Missing subscription status", { shop, payload });
+      return new Response(null, { status: 200 });
     }
 
-    case "EXPIRED":
-    case "DECLINED":
-    case "FROZEN":
-      await deleteSubscription(shop);
-      await setShopPlanStatus(shop, "free").catch(() => {});
-      break;
+    switch (status) {
+      case "ACTIVE":
+        await saveSubscription(shop, {
+          plan: getPlanKeyFromName(subscriptionName) || existing?.plan || "PLUS",
+          status: "ACTIVE",
+          subscriptionId: subscriptionId || existing?.subscriptionId || null,
+          trialEndsAt: existing?.trialEndsAt || null,
+          currentPeriodEnd,
+        });
+        await setShopPlanStatus(shop, "active").catch(() => {});
+        break;
 
-    default:
-      console.info("[webhooks.app_subscriptions.update] Ignoring unsupported status", { shop, status });
-      break;
+      case "CANCELLED": {
+        const nextSubscription = await cancelPlan(shop, {
+          subscriptionId: subscriptionId || existing?.subscriptionId || null,
+          currentPeriodEnd,
+        });
+        const isPaid = nextSubscription?.plan && nextSubscription.plan !== "FREE";
+        await setShopPlanStatus(shop, isPaid ? "active" : "free").catch(() => {});
+        break;
+      }
+
+      case "EXPIRED":
+      case "DECLINED":
+      case "FROZEN":
+        await deleteSubscription(shop);
+        await setShopPlanStatus(shop, "free").catch(() => {});
+        break;
+
+      default:
+        console.info("[webhooks.app_subscriptions.update] Ignoring unsupported status", { shop, status });
+        break;
+    }
+  } catch (error) {
+    console.error("[webhooks.app_subscriptions.update] post-auth processing failed", { shop, error });
   }
 
   return new Response(null, { status: 200 });

@@ -15,23 +15,27 @@ export const action = async ({ request }) => {
     : [];
 
   if (!customerId && orderIdsToRedact.length === 0) {
-    return new Response();
+    return new Response(null, { status: 200 });
   }
 
-  const orClauses = [];
-  if (customerId) orClauses.push({ shop, customerId });
-  if (orderIdsToRedact.length > 0) orClauses.push({ shop, orderId: { in: orderIdsToRedact } });
+  try {
+    const orClauses = [];
+    if (customerId) orClauses.push({ shop, customerId });
+    if (orderIdsToRedact.length > 0) orClauses.push({ shop, orderId: { in: orderIdsToRedact } });
 
-  const result = await db.bundleOrder.deleteMany({
-    where: { OR: orClauses },
-  });
+    const result = await db.bundleOrder.deleteMany({
+      where: { OR: orClauses },
+    });
 
-  console.info("[privacy.customers_redact] deleted records", {
-    shop,
-    customerId,
-    orderIdsRequested: orderIdsToRedact,
-    deletedCount: result.count,
-  });
+    console.info("[privacy.customers_redact] deleted records", {
+      shop,
+      customerId,
+      orderIdsRequested: orderIdsToRedact,
+      deletedCount: result.count,
+    });
+  } catch (error) {
+    console.error("[privacy.customers_redact] post-auth processing failed", { shop, error });
+  }
 
-  return new Response();
+  return new Response(null, { status: 200 });
 };

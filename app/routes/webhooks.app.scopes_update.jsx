@@ -5,9 +5,13 @@ export const action = async ({ request }) => {
   const { payload, topic, shop } = await authenticate.webhook(request);
 
   console.log(`Received ${topic} webhook for ${shop}`);
-  const currentScopes = payload.current;
 
-  await updateShopScope(shop, currentScopes);
+  try {
+    const currentScopes = payload?.current;
+    await updateShopScope(shop, currentScopes);
+  } catch (error) {
+    console.error("[webhooks.app.scopes_update] post-auth processing failed", { shop, error });
+  }
 
-  return new Response();
+  return new Response(null, { status: 200 });
 };
