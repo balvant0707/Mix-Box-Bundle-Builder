@@ -53,6 +53,7 @@ import { withEmbeddedAppParams } from '../utils/embedded-app';
 import { resolveImageField } from '../utils/image-upload';
 import { showPolarisToast } from '../utils/polaris-toast';
 import { getBox } from '../models/boxes.server';
+import { loadCustomerEligibilityOptions } from '../utils/customer-eligibility.server';
 
 const PICKER_PAGE_SIZE = 10;
 const EMPTY_PAGE_INFO = {
@@ -453,9 +454,10 @@ export const loader = async ({ request, params }) => {
 
   const pageConfig = box.pageConfig || {};
   const selectedResourceIds = collectSelectedResourceIds(pageConfig);
-  const [selectedProducts, selectedCollections] = await Promise.all([
+  const [selectedProducts, selectedCollections, customerEligibilityOptions] = await Promise.all([
     loadSelectedProducts(admin, selectedResourceIds.productIds),
     loadSelectedCollections(admin, selectedResourceIds.collectionIds),
+    loadCustomerEligibilityOptions(admin),
   ]);
 
   return {
@@ -463,8 +465,8 @@ export const loader = async ({ request, params }) => {
       ...pageConfig,
       ...box,
     },
-    customers: [],
-    customerTags: [],
+    customers: customerEligibilityOptions.customers,
+    customerTags: customerEligibilityOptions.customerTags,
     products: selectedProducts,
     collections: selectedCollections,
     productsPageInfo: EMPTY_PAGE_INFO,

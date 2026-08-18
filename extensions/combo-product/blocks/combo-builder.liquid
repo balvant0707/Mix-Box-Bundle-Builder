@@ -29,6 +29,8 @@
   data-box-type-filter="{{ block.settings.box_type_filter | default: 'all' }}"
   data-page-template="{{ template.name }}"
   data-show-all-boxes="true"
+  data-customer-id="{% if customer %}{{ customer.id }}{% endif %}"
+  data-customer-tags="{% if customer %}{{ customer.tags | join: ',' | escape }}{% endif %}"
   {% case template.name %}
     {% when 'page' %}
     data-page-handle="page:{{ page.handle }}"
@@ -63,6 +65,8 @@
     apiBase:        '/apps/product-builder',
     showAllBoxes:   true,
     productHandle:  '{{ product.handle }}',
+    customerId:     '{% if customer %}{{ customer.id }}{% endif %}',
+    customerTags:   {% if customer %}{{ customer.tags | json }}{% else %}[]{% endif %},
     layoutMode:        '{{ block.settings.layout_mode | default: "grid" }}',
     enableStickyCart:  {{ block.settings.enable_sticky_cart | default: true, allow_false: true | json }},
     cartBtnLabel:      '{{ block.settings.cart_btn_label | default: "Add To Cart" | escape }}',

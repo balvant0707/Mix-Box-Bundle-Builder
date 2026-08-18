@@ -205,6 +205,11 @@ export const loader = async ({ request }) => {
       displayCompareAtPrice: !!pageConfig?.displayCompareAtPrice,
       redirectToCheckout: !!pageConfig?.redirectToCheckout,
       redirectToCart: !!pageConfig?.redirectToCart,
+      eligibility: Array.isArray(pageConfig?.eligibility) && pageConfig.eligibility.length
+        ? pageConfig.eligibility
+        : ["all"],
+      customerTags: pageConfig?.customerTags || "",
+      customers: pageConfig?.customers || "",
       // Only present when the box/page is dynamically priced — see
       // buildDiscountConfig() for why manual pricing must never reach here.
       pageDiscount: pageConfig?.bundlePriceType === "dynamic" ? buildDiscountConfig(pageConfig) : null,

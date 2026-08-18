@@ -17,6 +17,8 @@
     currency:       '{{ cart.currency.iso_code }}',
     currencySymbol: '{{ cart.currency.symbol }}',
     apiBase:        '/apps/product-builder',
+    customerId:     '{% if customer %}{{ customer.id }}{% endif %}',
+    customerTags:   {% if customer %}{{ customer.tags | json }}{% else %}[]{% endif %},
     productId:      '{{ product.id }}',
     productHandle:  '{{ product.handle }}',
     autoProductBox: true,
@@ -35,6 +37,8 @@
     data-currency="{{ cart.currency.iso_code }}"
     data-currency-symbol="{{ cart.currency.symbol }}"
     data-api-base="/apps/product-builder"
+    data-customer-id="{% if customer %}{{ customer.id }}{% endif %}"
+    data-customer-tags="{% if customer %}{{ customer.tags | join: ',' | escape }}{% endif %}"
     data-product-id="{{ product.id }}"
     data-product-handle="{{ product.handle }}"
     data-auto-product-box="true"

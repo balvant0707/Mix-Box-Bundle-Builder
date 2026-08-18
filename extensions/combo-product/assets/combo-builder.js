@@ -1857,6 +1857,8 @@
       root.dataset.showAllBoxes != null ? root.dataset.showAllBoxes : config.showAllBoxes,
       false
     );
+    var currentCustomerId = normalizeShopifyProductId(root.dataset.customerId || config.customerId || null);
+    var currentCustomerTags = parseDelimitedList(root.dataset.customerTags || config.customerTags || []);
     var boxTypeFilter = String(root.dataset.boxTypeFilter || config.boxTypeFilter || 'all').toLowerCase();
     if (boxTypeFilter !== 'single' && boxTypeFilter !== 'multiple') boxTypeFilter = 'all';
     var currentProductId = normalizeShopifyProductId(root.dataset.productId || config.productId || null);
@@ -2031,6 +2033,14 @@
       if (!boxes || boxes.length === 0) {
         cbLog('initWidget fetch callback: EXIT — API returned no boxes');
         if (productBoxOnly) hideProductOnlyRoot(root, 'API returned no bundle for current product');
+        return;
+      }
+
+      boxes = filterBoxesByCustomerEligibility(boxes, currentCustomerId, currentCustomerTags);
+      if (!boxes || boxes.length === 0) {
+        cbLog('initWidget fetch callback: EXIT - no boxes allowed for current customer eligibility');
+        if (productBoxOnly) hideProductOnlyRoot(root, 'customer eligibility blocked current product bundle');
+        else root.innerHTML = '';
         return;
       }
 
@@ -2264,6 +2274,53 @@
         }
       })
       .catch(function (e) { cbLog('fetchBoxes: ERROR', e && e.message); cb(e, null, {}); });
+  }
+
+  function parseDelimitedList(value) {
+    if (Array.isArray(value)) {
+      return value.map(function (entry) { return String(entry || '').trim(); }).filter(Boolean);
+    }
+    if (value == null) return [];
+    return String(value)
+      .split(',')
+      .map(function (entry) { return entry.trim(); })
+      .filter(Boolean);
+  }
+
+  function hasMatchingCustomerTag(requiredTags, currentTags) {
+    if (!requiredTags.length) return false;
+    var current = {};
+    currentTags.forEach(function (tag) {
+      current[String(tag || '').trim().toLowerCase()] = true;
+    });
+    return requiredTags.some(function (tag) {
+      return current[String(tag || '').trim().toLowerCase()] === true;
+    });
+  }
+
+  function isBoxAllowedForCustomer(box, customerId, customerTags) {
+    var eligibility = parseDelimitedList(box && box.eligibility);
+    if (!eligibility.length || eligibility.indexOf('all') !== -1) return true;
+
+    if (eligibility.indexOf('tags') !== -1) {
+      if (hasMatchingCustomerTag(parseDelimitedList(box && box.customerTags), customerTags)) {
+        return true;
+      }
+    }
+
+    if (eligibility.indexOf('specific') !== -1) {
+      var selectedCustomers = parseDelimitedList(box && box.customers).map(normalizeShopifyProductId);
+      if (customerId && selectedCustomers.indexOf(customerId) !== -1) return true;
+    }
+
+    return false;
+  }
+
+  function filterBoxesByCustomerEligibility(boxes, customerId, customerTags) {
+    if (!Array.isArray(boxes)) return [];
+    return boxes.filter(function (box) {
+      return isBoxAllowedForCustomer(box, customerId, customerTags);
+    });
   }
 
   function normalizeShopifyProductId(value) {

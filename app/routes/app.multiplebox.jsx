@@ -51,6 +51,7 @@ import { ToggleSwitch } from '../components/toggle-switch';
 import { authenticate } from '../shopify.server';
 import { withEmbeddedAppParams } from '../utils/embedded-app';
 import { resolveImageField } from '../utils/image-upload';
+import { loadCustomerEligibilityOptions } from '../utils/customer-eligibility.server';
 
 const PICKER_PAGE_SIZE = 10;
 const BOX_CODE_MIN_LENGTH = 3;
@@ -322,7 +323,7 @@ export const loader = async ({ request }) => {
     }
   }
 
-  const [productsJson, collectionsJson] = await Promise.all([
+  const [productsJson, collectionsJson, customerEligibilityOptions] = await Promise.all([
     loadJsonOrNull(
       admin.graphql(PRODUCTS_QUERY, {
         variables: { first: PICKER_PAGE_SIZE, after: null },
@@ -335,6 +336,7 @@ export const loader = async ({ request }) => {
       }),
       'collections',
     ),
+    loadCustomerEligibilityOptions(admin),
   ]);
 
   if (
@@ -351,8 +353,8 @@ export const loader = async ({ request }) => {
   const collections = mapCollectionEdges(collectionsJson?.data?.collections?.edges);
 
   return {
-    customers: [],
-    customerTags: [],
+    customers: customerEligibilityOptions.customers,
+    customerTags: customerEligibilityOptions.customerTags,
     products,
     collections,
     productsPageInfo: getPageInfo(productsJson?.data?.products),
