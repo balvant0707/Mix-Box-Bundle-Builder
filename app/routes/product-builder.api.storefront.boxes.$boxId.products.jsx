@@ -1,6 +1,6 @@
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
-import { resolveSelectableProducts } from "../models/boxes.server";
+import { resolveSelectableProducts, resolveWholeStoreProductsPage } from "../models/boxes.server";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -32,6 +32,10 @@ export const loader = async ({ request, params }) => {
   const packKey = url.searchParams.get("packKey") || null;
   const rawPackIndex = url.searchParams.get("packIndex");
   const packIndex = rawPackIndex != null ? Number.parseInt(rawPackIndex, 10) : null;
+  const after = url.searchParams.get("after") || null;
+  const before = url.searchParams.get("before") || null;
+  const first = Number.parseInt(url.searchParams.get("first") || "24", 10) || 24;
+  const search = url.searchParams.get("search") || "";
   const previewBoxCode = (url.searchParams.get("previewBoxCode") || "").trim();
   const isPreviewRequest = !!previewBoxCode;
 
@@ -122,6 +126,17 @@ export const loader = async ({ request, params }) => {
   }
 
   try {
+    if (productSourceConfig.productConfiguration === "whole_store") {
+      const page = await resolveWholeStoreProductsPage(admin, {
+        first,
+        after,
+        before,
+        search,
+        hideOutOfStockProducts: !!pageConfig.hideOutOfStockProducts,
+      });
+      return Response.json(page, { headers: CORS_HEADERS });
+    }
+
     const publicProducts = await resolveSelectableProducts(admin, {
       productConfiguration: productSourceConfig.productConfiguration,
       selectedProductIds: parseJsonArray(productSourceConfig.selectedProductIdsJson),

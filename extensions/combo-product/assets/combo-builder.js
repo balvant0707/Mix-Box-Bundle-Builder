@@ -1398,22 +1398,11 @@
     if (!root || root.getAttribute('data-cb-auto-positioned') === '1') return;
 
     var blockedContainer = root.closest && root.closest('header, footer, .shopify-section-group-header-group, .shopify-section-group-footer-group, [id*="shopify-section-header"], [id*="shopify-section-footer"]');
-    var productArea = document.querySelector('.product, .main-product, [data-section-type="product"], [id*="MainProduct"], [id*="main-product"]');
     var main = document.querySelector('main, #MainContent, [role="main"], .main-content, .content-for-layout');
     var footer = document.querySelector('footer, .shopify-section-group-footer-group, [id*="shopify-section-footer"], .site-footer');
 
-    if (productArea && productArea.contains(root) && !blockedContainer) {
-      root.setAttribute('data-cb-auto-positioned', '1');
-      return;
-    }
-
-    if (productArea && productArea !== root && !root.contains(productArea)) {
-      productArea.appendChild(root);
-      root.setAttribute('data-cb-auto-positioned', '1');
-      return;
-    }
-
-    if (main && main.contains(root) && !blockedContainer) {
+    if (footer && footer.parentNode && footer !== root && !footer.contains(root)) {
+      footer.parentNode.insertBefore(root, footer);
       root.setAttribute('data-cb-auto-positioned', '1');
       return;
     }
@@ -1424,16 +1413,15 @@
       return;
     }
 
-    if (!footer || !footer.parentNode || footer === root || footer.contains(root)) {
-      if (document.body && root.parentNode !== document.body) {
-        document.body.appendChild(root);
-        root.setAttribute('data-cb-auto-positioned', '1');
-      }
+    if (main && main.contains(root) && !blockedContainer) {
+      root.setAttribute('data-cb-auto-positioned', '1');
       return;
     }
 
-    footer.parentNode.insertBefore(root, footer);
-    root.setAttribute('data-cb-auto-positioned', '1');
+    if (document.body && root.parentNode !== document.body) {
+      document.body.appendChild(root);
+      root.setAttribute('data-cb-auto-positioned', '1');
+    }
   }
 
   // A freshly AJAX-rendered auto-embed root may not have had initWidget()
@@ -2283,13 +2271,22 @@
     if (scopeType === 'wholestore') {
       // Whole-store scope has no per-box/per-pack product list to speak of —
       // it's every storefront product, resolved the same way regardless of packKey.
-      fetchWholeStoreProducts(function (err, products) {
-        if (err) {
-          cb(err, null);
-          return;
-        }
-        cb(null, filterInternalComboProducts(products, ctx));
-      });
+      var pageUrl = apiBase + '/api/storefront/boxes/' + boxId + '/products?shop=' + encodeURIComponent(shop);
+      if (packKey) pageUrl += '&packKey=' + encodeURIComponent(packKey);
+      if (packIndex != null) pageUrl += '&packIndex=' + encodeURIComponent(String(packIndex));
+      if (ctx && ctx.previewBoxCode) pageUrl += '&previewBoxCode=' + encodeURIComponent(ctx.previewBoxCode);
+      var pageSize = options && options.first ? parseInt(String(options.first), 10) : 24;
+      pageUrl += '&first=' + encodeURIComponent(String(Math.max(1, Math.min(50, pageSize || 24))));
+      if (options && options.after) pageUrl += '&after=' + encodeURIComponent(options.after);
+      if (options && options.before) pageUrl += '&before=' + encodeURIComponent(options.before);
+      if (options && options.search) pageUrl += '&search=' + encodeURIComponent(options.search);
+      fetch(pageUrl, { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (data) {
+          var products = Array.isArray(data && data.products) ? data.products : [];
+          cb(null, filterInternalComboProducts(products, ctx), data && data.pageInfo ? data.pageInfo : null);
+        })
+        .catch(function (e) { cb(e, null, null); });
       return;
     }
     var url = apiBase + '/api/storefront/boxes/' + boxId + '/products?shop=' + encodeURIComponent(shop);
@@ -2299,10 +2296,11 @@
     fetch(url, { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (data) {
+        var rawProducts = Array.isArray(data) ? data : (Array.isArray(data && data.products) ? data.products : []);
         var products = options && options.allowInternalProducts
-          ? (Array.isArray(data) ? data : [])
-          : filterInternalComboProducts(data, ctx);
-        cb(null, products);
+          ? rawProducts
+          : filterInternalComboProducts(rawProducts, ctx);
+        cb(null, products, data && data.pageInfo ? data.pageInfo : null);
       })
       .catch(function (e) { cb(e, null); });
   }
@@ -2345,8 +2343,21 @@
     cbLog('renderWidget: proceeding to build DOM, marked data-cb-rendered=1', cbDescribeRoot(root));
     cbWatchRootDisappearance(root);
 
+    var multipleBoxCount = (ctx.boxes || []).filter(function (box) {
+      return Array.isArray(box && box.quantityPacks) && box.quantityPacks.length > 0;
+    }).length;
+    if (!ctx.productBoxOnly && ctx.layoutMode !== 'steps' && multipleBoxCount > 1) {
+      (ctx.boxes || []).forEach(function (box, index) {
+        if (!Array.isArray(box && box.quantityPacks) || box.quantityPacks.length === 0) return;
+        renderIndependentBundleSection(root, box, ctx, index);
+      });
+      cbLog('renderWidget: rendered independent multiple bundle sections', 'count=' + multipleBoxCount);
+      return;
+    }
+
     var wrapper = document.createElement('div');
     wrapper.className = 'cb-wrapper';
+    ctx._wrapper = wrapper;
 
     // ── Steps Mode: 3-stage wizard progress bar ──────────────────────────────
     if (ctx.layoutMode === 'steps') {
@@ -2492,6 +2503,45 @@
   }
 
   // ─── Box Card ─────────────────────────────────────────────────────────────────
+
+  function renderIndependentBundleSection(root, box, ctx, index) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'cb-wrapper cb-wrapper--independent';
+    wrapper.setAttribute('data-box-id', String(box && box.id));
+
+    var builderArea = document.createElement('div');
+    builderArea.className = 'cb-builder-area';
+    builderArea.style.display = 'block';
+    wrapper.appendChild(builderArea);
+    root.appendChild(wrapper);
+
+    var childCtx = Object.assign({}, ctx, {
+      boxes: [box],
+      rootEl: root,
+      _wrapper: wrapper,
+      _openBoxId: box && box.id,
+      _independentIndex: index,
+    });
+
+    var designStyle = buildBoxDesignStyle(box && box.designSettings);
+    if (designStyle) builderArea.setAttribute('style', designStyle);
+    applyBoxDesignStyle(wrapper, box && box.designSettings);
+
+    if (Array.isArray(box && box.quantityPacks) && box.quantityPacks.length > 0) {
+      renderPackPicker(builderArea, box, childCtx);
+      return;
+    }
+
+    showPageLoader('Loading products...');
+    fetchProducts(box.id, childCtx.shop, childCtx.apiBase, box.scopeType, null, childCtx, function (err, products) {
+      hidePageLoader(true);
+      if (err || !products || products.length === 0) {
+        builderArea.innerHTML = '<p class="cb-error">Failed to load products. Please reload and try again.</p>';
+        return;
+      }
+      renderBuilder(builderArea, box, products, childCtx);
+    });
+  }
 
   function appendShopParam(url, shop) {
     if (!url || !shop || /[?&]shop=/.test(url)) return url;
@@ -2672,7 +2722,7 @@
   // ─── Open Builder ─────────────────────────────────────────────────────────────
 
   function openBuilder(box, ctx) {
-    var wrapper = document.querySelector('.cb-wrapper');
+    var wrapper = ctx && ctx._wrapper ? ctx._wrapper : document.querySelector('.cb-wrapper');
     if (!wrapper) return;
     var builderArea = wrapper.querySelector('.cb-builder-area');
     if (!builderArea) return;
@@ -3164,6 +3214,7 @@
     var packSlotsByKey = {};
     var packKeysInOrder = packs.map(function (_pack, i) { return i; });
     var packProductsCache = {};
+    var packWholeStorePageState = {};
 
     // Explicit state is required so an optional Pack that was intentionally
     // skipped is not confused with a Pack the customer has never visited.
@@ -3248,7 +3299,7 @@
     function getPackProducts(index, packBox, cb) {
       if (packProductsCache[index]) {
         mbLog('products cache hit', { step: index + 1, count: packProductsCache[index].length });
-        cb(null, packProductsCache[index]);
+        cb(null, packProductsCache[index], null);
         return;
       }
 
@@ -3257,7 +3308,7 @@
       if (inlineProducts) {
         packProductsCache[index] = inlineProducts;
         mbLog('products resolved inline', { step: index + 1, count: inlineProducts.length });
-        cb(null, inlineProducts);
+        cb(null, inlineProducts, null);
         return;
       }
 
@@ -3269,7 +3320,7 @@
       ) {
         var colls = pack.collections.filter(function (c) { return c && c.handle; });
         if (!colls.length) {
-          cb(null, []);
+          cb(null, [], null);
           return;
         }
 
@@ -3300,7 +3351,7 @@
                 error: firstErr && firstErr.message
               });
 
-              cb(firstErr && filtered.length === 0 ? firstErr : null, filtered);
+              cb(firstErr && filtered.length === 0 ? firstErr : null, filtered, null);
             }
           });
         });
@@ -3314,9 +3365,16 @@
         packBox.scopeType,
         getPackKey(pack),
         ctx,
-        function (err, products) {
-          if (!err && products && products.length > 0) {
+        function (err, products, pageInfo) {
+          if (!err && products && products.length > 0 && packBox.scopeType !== 'wholestore') {
             packProductsCache[index] = products;
+          }
+          if (!err && packBox.scopeType === 'wholestore') {
+            packWholeStorePageState[index] = {
+              pageInfo: pageInfo || null,
+              cursorStack: [],
+              search: ''
+            };
           }
 
           mbLog('products resolved from API', {
@@ -3327,7 +3385,7 @@
             error: err && err.message
           });
 
-          cb(err, products);
+          cb(err, products, pageInfo || null);
         },
         index,
         { allowInternalProducts: true }
@@ -3753,7 +3811,7 @@
       var loadToken = ++stepLoadToken;
       stepArea.innerHTML = '';
 
-      getPackProducts(index, packBox, function (err, products) {
+      getPackProducts(index, packBox, function (err, products, pageInfo) {
         hidePageLoader(true);
 
         if (destroyed || loadToken !== stepLoadToken) return;
@@ -3776,9 +3834,64 @@
           count: products.length
         });
 
+        var wholeStorePager = null;
+        if (packBox && packBox.scopeType === 'wholestore') {
+          packWholeStorePageState[index] = packWholeStorePageState[index] || {
+            pageInfo: pageInfo || null,
+            cursorStack: [],
+            search: ''
+          };
+          packWholeStorePageState[index].pageInfo = pageInfo || packWholeStorePageState[index].pageInfo || null;
+      wholeStorePager = {
+            pageInfo: packWholeStorePageState[index].pageInfo,
+            canGoPrevious: function () {
+              var state = packWholeStorePageState[index] || {};
+              return !!(state.pageInfo && state.pageInfo.hasPreviousPage && state.pageInfo.startCursor);
+            },
+            previousCursor: function () {
+              var state = packWholeStorePageState[index] || {};
+              return state.pageInfo && state.pageInfo.startCursor ? state.pageInfo.startCursor : null;
+            },
+            loadPage: function (request, done) {
+              var state = packWholeStorePageState[index] || { pageInfo: null, cursorStack: [], search: '' };
+              var nextSearch = String(request && request.search || '');
+              var reset = !!(request && request.reset) || nextSearch !== String(state.search || '');
+              var backwards = !!(request && request.backwards);
+              var after = reset ? null : ((request && request.after) || null);
+              var before = reset ? null : ((request && request.before) || null);
+
+              fetchProducts(
+                box.id,
+                ctx.shop,
+                ctx.apiBase,
+                packBox.scopeType,
+                getPackKey(pack),
+                ctx,
+                function (pageErr, nextProducts, nextPageInfo) {
+                  if (!pageErr) {
+                    if (reset) {
+                      state.cursorStack = [];
+                    } else if (!backwards && state.pageInfo && state.pageInfo.startCursor) {
+                      state.cursorStack.push(state.pageInfo.startCursor);
+                    }
+                    state.search = nextSearch;
+                    state.pageInfo = nextPageInfo || null;
+                    packWholeStorePageState[index] = state;
+                    wholeStorePager.pageInfo = state.pageInfo;
+                  }
+                  done(pageErr, nextProducts || [], nextPageInfo || null);
+                },
+                index,
+                { allowInternalProducts: true, after: after, before: before, search: nextSearch, first: 24 }
+              );
+            }
+          };
+        }
+
         renderBuilder(stepArea, packBox, products, ctx, {
           hideOwnCartUI: true,
           nestedStepFlow: true,
+          wholeStorePager: wholeStorePager,
           initialSlots: packSlotsByKey[index] || null,
           externalSlots: getAllOtherSelectedSlots(index),
           optional: isPackOptional(pack),
@@ -3912,6 +4025,10 @@
     container.innerHTML = '';
 
     var searchTerm = '';
+    var wholeStorePager = stepOptions && stepOptions.wholeStorePager ? stepOptions.wholeStorePager : null;
+    var wholeStorePageInfo = wholeStorePager && wholeStorePager.pageInfo ? wholeStorePager.pageInfo : null;
+    var wholeStoreLoading = false;
+    var wholeStoreSearchTimer = null;
     var selectedProductsPerRow = normalizeProductGridControlPerRow(ctx.settings && ctx.settings.productCardsPerRow);
     var sessionId = generateSessionId();
     var initialSlots = (stepOptions && Array.isArray(stepOptions.initialSlots)) ? stepOptions.initialSlots : null;
@@ -4248,6 +4365,13 @@
       searchInput.placeholder = 'Search products...';
       searchInput.addEventListener('input', function () {
         searchTerm = String(searchInput.value || '').trim().toLowerCase();
+        if (wholeStorePager && typeof wholeStorePager.loadPage === 'function') {
+          if (wholeStoreSearchTimer) clearTimeout(wholeStoreSearchTimer);
+          wholeStoreSearchTimer = setTimeout(function () {
+            loadWholeStorePage(null, searchTerm, true);
+          }, 250);
+          return;
+        }
         renderProductGrid();
       });
       searchWrap.appendChild(searchInput);
@@ -4299,6 +4423,10 @@
     var productGrid = document.createElement('div');
     productGrid.className = ctx.layout === 'list' ? 'cb-product-list' : 'cb-product-grid';
     productSection.appendChild(productGrid);
+    var wholeStorePagination = document.createElement('div');
+    wholeStorePagination.className = 'cb-product-pagination';
+    wholeStorePagination.style.display = 'none';
+    productSection.appendChild(wholeStorePagination);
     applyProductsPerRow(selectedProductsPerRow);
     container.appendChild(productSection);
     ctx._productSection = productSection;
@@ -4925,6 +5053,64 @@
         }
 
         productGrid.appendChild(card);
+      });
+
+      renderWholeStorePagination();
+    }
+
+    function renderWholeStorePagination() {
+      if (!wholeStorePager) return;
+      wholeStorePagination.innerHTML = '';
+      wholeStorePagination.style.display = 'flex';
+
+      var prevBtn = document.createElement('button');
+      prevBtn.type = 'button';
+      prevBtn.className = 'cb-product-page-btn';
+      prevBtn.textContent = 'Previous';
+      prevBtn.disabled = wholeStoreLoading || !wholeStorePager.canGoPrevious();
+      prevBtn.addEventListener('click', function () {
+        if (prevBtn.disabled) return;
+        loadWholeStorePage(null, searchTerm, false, true, wholeStorePager.previousCursor());
+      });
+
+      var pageLabel = document.createElement('span');
+      pageLabel.className = 'cb-product-page-label';
+      pageLabel.textContent = wholeStoreLoading ? 'Loading products...' : 'Product page';
+
+      var nextBtn = document.createElement('button');
+      nextBtn.type = 'button';
+      nextBtn.className = 'cb-product-page-btn';
+      nextBtn.textContent = 'Next';
+      nextBtn.disabled = wholeStoreLoading || !(wholeStorePageInfo && wholeStorePageInfo.hasNextPage && wholeStorePageInfo.endCursor);
+      nextBtn.addEventListener('click', function () {
+        if (nextBtn.disabled) return;
+        loadWholeStorePage(wholeStorePageInfo.endCursor, searchTerm, false, false);
+      });
+
+      wholeStorePagination.appendChild(prevBtn);
+      wholeStorePagination.appendChild(pageLabel);
+      wholeStorePagination.appendChild(nextBtn);
+    }
+
+    function loadWholeStorePage(after, search, reset, backwards, before) {
+      if (!wholeStorePager || wholeStoreLoading || typeof wholeStorePager.loadPage !== 'function') return;
+      wholeStoreLoading = true;
+      renderWholeStorePagination();
+      wholeStorePager.loadPage({
+        after: after || null,
+        before: before || null,
+        search: search || '',
+        reset: !!reset,
+        backwards: !!backwards,
+      }, function (err, nextProducts, nextPageInfo) {
+        wholeStoreLoading = false;
+        if (err) {
+          renderWholeStorePagination();
+          return;
+        }
+        products = Array.isArray(nextProducts) ? nextProducts : [];
+        wholeStorePageInfo = nextPageInfo || null;
+        renderProductGrid();
       });
     }
 

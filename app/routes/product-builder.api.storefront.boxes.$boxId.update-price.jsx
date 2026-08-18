@@ -1,5 +1,6 @@
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
+import { hideBundleProductFromOnlineStore } from "../models/boxes.server";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -151,6 +152,7 @@ export const action = async ({ request, params }) => {
     // Ensure ACTIVE + published, then update price — all before responding so
     // the client can immediately call /cart/add.js and find the variant.
     await activateAndPublish(admin, box.shopifyProductId);
+    await hideBundleProductFromOnlineStore(admin, box.shopifyProductId);
 
     const resp = await admin.graphql(UPDATE_VARIANT_PRICE_MUTATION, {
       variables: {

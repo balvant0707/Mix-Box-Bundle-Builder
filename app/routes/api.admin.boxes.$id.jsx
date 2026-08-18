@@ -167,6 +167,18 @@ export const loader = async ({ request, params }) => {
   return Response.json(box);
 };
 
+function getActionableSaveError(error) {
+  const message = String(error?.message || "").trim();
+  if (!message) return "Failed to save bundle. Please review the bundle configuration and try again.";
+  if (/Shopify|userErrors|productCreate|productVariantsBulkUpdate|discount/i.test(message)) {
+    return message
+      .replace(/^Shopify\s+/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  return message;
+}
+
 export const action = async ({ request, params }) => {
   const { session, admin } = await authenticate.admin(request);
   const id = parseInt(params.id);
@@ -216,11 +228,12 @@ export const action = async ({ request, params }) => {
           });
       return Response.json(persistedBox || updated);
     } catch (error) {
+      console.error("[api.admin.boxes.$id] failed to update box", error);
       if (error instanceof BoxCodeValidationError || error?.name === "BoxCodeValidationError") {
         return Response.json({ error: error.message }, { status: 400 });
       }
 
-      throw error;
+      return Response.json({ error: getActionableSaveError(error) }, { status: 400 });
     }
   }
 

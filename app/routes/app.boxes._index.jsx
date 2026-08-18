@@ -845,7 +845,31 @@ export default function ManageBoxesPage() {
                           </span>
                           <BlockStack gap="050">
                             <InlineStack gap="150" blockAlign="center">
-                              <Text variant="bodySm" fontWeight="semibold" as="span">{box.boxName}</Text>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const editPath = box.boxType === "single"
+                                    ? `/app/boxes/${box.id}/edit-single`
+                                    : box.boxType === "multiple"
+                                      ? `/app/boxes/${box.id}/edit-multiple`
+                                      : `/app/boxes/${box.id}`;
+                                  handleNavigate(editPath);
+                                }}
+                                style={{
+                                  appearance: "none",
+                                  border: 0,
+                                  background: "transparent",
+                                  padding: 0,
+                                  margin: 0,
+                                  color: "var(--p-color-text-link)",
+                                  cursor: "pointer",
+                                  font: "inherit",
+                                  fontWeight: 600,
+                                  textAlign: "left",
+                                }}
+                              >
+                                {box.boxName}
+                              </button>
                               {box.isGiftBox && (
                                 <Tooltip content="Gift bundle">
                                   <Badge tone="warning" icon={GiftCardIcon}>Gift</Badge>

@@ -538,6 +538,44 @@ function getDiscountSubmissionFields(form, source = form) {
   };
 }
 
+function getMultipleBundleValidationErrors(form) {
+  const errors = [];
+  const packs = Array.isArray(form.quantityPacks) ? form.quantityPacks : [];
+
+  if (packs.length === 0) {
+    errors.push('Please configure all required packs before saving the bundle.');
+    return errors;
+  }
+
+  packs.forEach((pack, index) => {
+    const label = `Pack ${index + 1}`;
+    const productItems = Number.parseInt(String(pack.productItems || ''), 10);
+    if (!productItems || productItems < 1) {
+      errors.push(`${label}: Product quantity is required.`);
+    }
+
+    if (!pack.productConfiguration) {
+      errors.push(`${label}: Product configuration is incomplete.`);
+      return;
+    }
+
+    if (pack.productConfiguration === 'selected_products' && !(pack.selectedProductIds || []).length) {
+      errors.push(`${label}: Please select at least one product.`);
+    }
+
+    if (pack.productConfiguration === 'selected_collections' && !(pack.selectedCollectionIds || []).length) {
+      errors.push(`${label}: Please select at least one collection.`);
+    }
+  });
+
+  return errors;
+}
+
+function formatBundleSaveErrors(errors) {
+  if (!errors.length) return '';
+  return ['Unable to save bundle.', ...errors.map((error) => `• ${error}`)].join('\n');
+}
+
 const PRODUCT_CONFIGURATION_OPTIONS = [
   { label: 'Wholestore', value: 'whole_store' },
   { label: 'Select products', value: 'selected_products' },
@@ -3229,6 +3267,15 @@ export default function EditMultipleMixMatchBundlePage() {
       showPolarisToast(message, { isError: true });
       return;
     }
+    const bundleErrors = getMultipleBundleValidationErrors(form);
+    if (bundleErrors.length) {
+      const message = formatBundleSaveErrors(bundleErrors);
+      setSubmitError(message);
+      setSelectedTab(1);
+      showPolarisToast('Please fix the highlighted bundle configuration.', { isError: true });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
     try {
       setSaving(true);
       setSubmitError('');
@@ -3280,6 +3327,7 @@ export default function EditMultipleMixMatchBundlePage() {
       }
       navigate(withEmbeddedAppParams('/app/boxes?toast=Configuration%20saved', location.search));
     } catch (error) {
+      console.error('[app.boxes.edit-multiple] failed to save bundle', error);
       const message = error?.message || 'Failed to save bundle';
       setSubmitError(message);
       showPolarisToast(message, { isError: true });
@@ -3312,7 +3360,9 @@ export default function EditMultipleMixMatchBundlePage() {
         <BlockStack gap="400">
           {submitError ? (
             <Banner tone="critical">
-              <p>{submitError}</p>
+              {submitError.split('\n').map((line) => (
+                <p key={line}>{line}</p>
+              ))}
             </Banner>
           ) : null}
 

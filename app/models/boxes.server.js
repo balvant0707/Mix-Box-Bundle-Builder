@@ -192,6 +192,32 @@ const RESOLVE_PRODUCTS_BY_COLLECTION_QUERY = `#graphql
   }
 `;
 
+const RESOLVE_WHOLE_STORE_PRODUCTS_QUERY = `#graphql
+  query ResolveWholeStoreProducts($first: Int, $after: String, $last: Int, $before: String, $query: String) {
+    products(first: $first, after: $after, last: $last, before: $before, query: $query) {
+      edges {
+        node {
+          id
+          title
+          handle
+          status
+          vendor
+          productType
+          featuredImage { url }
+          options {
+            name
+            values
+          }
+          variants(first: 100) {
+            edges { node { id price availableForSale inventoryQuantity selectedOptions { name value } } }
+          }
+        }
+      }
+      pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+    }
+  }
+`;
+
 function mapGraphqlProductNode(node, { hideOutOfStockProducts = false } = {}) {
   if (!node || node.status !== "ACTIVE") return null;
   const variantEdges = node.variants?.edges || [];
@@ -266,6 +292,37 @@ export async function getProductHandlesByIds(admin, productIds = []) {
     }
   });
   return map;
+}
+
+export async function resolveWholeStoreProductsPage(
+  admin,
+  { first = 24, after = null, before = null, search = "", hideOutOfStockProducts = false } = {},
+) {
+  const safeFirst = Math.max(1, Math.min(50, Number.parseInt(String(first), 10) || 24));
+  const trimmedSearch = String(search || "").trim();
+  const query = trimmedSearch ? `title:*${trimmedSearch.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}*` : null;
+  const resp = await admin.graphql(RESOLVE_WHOLE_STORE_PRODUCTS_QUERY, {
+    variables: before
+      ? { first: null, after: null, last: safeFirst, before, query }
+      : { first: safeFirst, after: after || null, last: null, before: null, query },
+  });
+  const json = await resp.json();
+  if (json?.errors?.length) {
+    console.error("[resolveWholeStoreProductsPage] GraphQL errors:", json.errors);
+    throw new Error("Unable to load whole store products");
+  }
+  const connection = json?.data?.products || {};
+  return {
+    products: (connection.edges || [])
+      .map((edge) => mapGraphqlProductNode(edge.node, { hideOutOfStockProducts }))
+      .filter(Boolean),
+    pageInfo: connection.pageInfo || {
+      hasNextPage: false,
+      hasPreviousPage: false,
+      startCursor: null,
+      endCursor: null,
+    },
+  };
 }
 
 /**
@@ -376,6 +433,15 @@ const GET_PUBLICATIONS_QUERY = `#graphql
 const PUBLISH_TO_CHANNEL_MUTATION = `#graphql
   mutation publishablePublish($id: ID!, $input: [PublicationInput!]!) {
     publishablePublish(id: $id, input: $input) {
+      publishable { ... on Product { id } }
+      userErrors { field message }
+    }
+  }
+`;
+
+const UNPUBLISH_FROM_CHANNEL_MUTATION = `#graphql
+  mutation publishableUnpublish($id: ID!, $input: [PublicationInput!]!) {
+    publishableUnpublish(id: $id, input: $input) {
       publishable { ... on Product { id } }
       userErrors { field message }
     }
@@ -874,6 +940,31 @@ async function getOnlineStorePublicationId(admin) {
   }
 }
 
+export async function hideBundleProductFromOnlineStore(admin, shopifyProductId) {
+  if (!admin || !shopifyProductId) return;
+  const pubId = await getOnlineStorePublicationId(admin);
+  if (!pubId) {
+    console.warn("[hideBundleProductFromOnlineStore] Could not find Online Store publication ID");
+    return;
+  }
+  try {
+    const response = await admin.graphql(UNPUBLISH_FROM_CHANNEL_MUTATION, {
+      variables: { id: shopifyProductId, input: [{ publicationId: pubId }] },
+    });
+    const json = await response.json();
+    const topLevelErrors = extractGraphqlMessages(json);
+    const userErrors = json?.data?.publishableUnpublish?.userErrors || [];
+    if (topLevelErrors.length > 0 || userErrors.length > 0) {
+      console.warn("[hideBundleProductFromOnlineStore] publishableUnpublish warnings:", {
+        errors: topLevelErrors,
+        userErrors,
+      });
+    }
+  } catch (error) {
+    console.error("[hideBundleProductFromOnlineStore] error:", error);
+  }
+}
+
 // imageSource: a URL string, or { bytes: base64 string, mimeType, fileName }
 async function addImageToProduct(admin, productId, imageSource) {
   let imageUrl = null;
@@ -1171,6 +1262,8 @@ export async function createShopifyBundleProduct(admin, title, bundlePrice, imag
   } else {
     console.warn("[createShopifyBundleProduct] Could not find Online Store publication ID — product may not be purchasable via storefront");
   }
+
+  await hideBundleProductFromOnlineStore(admin, shopifyProductId);
 
   return { shopifyProductId, shopifyVariantId };
 }

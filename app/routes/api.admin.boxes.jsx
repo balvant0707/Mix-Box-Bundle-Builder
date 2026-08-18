@@ -166,6 +166,18 @@ export const loader = async ({ request }) => {
   return Response.json(boxes);
 };
 
+function getActionableSaveError(error) {
+  const message = String(error?.message || "").trim();
+  if (!message) return "Failed to save bundle. Please review the bundle configuration and try again.";
+  if (/Shopify|userErrors|productCreate|productVariantsBulkUpdate|discount/i.test(message)) {
+    return message
+      .replace(/^Shopify\s+/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  return message;
+}
+
 export const action = async ({ request }) => {
   if (request.method !== "POST") {
     return Response.json({ error: "Method not allowed" }, { status: 405 });
@@ -206,10 +218,11 @@ export const action = async ({ request }) => {
         });
     return Response.json(persistedBox || box, { status: 201 });
   } catch (error) {
+    console.error("[api.admin.boxes] failed to save box", error);
     if (error instanceof BoxCodeValidationError || error?.name === "BoxCodeValidationError") {
       return Response.json({ error: error.message }, { status: 400 });
     }
 
-    throw error;
+    return Response.json({ error: getActionableSaveError(error) }, { status: 400 });
   }
 };
