@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useLoaderData, useLocation, useNavigate, useNavigation } from "react-router";
 import {
   Badge,
@@ -386,32 +386,6 @@ export default function DashboardPage() {
   const justSubscribed = new URLSearchParams(location.search).get("subscribed") === "1";
   const isPageLoading = navigation.state !== "idle";
   const RECENT_ORDERS_PAGE_SIZE = 10;
-
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.PerformanceObserver === "undefined") return;
-
-    let observer;
-    try {
-      observer = new window.PerformanceObserver((entryList) => {
-        const entries = entryList.getEntries();
-        const lastEntry = entries[entries.length - 1];
-        if (!lastEntry) return;
-
-        console.log("[Dashboard LCP]", {
-          timeMs: Math.round(lastEntry.startTime),
-          element: lastEntry.element?.tagName || null,
-          url: lastEntry.url || null,
-        });
-      });
-      observer.observe({ type: "largest-contentful-paint", buffered: true });
-    } catch (_) {
-      // PerformanceObserver support varies in embedded contexts.
-    }
-
-    return () => {
-      if (observer) observer.disconnect();
-    };
-  }, []);
 
   function navigateTo(path) {
     if (navInFlightRef.current || navigation.state !== "idle") return;

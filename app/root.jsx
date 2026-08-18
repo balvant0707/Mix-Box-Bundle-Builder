@@ -1,4 +1,37 @@
+import { useEffect } from "react";
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+
+function LcpConsoleLogger() {
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.PerformanceObserver === "undefined") return;
+
+    let observer;
+    try {
+      observer = new window.PerformanceObserver((entryList) => {
+        const entries = entryList.getEntries();
+        const lastEntry = entries[entries.length - 1];
+        if (!lastEntry) return;
+
+        console.log("[Page LCP]", {
+          timeMs: Math.round(lastEntry.startTime),
+          path: window.location.pathname,
+          route: `${window.location.pathname}${window.location.search}`,
+          element: lastEntry.element?.tagName || null,
+          url: lastEntry.url || null,
+        });
+      });
+      observer.observe({ type: "largest-contentful-paint", buffered: true });
+    } catch (_) {
+      // PerformanceObserver support varies in embedded browser contexts.
+    }
+
+    return () => {
+      if (observer) observer.disconnect();
+    };
+  }, []);
+
+  return null;
+}
 
 export default function App() {
   return (
@@ -38,6 +71,7 @@ export default function App() {
         `}</style>
       </head>
       <body>
+        <LcpConsoleLogger />
         <Outlet />
         <ScrollRestoration />
         <Scripts />
