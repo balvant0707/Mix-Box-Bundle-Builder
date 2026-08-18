@@ -259,7 +259,10 @@ export async function getProductHandlesByIds(admin, productIds = []) {
   const map = {};
   (json?.data?.nodes || []).forEach((node) => {
     if (node?.id && node?.handle) {
-      map[String(node.id).split("/").pop()] = node.handle;
+      map[String(node.id).split("/").pop()] = {
+        handle: node.handle,
+        imageUrl: node.featuredImage?.url || null,
+      };
     }
   });
   return map;

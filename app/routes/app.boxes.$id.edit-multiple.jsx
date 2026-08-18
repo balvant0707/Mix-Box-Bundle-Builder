@@ -60,6 +60,7 @@ const EMPTY_PAGE_INFO = {
   endCursor: null,
 };
 const EMPTY_ITEMS = [];
+const INTERNAL_PRODUCT_TAG = 'combo-builder-internal';
 
 function normalizeBoxCode(value) {
   return String(value || '').trim();
@@ -73,6 +74,7 @@ const PRODUCTS_QUERY = `#graphql
           id
           title
           handle
+          tags
           featuredImage {
             url
           }
@@ -110,6 +112,7 @@ const COLLECTIONS_QUERY = `#graphql
                 id
                 title
                 handle
+                tags
                 featuredImage {
                   url
                 }
@@ -140,6 +143,7 @@ const SELECTED_PRODUCTS_QUERY = `#graphql
         id
         title
         handle
+        tags
         featuredImage {
           url
         }
@@ -171,6 +175,7 @@ const SELECTED_COLLECTIONS_QUERY = `#graphql
               id
               title
               handle
+              tags
               featuredImage {
                 url
               }
@@ -189,8 +194,17 @@ const SELECTED_COLLECTIONS_QUERY = `#graphql
   }
 `;
 
+function hasInternalProductTag(node) {
+  return (node?.tags || []).some(
+    (tag) => String(tag || '').trim().toLowerCase() === INTERNAL_PRODUCT_TAG,
+  );
+}
+
 function mapProductEdges(edges) {
-  return (edges || []).map(({ node }) => {
+  return (edges || [])
+    .map(({ node }) => node)
+    .filter((node) => node && !hasInternalProductTag(node))
+    .map((node) => {
     const price = node.variants?.edges?.[0]?.node?.price;
 
     return {

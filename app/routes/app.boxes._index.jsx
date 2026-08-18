@@ -164,20 +164,23 @@ function getBannerImageDataUri(box) {
   return `data:${box.bannerImageMimeType};base64,${base64}`;
 }
 
-function buildBoxImageUrl(box, field, page) {
+function buildBoxImageUrl(box, field, page, requestSearch = "") {
   if (!page?.[`${field}MimeType`]) return null;
   const versionSource = page?.updatedAt || box?.updatedAt || box?.createdAt;
   const version = versionSource ? new Date(versionSource).getTime() : "";
-  return `/api/admin/boxes/${box.id}/image/${field}${version ? `?v=${version}` : ""}`;
+  const params = new URLSearchParams(requestSearch || "");
+  if (version) params.set("v", version);
+  const query = params.toString();
+  return `/api/admin/boxes/${box.id}/image/${field}${query ? `?${query}` : ""}`;
 }
 
-function getBoxListImageSrc(box) {
+function getBoxListImageSrc(box, requestSearch = "") {
   const page = box?.simpleBoxPage || box?.multipleBoxPage || null;
   return (
     page?.bundleImageUrl ||
-    buildBoxImageUrl(box, "bundleImage", page) ||
+    buildBoxImageUrl(box, "bundleImage", page, requestSearch) ||
     page?.bannerImageUrl ||
-    buildBoxImageUrl(box, "bannerImage", page) ||
+    buildBoxImageUrl(box, "bannerImage", page, requestSearch) ||
     box?.bannerImageUrl ||
     getBannerImageDataUri(box)
   );
@@ -185,6 +188,7 @@ function getBoxListImageSrc(box) {
 
 export const loader = async ({ request }) => {
   const { session, admin } = await authenticate.admin(request);
+  const url = new URL(request.url);
   let boxes = await listBoxes(session.shop);
   boxes = boxes.filter((box) => box.simpleBoxPage || box.multipleBoxPage);
 
@@ -196,7 +200,7 @@ export const loader = async ({ request }) => {
   const linkedProductIds = Array.from(new Set(
     boxes.map((b) => b.shopifyProductId).filter(Boolean),
   ));
-  const productHandleById = linkedProductIds.length > 0
+  const productDetailsById = linkedProductIds.length > 0
     ? await getProductHandlesByIds(admin, linkedProductIds).catch(() => ({}))
     : {};
 
@@ -205,7 +209,13 @@ export const loader = async ({ request }) => {
       const numericProductId = b.shopifyProductId
         ? String(b.shopifyProductId).split("/").pop()
         : null;
-      const linkedProductHandle = numericProductId ? productHandleById[numericProductId] : null;
+      const linkedProductDetails = numericProductId ? productDetailsById[numericProductId] : null;
+      const linkedProductHandle = typeof linkedProductDetails === "string"
+        ? linkedProductDetails
+        : linkedProductDetails?.handle || null;
+      const linkedProductImageUrl = typeof linkedProductDetails === "object"
+        ? linkedProductDetails?.imageUrl || null
+        : null;
       const previewBaseUrl = linkedProductHandle
         ? `https://${session.shop}/products/${linkedProductHandle}`
         : null;
@@ -227,7 +237,7 @@ export const loader = async ({ request }) => {
         orderCount: b._count?.orders ?? 0,
         comboConfig: getComboConfigSummary(b),
         discount: getDiscountSummary(b),
-        listImageSrc: getBoxListImageSrc(b),
+        listImageSrc: linkedProductImageUrl || getBoxListImageSrc(b, url.search),
         previewUrl: buildBundlePreviewUrl(
           session.shop,
           b.boxCode || b.id,
