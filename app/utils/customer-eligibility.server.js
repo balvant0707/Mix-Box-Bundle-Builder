@@ -1,9 +1,12 @@
 const CUSTOMER_PAGE_SIZE = 50;
-const CUSTOMER_TAG_PAGE_SIZE = 100;
 
 const CUSTOMERS_QUERY = `#graphql
   query ComboBuilderCustomers($first: Int!) {
-    customers(first: $first, sortKey: UPDATED_AT, reverse: true) {
+    customers(
+      first: $first
+      sortKey: UPDATED_AT
+      reverse: true
+    ) {
       edges {
         node {
           id
@@ -18,98 +21,133 @@ const CUSTOMERS_QUERY = `#graphql
   }
 `;
 
-const CUSTOMER_TAGS_QUERY = `#graphql
-  query ComboBuilderCustomerTags($first: Int!) {
-    customerTags(first: $first) {
-      edges {
-        node
-      }
-    }
-  }
-`;
-
 function customerColorFromId(id) {
-  const colors = ['#36bffa', '#22c55e', '#a855f7', '#f97316', '#14b8a6', '#ef4444'];
-  const value = String(id || '');
+  const colors = [
+    "#36bffa",
+    "#22c55e",
+    "#a855f7",
+    "#f97316",
+    "#14b8a6",
+    "#ef4444",
+  ];
+
+  const value = String(id || "");
   let hash = 0;
+
   for (let index = 0; index < value.length; index += 1) {
     hash = (hash + value.charCodeAt(index)) % colors.length;
   }
+
   return colors[hash];
 }
 
 function mapCustomerEdges(edges) {
   return (edges || [])
-    .map(({ node }) => node)
+    .map((edge) => edge?.node)
     .filter(Boolean)
     .map((customer) => {
+      const fullName = [customer.firstName, customer.lastName]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+
       const name =
         customer.displayName ||
-        [customer.firstName, customer.lastName].filter(Boolean).join(' ') ||
+        fullName ||
         customer.email ||
         customer.id;
 
       return {
         id: customer.id,
         name,
-        email: customer.email || '',
-        tags: Array.isArray(customer.tags) ? customer.tags.filter(Boolean) : [],
+        email: customer.email || "",
+        tags: Array.isArray(customer.tags)
+          ? customer.tags.filter(Boolean)
+          : [],
         color: customerColorFromId(customer.id),
       };
     });
-}
-
-function mapCustomerTagEdges(edges) {
-  return (edges || [])
-    .map(({ node }) => (typeof node === 'string' ? node.trim() : ''))
-    .filter(Boolean);
 }
 
 async function loadJsonOrNull(promise, label) {
   try {
     const response = await Promise.race([
       promise,
-      new Promise((resolve) => setTimeout(() => resolve(null), 2500)),
+      new Promise((resolve) => {
+        setTimeout(() => resolve(null), 2500);
+      }),
     ]);
-    if (!response) return null;
+
+    if (!response) {
+      console.warn(`[customer-eligibility] ${label} request timed out`);
+      return null;
+    }
+
     return await response.json();
   } catch (error) {
-    console.warn(`[customer-eligibility] failed to load ${label}`, error);
+    console.warn(
+      `[customer-eligibility] failed to load ${label}`,
+      error,
+    );
     return null;
   }
 }
 
 export async function loadCustomerEligibilityOptions(admin) {
-  const [customersJson, tagsJson] = await Promise.all([
-    loadJsonOrNull(
-      admin.graphql(CUSTOMERS_QUERY, {
-        variables: { first: CUSTOMER_PAGE_SIZE },
-      }),
-      'customers',
-    ),
-    loadJsonOrNull(
-      admin.graphql(CUSTOMER_TAGS_QUERY, {
-        variables: { first: CUSTOMER_TAG_PAGE_SIZE },
-      }),
-      'customer tags',
-    ),
-  ]);
+  if (!admin?.graphql) {
+    console.warn(
+      "[customer-eligibility] Shopify admin GraphQL client is unavailable",
+    );
 
-  if (customersJson?.errors?.length || tagsJson?.errors?.length) {
-    console.warn('[customer-eligibility] GraphQL errors', {
-      customers: customersJson?.errors,
-      customerTags: tagsJson?.errors,
-    });
+    return {
+      customers: [],
+      customerTags: [],
+    };
   }
 
-  const customers = mapCustomerEdges(customersJson?.data?.customers?.edges);
-  const customerTags = mapCustomerTagEdges(tagsJson?.data?.customerTags?.edges);
-  const tagsFromCustomers = customers.flatMap((customer) => customer.tags || []);
+  /*
+   * Shopify Admin GraphQL does NOT expose customerTags on QueryRoot
+   * for the API version used by this app.
+   *
+   * Customer tags are available on each Customer through Customer.tags.
+   * Load customers once and derive the unique customer-tag list from them.
+   */
+  const customersJson = await loadJsonOrNull(
+    admin.graphql(CUSTOMERS_QUERY, {
+      variables: {
+        first: CUSTOMER_PAGE_SIZE,
+      },
+    }),
+    "customers",
+  );
+
+  if (customersJson?.errors?.length) {
+    console.warn(
+      "[customer-eligibility] customer GraphQL errors",
+      customersJson.errors,
+    );
+  }
+
+  const customers = mapCustomerEdges(
+    customersJson?.data?.customers?.edges || [],
+  );
+
+  const customerTags = [
+    ...new Set(
+      customers.flatMap((customer) =>
+        Array.isArray(customer.tags)
+          ? customer.tags
+          : [],
+      ),
+    ),
+  ]
+    .filter(Boolean)
+    .sort((a, b) =>
+      String(a).localeCompare(String(b)),
+    );
 
   return {
     customers,
-    customerTags: [...new Set([...customerTags, ...tagsFromCustomers])].sort((a, b) =>
-      a.localeCompare(b),
-    ),
+    customerTags,
   };
 }
