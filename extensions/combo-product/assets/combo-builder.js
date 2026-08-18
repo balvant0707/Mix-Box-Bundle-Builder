@@ -1289,24 +1289,124 @@
     });
   }
 
-  // ─── Sticky Footer singleton ──────────────────────────────────────────────────
-  var _stickyEl = null;
-  var _stickyBtn = null;
-  var _stickySavingsEl = null;
-  var _stickyTotalEl = null;
+  // ─── Sticky Footer instances ──────────────────────────────────────────────────
+  // A manual Theme App Block may appear more than once on the same page. Keep
+  // sticky-cart DOM/state per combo-builder root so one block never removes or
+  // mutates another block's sticky action bar.
+  var _stickyInstances = {};
+  var _stickyBodyOriginalPaddingBottom = null;
   var _drawerScrollRecoveryBound = false;
   var _pageLoaderEl = null;
   var _pageLoaderActiveCount = 0;
 
-  function removeStickyFooter() {
-    if (_stickyEl && _stickyEl.parentNode) {
-      _stickyEl.parentNode.removeChild(_stickyEl);
-      document.body.style.paddingBottom = '';
+  function getComboInstanceRoot(ctxOrRoot) {
+    if (!ctxOrRoot) return null;
+    if (ctxOrRoot.nodeType === 1) return ctxOrRoot;
+    return ctxOrRoot.rootEl || null;
+  }
+
+  function getComboInstanceKey(ctxOrRoot) {
+    var root = getComboInstanceRoot(ctxOrRoot);
+    if (!root) return '__combo_builder_default__';
+    return root.getAttribute('data-cb-instance') ||
+      root.getAttribute('data-block-id') ||
+      root.id ||
+      '__combo_builder_default__';
+  }
+
+  function getStickyFooterState(ctxOrRoot) {
+    var key = getComboInstanceKey(ctxOrRoot);
+    var root = getComboInstanceRoot(ctxOrRoot);
+    if (!_stickyInstances[key]) {
+      _stickyInstances[key] = {
+        key: key,
+        rootEl: root,
+        el: null,
+        btn: null,
+        savingsEl: null,
+        totalEl: null,
+      };
+    } else if (root) {
+      _stickyInstances[key].rootEl = root;
     }
-    _stickyEl = null;
-    _stickyBtn = null;
-    _stickySavingsEl = null;
-    _stickyTotalEl = null;
+    return _stickyInstances[key];
+  }
+
+  function updateStickyFooterStack() {
+    if (!document.body) return;
+
+    var keys = Object.keys(_stickyInstances);
+    var activeStates = [];
+
+    keys.forEach(function (key) {
+      var state = _stickyInstances[key];
+      if (!state) return;
+
+      // Shopify section rendering can replace a block root without executing
+      // the embedded script again. Remove any sticky UI that belongs to the
+      // detached root; the replacement root will build its own instance.
+      if (state.rootEl && state.rootEl.isConnected === false) {
+        if (state.el && state.el.parentNode) state.el.parentNode.removeChild(state.el);
+        delete _stickyInstances[key];
+        return;
+      }
+
+      if (state.el && state.el.isConnected !== false) activeStates.push(state);
+    });
+
+    if (activeStates.length === 0) {
+      if (_stickyBodyOriginalPaddingBottom !== null) {
+        document.body.style.paddingBottom = _stickyBodyOriginalPaddingBottom;
+        _stickyBodyOriginalPaddingBottom = null;
+      }
+      return;
+    }
+
+    if (_stickyBodyOriginalPaddingBottom === null) {
+      _stickyBodyOriginalPaddingBottom = document.body.style.paddingBottom || '';
+    }
+
+    var bottomOffset = 0;
+    activeStates.forEach(function (state) {
+      var height = 72;
+      try {
+        height = Math.max(1, Math.ceil(state.el.getBoundingClientRect().height || 72));
+      } catch (_) {}
+      state.el.style.bottom = bottomOffset + 'px';
+      bottomOffset += height;
+    });
+
+    document.body.style.paddingBottom = _stickyBodyOriginalPaddingBottom
+      ? 'calc(' + _stickyBodyOriginalPaddingBottom + ' + ' + bottomOffset + 'px)'
+      : bottomOffset + 'px';
+  }
+
+  function removeStickyFooter(ctxOrRoot) {
+    // No argument remains a safe cleanup-all fallback for legacy/global paths.
+    if (!ctxOrRoot) {
+      Object.keys(_stickyInstances).forEach(function (key) {
+        var state = _stickyInstances[key];
+        if (state && state.el && state.el.parentNode) state.el.parentNode.removeChild(state.el);
+        delete _stickyInstances[key];
+      });
+      updateStickyFooterStack();
+      return;
+    }
+
+    var key = getComboInstanceKey(ctxOrRoot);
+    var state = _stickyInstances[key];
+    if (state && state.el && state.el.parentNode) state.el.parentNode.removeChild(state.el);
+    // Preserve the per-instance state object so closures inside renderBuilder /
+    // renderSpecificComboBuilder keep a stable reference when a box rebuilds
+    // its sticky footer. Only the DOM references are reset here.
+    if (state) {
+      state.el = null;
+      state.btn = null;
+      state.savingsEl = null;
+      state.totalEl = null;
+      state.rootEl = getComboInstanceRoot(ctxOrRoot) || state.rootEl;
+    }
+    updateStickyFooterStack();
   }
 
   function applyProductPagePreviewMode(root) {
@@ -1594,7 +1694,8 @@
   }
 
   function createStickyFooter(box, ctx, onCartClick) {
-    removeStickyFooter();
+    removeStickyFooter(ctx);
+    var stickyState = getStickyFooterState(ctx);
 
     var footer = document.createElement('div');
     footer.className = 'cb-sticky-footer';
@@ -1635,7 +1736,7 @@
     savingsRow.style.display = 'none';
     center.appendChild(savingsRow);
     footer.appendChild(center);
-    _stickySavingsEl = savingsRow;
+    stickyState.savingsEl = savingsRow;
 
     // Right: action button
     var btn = document.createElement('button');
@@ -1649,9 +1750,11 @@
     document.body.appendChild(footer);
     document.body.style.paddingBottom = '72px';
 
-    _stickyEl = footer;
-    _stickyBtn = btn;
-    _stickyTotalEl = totalRow;
+    stickyState.rootEl = ctx && ctx.rootEl ? ctx.rootEl : stickyState.rootEl;
+    stickyState.el = footer;
+    stickyState.btn = btn;
+    stickyState.totalEl = totalRow;
+    updateStickyFooterStack();
     return btn;
   }
 
@@ -1801,7 +1904,7 @@
     // sticky footer instance is still mounted. Clear it immediately when sticky
     // cart is disabled so stale CTA bars do not persist.
     if (enableStickyCart === false) {
-      removeStickyFooter();
+      removeStickyFooter(root);
     }
     var apiBase = root.dataset.apiBase || config.apiBase || DEFAULT_API_BASE;
     var previewBoxToken = null;
@@ -1982,9 +2085,19 @@
           suppressManualComboBuilderRoots(root);
         }
       }
-      if (!productBoxOnly && boxTypeFilter !== 'all') {
+      if (!productBoxOnly) {
+        // Normal/manual Theme App Blocks are general bundle pickers. They must
+        // show every eligible Single + Multiple Box in THIS block instance,
+        // regardless of currentProductId. Explicit legacy/unknown rows are kept
+        // for backwards compatibility; explicit non-Single/Multiple types are
+        // excluded from the default "all" view.
         boxes = boxes.filter(function (b) {
-          return String(b && b.boxType || '').toLowerCase() === boxTypeFilter;
+          var type = String(b && b.boxType || '').trim().toLowerCase();
+          if (!type) return true;
+          if (boxTypeFilter === 'single' || boxTypeFilter === 'multiple') {
+            return type === boxTypeFilter;
+          }
+          return type === 'single' || type === 'multiple';
         });
       }
       if (boxIdsFilter && boxIdsFilter.length > 0) {
@@ -2343,17 +2456,11 @@
     cbLog('renderWidget: proceeding to build DOM, marked data-cb-rendered=1', cbDescribeRoot(root));
     cbWatchRootDisappearance(root);
 
-    var multipleBoxCount = (ctx.boxes || []).filter(function (box) {
-      return Array.isArray(box && box.quantityPacks) && box.quantityPacks.length > 0;
-    }).length;
-    if (!ctx.productBoxOnly && ctx.layoutMode !== 'steps' && multipleBoxCount > 1) {
-      (ctx.boxes || []).forEach(function (box, index) {
-        if (!Array.isArray(box && box.quantityPacks) || box.quantityPacks.length === 0) return;
-        renderIndependentBundleSection(root, box, ctx, index);
-      });
-      cbLog('renderWidget: rendered independent multiple bundle sections', 'count=' + multipleBoxCount);
-      return;
-    }
+    // Keep the complete eligible box list in one manual app-block instance.
+    // The old special case rendered only Multiple Boxes when two or more
+    // quantity-pack bundles existed, which silently dropped Single Boxes from
+    // the same block. The normal card/grid flow below already supports mixed
+    // Single + Multiple bundles and keeps selection state local to ctx/root.
 
     var wrapper = document.createElement('div');
     wrapper.className = 'cb-wrapper';
@@ -2697,7 +2804,10 @@
     card.appendChild(body);
 
     function onSelect() {
-      document.querySelectorAll('.cb-box-card').forEach(function (c) { c.classList.remove('cb-box-card--active'); });
+      var cardScope = ctx && ctx.rootEl ? ctx.rootEl : card.closest('.combo-builder-root');
+      if (cardScope) {
+        cardScope.querySelectorAll('.cb-box-card').forEach(function (c) { c.classList.remove('cb-box-card--active'); });
+      }
       card.classList.add('cb-box-card--active');
       setActiveBoxBanner(ctx, box);
       openBuilder(box, ctx);
@@ -2722,7 +2832,9 @@
   // ─── Open Builder ─────────────────────────────────────────────────────────────
 
   function openBuilder(box, ctx) {
-    var wrapper = ctx && ctx._wrapper ? ctx._wrapper : document.querySelector('.cb-wrapper');
+    var wrapper = ctx && ctx._wrapper
+      ? ctx._wrapper
+      : (ctx && ctx.rootEl ? ctx.rootEl.querySelector('.cb-wrapper') : null);
     if (!wrapper) return;
     var builderArea = wrapper.querySelector('.cb-builder-area');
     if (!builderArea) return;
@@ -2776,7 +2888,9 @@
               ctx._wizardLabelEls.forEach(function (el, i) { el.textContent = ctx._wizardStepDefs[i].label; });
             }
           }
-          document.querySelectorAll('.cb-box-card').forEach(function (c) { c.classList.remove('cb-box-card--active'); });
+          if (ctx.rootEl) {
+            ctx.rootEl.querySelectorAll('.cb-box-card').forEach(function (c) { c.classList.remove('cb-box-card--active'); });
+          }
         });
       }
       if (ctx._changeBoxBtn) ctx._changeBoxBtn.style.visibility = 'visible';
@@ -4024,6 +4138,7 @@
   function renderBuilder(container, box, products, ctx, stepOptions) {
     container.innerHTML = '';
 
+    var stickyState = getStickyFooterState(ctx);
     var searchTerm = '';
     var wholeStorePager = stepOptions && stepOptions.wholeStorePager ? stepOptions.wholeStorePager : null;
     var wholeStorePageInfo = wholeStorePager && wholeStorePager.pageInfo ? wholeStorePager.pageInfo : null;
@@ -4470,14 +4585,14 @@
       mobileCheckoutBtn.style.display = checkoutAllowed ? '' : 'none';
 
       // Sticky footer button
-      if (_stickyBtn) {
-        _stickyBtn.disabled = !allFilled;
+      if (stickyState.btn) {
+        stickyState.btn.disabled = !allFilled;
         if (allFilled) {
-          _stickyBtn.classList.add('cb-sticky-btn--ready');
-          _stickyBtn.textContent = addLabel;
+          stickyState.btn.classList.add('cb-sticky-btn--ready');
+          stickyState.btn.textContent = addLabel;
         } else {
-          _stickyBtn.classList.remove('cb-sticky-btn--ready');
-          _stickyBtn.textContent = addLabel;
+          stickyState.btn.classList.remove('cb-sticky-btn--ready');
+          stickyState.btn.textContent = addLabel;
         }
       }
 
@@ -4495,9 +4610,9 @@
         : { discountedTotal: 0, discountAmount: 0, freeUnits: 0 };
       var dynamicEffectivePrice = isDynamic ? dynamicBreakdown.discountedTotal : 0;
 
-      if (_stickyTotalEl) {
+      if (stickyState.totalEl) {
         renderStickyTotal(
-          _stickyTotalEl,
+          stickyState.totalEl,
           isDynamic ? getDynamicDisplayPrice(dynamicEffectivePrice) : (parseFloat(box.bundlePrice) || 0),
           ctx.currencySymbol
         );
@@ -4513,7 +4628,7 @@
         isDynamic ? getDynamicDisplayPrice(dynamicEffectivePrice) : (parseFloat(box.bundlePrice) || 0)
       );
 
-      if (_stickySavingsEl) {
+      if (stickyState.savingsEl) {
         if (isDynamic) {
           var dynSavings = dynamicBreakdown.discountAmount;
           if (hasSelected && dynSavings > 0.005) {
@@ -4525,13 +4640,13 @@
               _dgc && _dgc.discountType === 'buy_x_get_y' && dynamicBreakdown.freeUnits > 0
                 ? '<span class="cb-sticky-save">Free items: ' + dynamicBreakdown.freeUnits + '</span>'
                 : '';
-            _stickySavingsEl.innerHTML =
+            stickyState.savingsEl.innerHTML =
               '<span class="cb-sticky-mrp">MRP: ' + formatPrice(totalMrp, ctx.currencySymbol, ctx.currencyCode) + '</span>' +
               dynSavingsBadge +
               dynFreeUnitsBadge;
-            _stickySavingsEl.style.display = 'flex';
+            stickyState.savingsEl.style.display = 'flex';
           } else {
-            _stickySavingsEl.style.display = 'none';
+            stickyState.savingsEl.style.display = 'none';
           }
         } else if (hasSelected) {
           var bundlePrice = parseFloat(box.bundlePrice);
@@ -4539,12 +4654,12 @@
           var savingsBadge = (ctx.settings && ctx.settings.showSavingsBadge && savingsAmt > 0)
             ? '<span class="cb-sticky-save">Save ' + formatPrice(savingsAmt, ctx.currencySymbol, ctx.currencyCode) + '</span>'
             : '';
-          _stickySavingsEl.innerHTML =
+          stickyState.savingsEl.innerHTML =
             '<span class="cb-sticky-mrp">MRP: ' + formatPrice(totalMrp, ctx.currencySymbol, ctx.currencyCode) + '</span>' +
             savingsBadge;
-          _stickySavingsEl.style.display = 'flex';
+          stickyState.savingsEl.style.display = 'flex';
         } else {
-          _stickySavingsEl.style.display = 'none';
+          stickyState.savingsEl.style.display = 'none';
         }
       }
 
@@ -5165,10 +5280,10 @@
       }
 
       // Immediately show loading state on buttons before async resolve
-      [inlineCartBtn, _stickyBtn, mobileAddBtn].forEach(function (btn) {
+      [inlineCartBtn, stickyState.btn, mobileAddBtn].forEach(function (btn) {
         if (!btn) return;
         btn.disabled = true;
-        if (btn === _stickyBtn) {
+        if (btn === stickyState.btn) {
           btn.className = 'cb-sticky-btn cb-sticky-btn--loading';
         } else if (btn === mobileAddBtn) {
           btn.className = 'cb-mobile-add-btn cb-mobile-add-btn--loading';
@@ -5205,7 +5320,7 @@
           sessionId,
           giftInput ? giftInput.value : null,
           inlineCartBtn,
-          _stickyBtn,
+          stickyState.btn,
           resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel, box),
           ctx.currencySymbol,
           ctx.apiBase,
@@ -5281,7 +5396,7 @@
       }
     }
 
-    removeStickyFooter();
+    removeStickyFooter(ctx);
     if (ctx.enableStickyCart !== false && !hideOwnCartUI) {
       createStickyFooter(box, ctx, doAddToCart);
     }
@@ -5295,6 +5410,7 @@
   function renderSpecificComboBuilder(container, box, ctx) {
     container.innerHTML = '';
 
+    var stickyState = getStickyFooterState(ctx);
     var comboConfig = box.comboConfig;
     var numSteps = comboConfig.comboType || comboConfig.steps.length;
     var steps = comboConfig.steps.slice(0, numSteps);
@@ -5646,11 +5762,11 @@
       mobileCheckoutBtn.disabled = !cartReady;
       mobileCheckoutBtn.style.display = cartReady ? '' : 'none';
 
-      if (_stickyBtn) {
-        _stickyBtn.disabled = !cartReady;
-        if (cartReady) _stickyBtn.classList.add('cb-sticky-btn--ready');
-        else _stickyBtn.classList.remove('cb-sticky-btn--ready');
-        _stickyBtn.textContent = addLabel;
+      if (stickyState.btn) {
+        stickyState.btn.disabled = !cartReady;
+        if (cartReady) stickyState.btn.classList.add('cb-sticky-btn--ready');
+        else stickyState.btn.classList.remove('cb-sticky-btn--ready');
+        stickyState.btn.textContent = addLabel;
       }
 
       if (giftSection) giftSection.style.display = cartReady ? 'block' : 'none';
@@ -5662,9 +5778,9 @@
       var effectivePrice = isDynamic
         ? dynamicBreakdown.discountedTotal
         : bundlePriceRaw;
-      if (_stickyTotalEl) {
+      if (stickyState.totalEl) {
         renderStickyTotal(
-          _stickyTotalEl,
+          stickyState.totalEl,
           isDynamic ? getDynamicDisplayPrice(effectivePrice) : effectivePrice,
           ctx.currencySymbol
         );
@@ -5681,7 +5797,7 @@
       );
 
       // Savings / MRP row for specific combo
-      if (_stickySavingsEl) {
+      if (stickyState.savingsEl) {
         var hasAnyProduct = slots.some(Boolean);
         var originalPrice = isDynamic ? totalMrp : bundlePriceRaw;
         var savings = isDynamic ? dynamicBreakdown.discountAmount : Math.max(0, totalMrp - bundlePriceRaw);
@@ -5693,13 +5809,13 @@
             box && box.comboConfig && box.comboConfig.discountType === 'buy_x_get_y' && dynamicBreakdown.freeUnits > 0
               ? '<span class="cb-sticky-save">Free items: ' + dynamicBreakdown.freeUnits + '</span>'
               : '';
-          _stickySavingsEl.innerHTML =
+          stickyState.savingsEl.innerHTML =
             '<span class="cb-sticky-mrp">MRP: ' + formatPrice(originalPrice, ctx.currencySymbol, ctx.currencyCode) + '</span>' +
             savingsBadge +
             (isDynamic ? freeUnitsBadge : '');
-          _stickySavingsEl.style.display = 'flex';
+          stickyState.savingsEl.style.display = 'flex';
         } else {
-          _stickySavingsEl.style.display = 'none';
+          stickyState.savingsEl.style.display = 'none';
         }
       }
 
@@ -6249,10 +6365,10 @@
         return;
       }
       // Show spinner on cart buttons immediately
-      [inlineCartBtn, _stickyBtn, mobileAddBtn].forEach(function (btn) {
+      [inlineCartBtn, stickyState.btn, mobileAddBtn].forEach(function (btn) {
         if (!btn) return;
         btn.disabled = true;
-        if (btn === _stickyBtn) {
+        if (btn === stickyState.btn) {
           btn.className = 'cb-sticky-btn cb-sticky-btn--loading';
         } else if (btn === mobileAddBtn) {
           btn.className = 'cb-mobile-add-btn cb-mobile-add-btn--loading';
@@ -6262,7 +6378,7 @@
         btn.innerHTML = '<span class="cb-btn-spinner" aria-hidden="true"></span><span class="cb-btn-label">Adding\u2026</span>';
       });
       showPageLoader('Adding products to cart\u2026');
-      addToCart(box, slots, sessionId, giftInput ? giftInput.value : null, inlineCartBtn, _stickyBtn, resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel, box), ctx.currencySymbol, ctx.apiBase, ctx.shop, resetSpecificCombo);
+      addToCart(box, slots, sessionId, giftInput ? giftInput.value : null, inlineCartBtn, stickyState.btn, resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel, box), ctx.currencySymbol, ctx.apiBase, ctx.shop, resetSpecificCombo);
     }
 
     function doMobileCheckout() {
@@ -6299,7 +6415,7 @@
           step3CartBtn.innerHTML = '<span class="cb-btn-spinner" aria-hidden="true"></span><span>Adding\u2026</span>';
           if (step3CheckoutBtn) step3CheckoutBtn.disabled = true;
           showPageLoader('Adding products to cart\u2026');
-          addToCart(box, slots, sessionId, giftInput ? giftInput.value : null, inlineCartBtn, _stickyBtn, resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel, box), ctx.currencySymbol, ctx.apiBase, ctx.shop, resetSpecificCombo);
+          addToCart(box, slots, sessionId, giftInput ? giftInput.value : null, inlineCartBtn, stickyState.btn, resolveAddToCartLabel(ctx.settings, ctx.cartBtnLabel, box), ctx.currencySymbol, ctx.apiBase, ctx.shop, resetSpecificCombo);
         });
       }
       if (step3CheckoutBtn) {
@@ -6314,7 +6430,7 @@
         });
       }
     }
-    removeStickyFooter();
+    removeStickyFooter(ctx);
     if (ctx.enableStickyCart !== false) {
       createStickyFooter(box, ctx, doCart);
     }
