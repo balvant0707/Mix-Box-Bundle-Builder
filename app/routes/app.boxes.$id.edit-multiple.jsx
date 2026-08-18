@@ -2921,7 +2921,10 @@ export default function EditMultipleMixMatchBundlePage() {
   const location = useLocation();
   const navigate = useNavigate();
   const customerOptions = loaderData.customers || [];
-  const customerTagOptions = loaderData.customerTags || [];
+  const customerTagOptions = (loaderData.customerTags || []).map((tag) => ({
+    value: tag,
+    label: tag,
+  }));
   const initialProducts = useMemo(
     () => (propProducts.length ? propProducts : loaderData.products || []),
     [loaderData.products, propProducts],

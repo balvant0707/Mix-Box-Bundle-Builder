@@ -2128,7 +2128,10 @@ export default function CreateSingleMixMatchBundlePage() {
   const location = useLocation();
   const navigate = useNavigate();
   const customerOptions = loaderData.customers || [];
-  const customerTagOptions = loaderData.customerTags || [];
+  const customerTagOptions = (loaderData.customerTags || []).map((tag) => ({
+    value: tag,
+    label: tag,
+  }));
   const initialProducts = loaderData.products || [];
   const initialCollections = loaderData.collections || [];
   const initialProductsPageInfo = loaderData.productsPageInfo || EMPTY_PAGE_INFO;
