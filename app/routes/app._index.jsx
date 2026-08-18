@@ -9,7 +9,6 @@ import {
   Button,
   Card,
   DataTable,
-  Divider,
   EmptyState,
   Icon,
   InlineGrid,
@@ -31,7 +30,6 @@ import {
 } from "@shopify/polaris-icons";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
-import { AdminIcon } from "../components/admin-icons";
 import { getActiveBoxCount } from "../models/boxes.server";
 import { getShopCurrencyCode, getShopOwnerDisplayName } from "../models/shop.server";
 import {
@@ -259,14 +257,6 @@ const quickActions = [
 
 const promotedApps = [
   {
-    key: "cartlift",
-    title: "CartLift: Cart Drawer and Upsell",
-    tag: "Upsell",
-    url: "https://apps.shopify.com/cartlift-cart-drawer-upsell",
-    image: "/images/cartlift.png",
-    description: "Grow average order value with cart drawer Upsells,Shipping,Discounts and smart cart offers.",
-  },
-  {
     key: "fomoify",
     title: "Fomoify Sales Popup and Proof",
     tag: "Social Proof",
@@ -275,20 +265,28 @@ const promotedApps = [
     description: "Increase trust using real-time sales popups and conversion proof nudges.",
   },
   {
-    key: "nex-ai-seo-product-description",
-    title: "Nex AI SEO Product Description",
-    tag: "AI SEO",
-    url: "https://apps.shopify.com/ai-seo-product-description",
-    image: "/images/AI Content App - Final Logo 1.png",
-    description: "Create optimized product descriptions and SEO content with AI.",
-  },
-  {
     key: "boltr-bulk-price-editor",
     title: "Boltr Bulk Price Editor",
     tag: "Pricing",
     url: "https://apps.shopify.com/boltr-bulk-price-editor",
     image: "/images/c0a4f57c6f2803211055e011288accb6_200x200.png",
     description: "Update product prices in bulk and manage pricing changes faster.",
+  },
+  {
+    key: "nex-ai-seo-product-description",
+    title: "Nex AI SEO Product Description",
+    tag: "SEO",
+    url: "https://apps.shopify.com/ai-seo-product-description",
+    image: "/images/AI Content App - Final Logo 1.png",
+    description: "Generate SEO-friendly content to improve visibility and conversion.",
+  },
+  {
+    key: "cartlift",
+    title: "CartLift: Cart Drawer and Upsell",
+    tag: "Upsell",
+    url: "https://apps.shopify.com/cartlift-cart-drawer-upsell",
+    image: "/images/cartlift.png",
+    description: "Create a high-converting cart drawer with upsells and progress offers.",
   },
 ];
 function StatCard({ label, value, sub }) {
@@ -772,35 +770,66 @@ export default function DashboardPage() {
         </Card>
         {/* ── Promoted Apps ── */}
         <Card>
-          <BlockStack gap="400">
-            <InlineStack gap="200" blockAlign="center">
-              <AdminIcon type="collection-list" size="base" style={{ color: "#111827" }} />
+          <BlockStack gap="300">
+            <InlineStack blockAlign="center">
               <Text as="h2" variant="headingMd">
                 Recommended Our Growth Apps
               </Text>
             </InlineStack>
-            <Divider />
-            <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+            <InlineGrid columns={{ xs: 1, md: 4 }} gap="400">
               {promotedApps.map((appItem) => (
-                <Card key={appItem.key}>
-                  <BlockStack gap="200">
-                    <InlineStack align="space-between" blockAlign="center" wrap={false}>
-                      <InlineStack gap="200" blockAlign="center" wrap={false}>
-                        <Thumbnail source={appItem.image} alt={appItem.title} size="small" />
-                        <Text as="h3" variant="headingSm">
-                          {appItem.title}
+                <Box
+                  key={appItem.key}
+                  borderColor="border"
+                  borderWidth="025"
+                  padding="300"
+                  minHeight="250px"
+                  background="bg-surface"
+                >
+                  <BlockStack gap="300">
+                    <InlineStack align="space-between" blockAlign="start" wrap={false}>
+                      <Thumbnail source={appItem.image} alt={appItem.title} size="large" />
+                      <Box
+                        background="bg-surface-secondary"
+                        borderRadius="200"
+                        paddingBlock="200"
+                        paddingInline="300"
+                      >
+                        <Text as="span" variant="bodySm" fontWeight="semibold">
+                          {appItem.tag}
                         </Text>
-                      </InlineStack>
-                      <Badge>{appItem.tag}</Badge>
+                      </Box>
                     </InlineStack>
-                    <Text as="p" tone="subdued" variant="bodySm">
+                    <Text as="h3" variant="headingSm" fontWeight="bold">
+                      {appItem.title}
+                    </Text>
+                    <Text as="p" tone="subdued" variant="bodyMd">
                       {appItem.description}
                     </Text>
-                    <Button url={appItem.url} target="_blank" variant="primary">
-                      Add app
-                    </Button>
+                    <Box>
+                      <a
+                        href={appItem.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          minHeight: "34px",
+                          padding: "6px 16px",
+                          borderRadius: "8px",
+                          background: "#303030",
+                          color: "#ffffff",
+                          fontWeight: 700,
+                          textDecoration: "none",
+                          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.22), 0 1px 2px rgba(0,0,0,0.18)",
+                        }}
+                      >
+                        View app
+                      </a>
+                    </Box>
                   </BlockStack>
-                </Card>
+                </Box>
               ))}
             </InlineGrid>
           </BlockStack>
