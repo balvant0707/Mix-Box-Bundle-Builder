@@ -187,6 +187,7 @@ export const loader = async ({ request }) => {
     : "monthly";
   const currentPlanKey = String(subscription?.plan || "FREE").trim().toUpperCase();
   const nextPlanLabel = getNextPlanLabel(currentPlanKey);
+  const now = new Date();
 
   const orderCredit = await getOrderCreditStatus({
     shop,
