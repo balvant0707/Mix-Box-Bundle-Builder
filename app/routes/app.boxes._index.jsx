@@ -164,12 +164,23 @@ function getBannerImageDataUri(box) {
   return `data:${box.bannerImageMimeType};base64,${base64}`;
 }
 
-function getBannerImageSrc(box) {
-  return box?.bannerImageUrl || getBannerImageDataUri(box);
+function buildBoxImageUrl(box, field, page) {
+  if (!page?.[`${field}MimeType`]) return null;
+  const versionSource = page?.updatedAt || box?.updatedAt || box?.createdAt;
+  const version = versionSource ? new Date(versionSource).getTime() : "";
+  return `/api/admin/boxes/${box.id}/image/${field}${version ? `?v=${version}` : ""}`;
 }
 
 function getBoxListImageSrc(box) {
-  return getBannerImageSrc(box);
+  const page = box?.simpleBoxPage || box?.multipleBoxPage || null;
+  return (
+    page?.bundleImageUrl ||
+    buildBoxImageUrl(box, "bundleImage", page) ||
+    page?.bannerImageUrl ||
+    buildBoxImageUrl(box, "bannerImage", page) ||
+    box?.bannerImageUrl ||
+    getBannerImageDataUri(box)
+  );
 }
 
 export const loader = async ({ request }) => {
@@ -427,9 +438,12 @@ export default function ManageBoxesPage() {
         return createdAt >= startDate && createdAt <= endDate;
       });
     }
-    return [...result].sort(
-      (a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0),
-    );
+    return [...result].sort((a, b) => {
+      const createdDiff =
+        new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      if (createdDiff !== 0) return createdDiff;
+      return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+    });
   }, [boxesWithPendingToggle, statusFilter, search, boxTypeFilter, selectedDates]);
 
   const totalPages = Math.max(1, Math.ceil(filteredBoxes.length / PAGE_SIZE));
