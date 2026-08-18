@@ -16,7 +16,6 @@ import { showPolarisToast } from "../utils/polaris-toast";
 import { withEmbeddedAppParams } from "../utils/embedded-app";
 import {
   ActionList,
-  Avatar,
   Badge,
   BlockStack,
   Box,
@@ -34,7 +33,6 @@ import {
   Spinner,
   Text,
   TextField,
-  Thumbnail,
   Tooltip,
   useIndexResourceState,
 } from "@shopify/polaris";
@@ -785,6 +783,29 @@ export default function ManageBoxesPage() {
                 .Polaris-IndexTable__TableCell * {
                   font-size: 12px;
                 }
+                .box-list-thumbnail {
+                  width: 48px;
+                  height: 48px;
+                  min-width: 48px;
+                  border: 1px solid #e3e3e3;
+                  border-radius: 8px;
+                  background: #f6f6f7;
+                  overflow: hidden;
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  color: #1f1f1f;
+                  font-size: 12px;
+                  font-weight: 700;
+                  line-height: 1;
+                  text-transform: uppercase;
+                }
+                .box-list-thumbnail img {
+                  width: 100%;
+                  height: 100%;
+                  display: block;
+                  object-fit: cover;
+                }
               `}</style>
               <IndexTable
                 resourceName={{ singular: "box", plural: "boxes" }}
@@ -815,15 +836,13 @@ export default function ManageBoxesPage() {
                       {/* Bundle Name */}
                       <IndexTable.Cell>
                         <InlineStack gap="300" blockAlign="center">
-                          {box.listImageSrc ? (
-                            <Thumbnail source={box.listImageSrc} alt={box.boxName} size="small" />
-                          ) : (
-                            <Avatar
-                              size="sm"
-                              name={box.boxName}
-                              initials={box.boxName?.charAt(0)?.toUpperCase()}
-                            />
-                          )}
+                          <span className="box-list-thumbnail" aria-label={box.boxName}>
+                            {box.listImageSrc ? (
+                              <img src={box.listImageSrc} alt={box.boxName} loading="lazy" />
+                            ) : (
+                              box.boxName?.charAt(0)?.toUpperCase() || "B"
+                            )}
+                          </span>
                           <BlockStack gap="050">
                             <InlineStack gap="150" blockAlign="center">
                               <Text variant="bodySm" fontWeight="semibold" as="span">{box.boxName}</Text>
