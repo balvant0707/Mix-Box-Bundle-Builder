@@ -19,7 +19,6 @@ import {
   Page,
   Spinner,
   Text,
-  Thumbnail,
   Tooltip,
 } from "@shopify/polaris";
 import {
@@ -778,17 +777,38 @@ export default function DashboardPage() {
             </InlineStack>
             <InlineGrid columns={{ xs: 1, md: 4 }} gap="400">
               {promotedApps.map((appItem) => (
-                <Box
+                <div
                   key={appItem.key}
-                  borderColor="border"
-                  borderWidth="025"
-                  padding="300"
-                  minHeight="250px"
-                  background="bg-surface"
+                  style={{
+                    height: "260px",
+                    padding: "16px",
+                    border: "1px solid #dcdfe4",
+                    background: "#ffffff",
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
                 >
-                  <BlockStack gap="300">
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "12px",
+                      height: "100%",
+                    }}
+                  >
                     <InlineStack align="space-between" blockAlign="start" wrap={false}>
-                      <Thumbnail source={appItem.image} alt={appItem.title} size="large" />
+                      <img
+                        src={appItem.image}
+                        alt={appItem.title}
+                        loading="lazy"
+                        style={{
+                          width: "58px",
+                          height: "58px",
+                          objectFit: "contain",
+                          borderRadius: "8px",
+                          flexShrink: 0,
+                        }}
+                      />
                       <Box
                         background="bg-surface-secondary"
                         borderRadius="200"
@@ -806,7 +826,7 @@ export default function DashboardPage() {
                     <Text as="p" tone="subdued" variant="bodyMd">
                       {appItem.description}
                     </Text>
-                    <Box>
+                    <div style={{ marginTop: "auto" }}>
                       <a
                         href={appItem.url}
                         target="_blank"
@@ -827,9 +847,9 @@ export default function DashboardPage() {
                       >
                         View app
                       </a>
-                    </Box>
-                  </BlockStack>
-                </Box>
+                    </div>
+                  </div>
+                </div>
               ))}
             </InlineGrid>
           </BlockStack>
