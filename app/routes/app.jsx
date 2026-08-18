@@ -14,13 +14,10 @@ import {
   getShopReviewPromptState,
   submitShopReview,
   upsertSessionFromAuth,
-  upsertShopFromAdmin,
 } from "../models/shop.server";
 import { withEmbeddedAppParams, withEmbeddedAppParamsFromRequest } from "../utils/embedded-app";
 import { showPolarisToast } from "../utils/polaris-toast";
 import { sendMail } from "../utils/mailer.server";
-import { installedEmailHtml } from "../emails/app-installed";
-import { ownerInstallNotifyHtml } from "../emails/owner-notify";
 import { buildEmbedBlockUrl, getEmbedBlockStatus } from "../utils/theme-editor.server";
 import { getOrderCreditStatus } from "../models/order-credit.server";
 
@@ -48,6 +45,28 @@ function getShopFromAdminReferer(request) {
   }
 }
 
+function getStoreHandle(shop) {
+  return String(shop || "").replace(/\.myshopify\.com$/i, "");
+}
+
+function buildEmbedFallbackUrl(shop) {
+  const storeHandle = getStoreHandle(shop);
+  const apiKey = process.env.SHOPIFY_API_KEY?.trim();
+  const destination = new URL(`https://admin.shopify.com/store/${storeHandle}/themes/current/editor`);
+  destination.searchParams.set("context", "apps");
+  if (apiKey) {
+    destination.searchParams.set("activateAppId", `${apiKey}/combo-embed`);
+  }
+  return destination.toString();
+}
+
+function withTimeout(promise, fallback, ms = 700) {
+  return Promise.race([
+    promise.catch(() => fallback),
+    new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
 export const loader = async ({ request }) => {
   if (isbot(request.headers.get("User-Agent") || "")) {
     throw new Response(null, { status: 204 });
@@ -73,7 +92,7 @@ export const loader = async ({ request }) => {
   const hasAccess = hasPlanAccess(subscription);
 
   await upsertSessionFromAuth(session);
-  const installInfo = await upsertShopFromAdmin(session, admin);
+  const installInfo = null;
 
   // Send install emails only on first install or reinstall
   if (installInfo?.isNewInstall) {
@@ -115,7 +134,7 @@ export const loader = async ({ request }) => {
   const reviewPrompt = await getShopReviewPromptState(session.shop);
   const { getActiveShopifySubscription } = await import("../models/billing.server.js");
   const { getBillingCycleForPlanName } = await import("../config/billing.js");
-  const activeShopifySubscription = await getActiveShopifySubscription(billing).catch(() => null);
+  const activeShopifySubscription = await withTimeout(getActiveShopifySubscription(billing), null);
   const activeBillingCycle = activeShopifySubscription?.name
     ? getBillingCycleForPlanName(activeShopifySubscription.name)
     : "monthly";
@@ -131,8 +150,8 @@ export const loader = async ({ request }) => {
   });
 
   const [embedBlockUrl, embedBlockEnabled] = await Promise.all([
-    buildEmbedBlockUrl({ shop: session.shop, admin }),
-    getEmbedBlockStatus({ shop: session.shop, admin, session }),
+    withTimeout(buildEmbedBlockUrl({ shop: session.shop, admin }), buildEmbedFallbackUrl(session.shop)),
+    withTimeout(getEmbedBlockStatus({ shop: session.shop, admin, session }), true),
   ]);
 
   // eslint-disable-next-line no-undef

@@ -275,7 +275,11 @@ async function loadPickerPage(admin, resource, after = null) {
 
 async function loadJsonOrNull(promise, label) {
   try {
-    const response = await promise;
+    const response = await Promise.race([
+      promise,
+      new Promise((resolve) => setTimeout(() => resolve(null), 900)),
+    ]);
+    if (!response) return null;
     return await response.json();
   } catch (error) {
     console.warn(`[app.multiplebox] failed to load ${label}`, error);
@@ -396,6 +400,25 @@ function getDiscountSubmissionFields(form, source = form) {
     discountValue: source?.discountValue || '0',
     selectedGiftProductIds: [],
   };
+}
+
+function getDiscountValidationError(form) {
+  const discountValue = String(form.discountValue ?? '').trim();
+  const selectedGiftProductIds = form.selectedGiftProductIds || [];
+
+  if (form.discountMode === 'fixed_amount' && !discountValue) {
+    return 'Fixed Amount is required.';
+  }
+
+  if (form.discountMode === 'flat_discount' && !discountValue) {
+    return 'Flat Discount value is required.';
+  }
+
+  if (form.discountMode === 'free_gift_product' && selectedGiftProductIds.length === 0) {
+    return 'Free Gift Product is required.';
+  }
+
+  return '';
 }
 
 const PRODUCT_CONFIGURATION_OPTIONS = [
@@ -3035,6 +3058,13 @@ export default function CreateMultipleMixMatchBundlePage() {
     if (codeError) {
       setSubmitError(codeError);
       setOpenSections((current) => ({ ...current, bundleInformation: true }));
+      return;
+    }
+    const discountError = getDiscountValidationError(form);
+    if (discountError) {
+      setSubmitError(discountError);
+      setOpenSections((current) => ({ ...current, discount: true }));
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
 

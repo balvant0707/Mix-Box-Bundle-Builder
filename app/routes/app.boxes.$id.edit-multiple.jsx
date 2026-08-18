@@ -341,9 +341,13 @@ function collectSelectedResourceIds(pageConfig = {}) {
 async function loadSelectedProducts(admin, ids) {
   if (!ids.length) return [];
 
-  const response = await admin.graphql(SELECTED_PRODUCTS_QUERY, {
-    variables: { ids },
-  });
+  const response = await Promise.race([
+    admin.graphql(SELECTED_PRODUCTS_QUERY, {
+      variables: { ids },
+    }),
+    new Promise((resolve) => setTimeout(() => resolve(null), 900)),
+  ]);
+  if (!response) return [];
   const json = await response.json();
 
   if (json?.errors?.length) {
@@ -361,9 +365,13 @@ async function loadSelectedProducts(admin, ids) {
 async function loadSelectedCollections(admin, ids) {
   if (!ids.length) return [];
 
-  const response = await admin.graphql(SELECTED_COLLECTIONS_QUERY, {
-    variables: { ids },
-  });
+  const response = await Promise.race([
+    admin.graphql(SELECTED_COLLECTIONS_QUERY, {
+      variables: { ids },
+    }),
+    new Promise((resolve) => setTimeout(() => resolve(null), 900)),
+  ]);
+  if (!response) return [];
   const json = await response.json();
 
   if (json?.errors?.length) {

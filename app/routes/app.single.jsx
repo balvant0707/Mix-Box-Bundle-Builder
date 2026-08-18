@@ -239,7 +239,11 @@ async function loadPickerPage(admin, resource, after = null) {
 
 async function loadJsonOrNull(promise, label) {
   try {
-    const response = await promise;
+    const response = await Promise.race([
+      promise,
+      new Promise((resolve) => setTimeout(() => resolve(null), 900)),
+    ]);
+    if (!response) return null;
     return await response.json();
   } catch (error) {
     console.warn(`[app.simple] failed to load ${label}`, error);
@@ -352,6 +356,24 @@ function getDiscountSubmissionFields(form, selectedGiftProductIds = []) {
     discountValue: form.discountValue || '0',
     selectedGiftProductIds: [],
   };
+}
+
+function getDiscountValidationError(form, selectedGiftProductIds = []) {
+  const discountValue = String(form.discountValue ?? '').trim();
+
+  if (form.discountMode === 'fixed_amount' && !discountValue) {
+    return 'Fixed Amount is required.';
+  }
+
+  if (form.discountMode === 'flat_discount' && !discountValue) {
+    return 'Flat Discount value is required.';
+  }
+
+  if (form.discountMode === 'free_gift_product' && selectedGiftProductIds.length === 0) {
+    return 'Free Gift Product is required.';
+  }
+
+  return '';
 }
 
 const PRODUCT_CONFIGURATION_OPTIONS = [
@@ -2320,6 +2342,13 @@ export default function CreateSingleMixMatchBundlePage() {
     if (codeError) {
       setSubmitError(codeError);
       setOpenSections((current) => ({ ...current, bundleInformation: true }));
+      return;
+    }
+    const discountError = getDiscountValidationError(form, selectedGiftProductIds);
+    if (discountError) {
+      setSubmitError(discountError);
+      setOpenSections((current) => ({ ...current, discount: true }));
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
 
