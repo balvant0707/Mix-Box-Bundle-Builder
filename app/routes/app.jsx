@@ -19,6 +19,8 @@ import {
 import { withEmbeddedAppParams, withEmbeddedAppParamsFromRequest } from "../utils/embedded-app";
 import { showPolarisToast } from "../utils/polaris-toast";
 import { sendMail } from "../utils/mailer.server";
+import { installedEmailHtml } from "../emails/app-installed";
+import { ownerInstallNotifyHtml } from "../emails/owner-notify";
 import { buildEmbedBlockUrl, getEmbedBlockStatus } from "../utils/theme-editor.server";
 import { getOrderCreditStatus } from "../models/order-credit.server";
 
