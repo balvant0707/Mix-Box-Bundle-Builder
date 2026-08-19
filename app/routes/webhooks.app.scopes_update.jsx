@@ -1,6 +1,8 @@
 import { authenticate } from "../shopify.server";
 import { updateShopScope } from "../models/shop.server";
 
+export const loader = () => new Response(null, { status: 405 });
+
 export const action = async ({ request }) => {
   const { payload, topic, shop } = await authenticate.webhook(request);
 

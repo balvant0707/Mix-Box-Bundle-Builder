@@ -287,6 +287,8 @@ async function resolveComboBoxDetails(shop, item, properties) {
   return box || null;
 }
 
+export const loader = () => new Response(null, { status: 405 });
+
 export const action = async ({ request }) => {
   const { topic, shop, payload } = await authenticate.webhook(request);
 

@@ -6,6 +6,8 @@ import { sendMail } from "../utils/mailer.server";
 import { uninstalledEmailHtml } from "../emails/app-uninstalled";
 import { ownerUninstallNotifyHtml } from "../emails/owner-notify";
 
+export const loader = () => new Response(null, { status: 405 });
+
 export const action = async ({ request }) => {
   const { shop, topic } = await authenticate.webhook(request);
   const appBaseUrl = String(process.env.SHOPIFY_APP_URL || new URL(request.url).origin || "")

@@ -1,6 +1,8 @@
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 
+export const loader = () => new Response(null, { status: 405 });
+
 export const action = async ({ request }) => {
   const { payload, topic, shop } = await authenticate.webhook(request);
 
