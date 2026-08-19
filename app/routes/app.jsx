@@ -60,7 +60,7 @@ function buildEmbedFallbackUrl(shop) {
   return destination.toString();
 }
 
-function withTimeout(promise, fallback, ms = 700) {
+function withTimeout(promise, fallback, ms = 400) {
   return Promise.race([
     promise.catch(() => fallback),
     new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
@@ -88,10 +88,11 @@ export const loader = async ({ request }) => {
   const isBillingCallback = pathname === "/app/billing-success" || subscribedCallback;
 
   const { getSubscription, hasPlanAccess } = await import("../models/subscription.server.js");
-  const subscription = await getSubscription(session.shop);
+  const [subscription] = await Promise.all([
+    getSubscription(session.shop),
+    upsertSessionFromAuth(session),
+  ]);
   const hasAccess = hasPlanAccess(subscription);
-
-  await upsertSessionFromAuth(session);
   const installInfo = null;
 
   // Send install emails only on first install or reinstall
@@ -131,10 +132,18 @@ export const loader = async ({ request }) => {
     throw redirect(withEmbeddedAppParamsFromRequest("/app/pricing", request));
   }
 
-  const reviewPrompt = await getShopReviewPromptState(session.shop);
   const { getActiveShopifySubscription } = await import("../models/billing.server.js");
   const { getBillingCycleForPlanName } = await import("../config/billing.js");
-  const activeShopifySubscription = await withTimeout(getActiveShopifySubscription(billing), null);
+
+  const [reviewPrompt, activeShopifySubscription, [embedBlockUrl, embedBlockEnabled]] = await Promise.all([
+    getShopReviewPromptState(session.shop),
+    withTimeout(getActiveShopifySubscription(billing), null),
+    Promise.all([
+      withTimeout(buildEmbedBlockUrl({ shop: session.shop, admin }), buildEmbedFallbackUrl(session.shop)),
+      withTimeout(getEmbedBlockStatus({ shop: session.shop, admin, session }), true),
+    ]),
+  ]);
+
   const activeBillingCycle = activeShopifySubscription?.name
     ? getBillingCycleForPlanName(activeShopifySubscription.name)
     : "monthly";
@@ -148,11 +157,6 @@ export const loader = async ({ request }) => {
     billingCycle: activeBillingCycle,
     now,
   });
-
-  const [embedBlockUrl, embedBlockEnabled] = await Promise.all([
-    withTimeout(buildEmbedBlockUrl({ shop: session.shop, admin }), buildEmbedFallbackUrl(session.shop)),
-    withTimeout(getEmbedBlockStatus({ shop: session.shop, admin, session }), true),
-  ]);
 
   // eslint-disable-next-line no-undef
   return {
