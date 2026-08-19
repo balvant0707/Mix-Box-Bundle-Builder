@@ -98,6 +98,9 @@ const shopify = shopifyApp({
   sessionStorage: prismaSessionStorage,
   distribution: AppDistribution.AppStore,
   billing: BILLING_PLANS,
+  future: {
+    expiringOfflineAccessTokens: true,
+  },
   hooks: {
     afterAuth: async ({ session, admin }) => {
       await upsertSessionFromAuth(session);
