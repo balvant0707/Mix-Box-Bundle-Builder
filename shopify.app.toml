@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "68871acfcee5a597108cc2d754c7ec3e"
-application_url = "https://mix-box-bundle-builder.vercel.app/"
+application_url = "https://mix-box-bundle-builder.vercel.app/app"
 embedded = true
 name = "Mix Box & Bundle Builder"
 handle = "mix-box-bundle-builder"
@@ -19,31 +19,31 @@ api_version = "2026-04"
 
   [[webhooks.subscriptions]]
   topics = [ "app/uninstalled" ]
-  uri = "/webhooks/app/uninstalled"
+  uri = "https://mix-box-bundle-builder.vercel.app/webhooks/app/uninstalled"
 
   [[webhooks.subscriptions]]
   topics = [ "app/scopes_update" ]
-  uri = "/webhooks/app/scopes_update"
+  uri = "https://mix-box-bundle-builder.vercel.app/webhooks/app/scopes_update"
 
   [[webhooks.subscriptions]]
   topics = [ "app_subscriptions/update" ]
-  uri = "/webhooks/app_subscriptions/update"
+  uri = "https://mix-box-bundle-builder.vercel.app/webhooks/app_subscriptions/update"
 
   [[webhooks.subscriptions]]
   topics = [ "orders/paid" ]
-  uri = "/webhooks/orders/paid"
+  uri = "https://mix-box-bundle-builder.vercel.app/webhooks/orders/paid"
 
   [[webhooks.subscriptions]]
   compliance_topics = [ "customers/data_request" ]
-  uri = "/webhooks/customers/data_request"
+  uri = "https://mix-box-bundle-builder.vercel.app/webhooks/customers/data_request"
 
   [[webhooks.subscriptions]]
   compliance_topics = [ "customers/redact" ]
-  uri = "/webhooks/customers/redact"
+  uri = "https://mix-box-bundle-builder.vercel.app/webhooks/customers/redact"
 
   [[webhooks.subscriptions]]
   compliance_topics = [ "shop/redact" ]
-  uri = "/webhooks/shop/redact"
+  uri = "https://mix-box-bundle-builder.vercel.app/webhooks/shop/redact"
 
 
 [access_scopes]
