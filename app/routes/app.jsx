@@ -14,12 +14,39 @@ import {
   getShopReviewPromptState,
   submitShopReview,
   upsertSessionFromAuth,
+  upsertShopFromAdmin,
 } from "../models/shop.server";
 import { withEmbeddedAppParams, withEmbeddedAppParamsFromRequest } from "../utils/embedded-app";
 import { showPolarisToast } from "../utils/polaris-toast";
 import { sendMail } from "../utils/mailer.server";
 import { buildEmbedBlockUrl, getEmbedBlockStatus } from "../utils/theme-editor.server";
 import { getOrderCreditStatus } from "../models/order-credit.server";
+
+function tawkInitScript({ ownerName, ownerEmail, storeName, shop } = {}) {
+  // JSON.stringify does not escape "/", so a value containing "</script>" could
+  // break out of the inline <script>. Escape "<" to keep the payload safe when
+  // embedding merchant-controlled strings (owner name / email).
+  const q = (v) => JSON.stringify(v || "").replace(/</g, "\\u003c");
+  const name = q(ownerName || shop);
+  const email = q(ownerEmail);
+  const store = q(storeName || shop);
+  return (
+    "(function(){" +
+    "if(window._tawkDone)return;window._tawkDone=true;" +
+    "var a=window.Tawk_API=window.Tawk_API||{};" +
+    "a.visitor={name:" + name + ",email:" + email + "};" +
+    "a.onLoad=function(){" +
+    "a.showWidget&&a.showWidget();" +
+    "a.setAttributes&&a.setAttributes({name:" + name + ",email:" + email + ",store:" + store + "},function(){});" +
+    "};" +
+    "window.Tawk_LoadStart=new Date();" +
+    "var el=document.createElement('script');" +
+    "el.async=true;" +
+    "el.src='https://embed.tawk.to/69e7057aaa5dc31c387ec918/1jmn6qqc7';" +
+    "(document.body||document.head).appendChild(el);" +
+    "})();"
+  );
+}
 
 function getNextPlanLabel(planKey) {
   const normalized = String(planKey || "FREE").trim().toUpperCase();
@@ -93,7 +120,7 @@ export const loader = async ({ request }) => {
     upsertSessionFromAuth(session),
   ]);
   const hasAccess = hasPlanAccess(subscription);
-  const installInfo = null;
+  const installInfo = await upsertShopFromAdmin(session, admin);
 
   // Send install emails only on first install or reinstall
   if (installInfo?.isNewInstall) {
@@ -161,6 +188,10 @@ export const loader = async ({ request }) => {
   // eslint-disable-next-line no-undef
   return {
     apiKey: process.env.SHOPIFY_API_KEY || "",
+    shop: session.shop,
+    ownerName: installInfo?.ownerName || null,
+    ownerEmail: installInfo?.email || null,
+    storeName: installInfo?.shopName || null,
     reviewPrompt,
     supportContactEmail: process.env.APP_OWNER_EMAIL || process.env.SUPPORT_EMAIL || "support@example.com",
     appDisplayName: process.env.APP_NAME || "MixBox - Box & Bundle Builder",
@@ -230,6 +261,10 @@ export const action = async ({ request }) => {
 export default function App() {
   const {
     apiKey,
+    shop,
+    ownerName,
+    ownerEmail,
+    storeName,
     reviewPrompt,
     supportContactEmail,
     appDisplayName,
@@ -428,6 +463,19 @@ export default function App() {
         </Page>
       )}
       <Outlet />
+
+      {/* Tawk.to Chat */}
+      {/* eslint-disable-next-line react/no-danger */}
+      <script
+        dangerouslySetInnerHTML={{
+          __html: tawkInitScript({
+            ownerName,
+            ownerEmail,
+            storeName,
+            shop,
+          }),
+        }}
+      />
 
       <Modal
         open={showReviewPopup}
