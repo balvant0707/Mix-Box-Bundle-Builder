@@ -21,7 +21,7 @@ const BUNDLE_TYPES = [
     title: "Mix & Match Bundle (Single Product)",
     description:
       "Create your perfect bundle by mixing different variants of a single product. Choose colors, sizes, and options to match your preferences.",
-    image: "/images/mix-n-match-sp.jpg",
+    image: "/images/single-box.png",
     buttonLabel: "Create Mix & Match Bundle",
     url: "/app/single",
     premium: true,
@@ -31,7 +31,7 @@ const BUNDLE_TYPES = [
     title: "Mix & Match Bundle (Multi Products)",
     description:
       "Create your perfect bundle by mixing different variants of multiple products. Choose colors, sizes, and options to match your preferences.",
-    image: "/images/mix-n-match-mp.jpg",
+    image: "/images/multiple-box-banner.png",
     buttonLabel: "Create Mix & Match Bundle",
     url: "/app/multiplebox",
     premium: true,
