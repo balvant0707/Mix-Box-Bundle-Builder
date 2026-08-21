@@ -3352,7 +3352,7 @@ export default function EditMultipleMixMatchBundlePage() {
 
   return (
     <Page
-      title="Edit Multiple Mix & Match Bundle"
+      title="Edit Multiple Box & Bundle"
       paddingBlockEnd="800"
       backAction={{ content: 'Boxes', onAction: handleBack }}
       primaryAction={{

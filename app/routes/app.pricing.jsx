@@ -664,7 +664,7 @@ export default function PricingPage() {
                     },
                     {
                       label: "Setup Support",
-                      values: ["—", "—", "—", "—"],
+                      values: ["—", "—", "✓", "✓"],
                     },
                   ].map((row) => (
                     <tr key={row.label} style={{ borderBottom: "1px solid #f3f4f6" }}>

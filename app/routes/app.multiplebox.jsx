@@ -3200,7 +3200,7 @@ export default function CreateMultipleMixMatchBundlePage() {
 
   return (
     <Page
-      title="Create Mix n Match Bundle"
+      title="Create Multiple Box & Bundle"
       paddingBlockEnd="800"
       backAction={{ content: 'Boxes', onAction: handleBack }}
       primaryAction={{

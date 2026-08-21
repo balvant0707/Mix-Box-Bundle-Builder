@@ -77,7 +77,7 @@ export const PLANS = {
       ORDER_LIMITS.PLUS === Infinity ? "Unlimited orders" : `${ORDER_LIMITS.PLUS} orders/month`,
       "Unlimited Single Box",
       "Unlimited Multiple Box",
-        "Setup Support",
+      "Setup Support",
       "Highest-priority support",
     ]; },
   },

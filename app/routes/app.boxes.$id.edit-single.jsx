@@ -2569,7 +2569,7 @@ export default function EditSingleMixMatchBundlePage() {
 
   return (
     <Page
-      title="Edit Single Mix & Match Bundle"
+      title="Edit Single Box & Bundle"
       paddingBlockEnd="800"
       backAction={{ content: 'Boxes', onAction: handleBack }}
       primaryAction={{

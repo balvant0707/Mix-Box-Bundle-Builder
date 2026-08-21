@@ -2424,7 +2424,7 @@ export default function CreateSingleMixMatchBundlePage() {
 
   return (
     <Page
-      title="Create Single Mix & Match Bundle"
+      title="Create Single Box & Bundle"
       paddingBlockEnd="800"
       backAction={{ content: 'Boxes', onAction: handleBack }}
       primaryAction={{

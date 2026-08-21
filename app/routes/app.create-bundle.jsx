@@ -18,21 +18,21 @@ import "../styles/BundleTypesPage.css";
 const BUNDLE_TYPES = [
   {
     id: "mix-match-single-product",
-    title: "Mix & Match Bundle (Single Product)",
+    title: "Single Box & Bundle",
     description:
       "Create your perfect bundle by mixing different variants of a single product. Choose colors, sizes, and options to match your preferences.",
     image: "/images/single-box.png",
-    buttonLabel: "Create Mix & Match Bundle",
+    buttonLabel: "Create Single Box & Bundle",
     url: "/app/single",
     premium: true,
   },
   {
     id: "mix-match-multiple-products",
-    title: "Mix & Match Bundle (Multi Products)",
+    title: "Multiple Box & Bundle",
     description:
       "Create your perfect bundle by mixing different variants of multiple products. Choose colors, sizes, and options to match your preferences.",
     image: "/images/multiple-box-banner.png",
-    buttonLabel: "Create Mix & Match Bundle",
+    buttonLabel: "Create Multiple Box & Bundle",
     url: "/app/multiplebox",
     premium: true,
   },
