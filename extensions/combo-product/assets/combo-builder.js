@@ -7329,6 +7329,33 @@
       });
     }
 
+    function resolveBundleVariantId() {
+      if (!box || !box.id || !shop || !box.shopifyProductId || !resolvedApiBase) {
+        return Promise.reject(new Error('Cannot resolve combo variant'));
+      }
+
+      return fetch(
+        resolvedApiBase +
+          '/api/storefront/boxes/' +
+          encodeURIComponent(String(box.id)) +
+          '/variant?shop=' +
+          encodeURIComponent(shop),
+        { headers: { 'Accept': 'application/json' } }
+      )
+        .then(function (r) {
+          if (!r.ok) throw new Error('Variant repair failed');
+          return r.json();
+        })
+        .then(function (data) {
+          if (!data || !data.shopifyVariantId) {
+            throw new Error('Variant repair failed');
+          }
+          box.shopifyVariantId = String(data.shopifyVariantId);
+          items[0].id = box.shopifyVariantId;
+          return box.shopifyVariantId;
+        });
+    }
+
     var comboBoxId = box && box.id != null ? String(box.id) : '';
     var bundleImageSrc = getBoxCardBundleImageSrc(box, { apiBase: resolvedApiBase, shop: shop });
     var discountConfig = getBoxDiscountConfig(box);
@@ -7387,12 +7414,7 @@
 
     showPageLoader('Adding products to cart…');
 
-    var cartPromise;
-    if (isDynamic) {
-      // Same rule as addToCart()'s updateDynamicPriceThenCart, extended across
-      // every Pack being submitted together: variant price = sum of every
-      // selected product across all Packs (pre-discount), so Shopify's
-      // automatic discount can still allocate a visible discount line.
+    function updateDynamicPriceThenCart() {
       var dynamicTotal = 0;
       packEntries.forEach(function (entry) {
         (entry.slots || []).forEach(function (p) {
@@ -7401,26 +7423,59 @@
           }
         });
       });
+
       if (dynamicTotal <= 0) {
-        cartPromise = Promise.reject(new Error('No product prices available for dynamic pricing'));
-      } else {
-        var updateUrl = resolvedApiBase +
-          '/api/storefront/boxes/' + encodeURIComponent(String(box.id)) +
-          '/update-price?shop=' + encodeURIComponent(shop);
-        cartPromise = fetch(updateUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({ price: dynamicTotal }),
-        }).then(function (r) {
-          if (!r.ok) return r.json().then(function (d) { throw new Error(d.error || 'Price update failed'); });
-          return r.json();
-        }).then(addItems);
+        return Promise.reject(new Error('No product prices available for dynamic pricing'));
       }
+
+      var updateUrl = resolvedApiBase +
+        '/api/storefront/boxes/' + encodeURIComponent(String(box.id)) +
+        '/update-price?shop=' + encodeURIComponent(shop);
+
+      return fetch(updateUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ price: dynamicTotal }),
+      }).then(function (r) {
+        if (!r.ok) return r.json().then(function (d) { throw new Error(d.error || 'Price update failed'); });
+        return r.json();
+      }).then(function (data) {
+        if (data && data.shopifyVariantId) {
+          box.shopifyVariantId = String(data.shopifyVariantId);
+          items[0].id = box.shopifyVariantId;
+        }
+      }).then(addItems);
+    }
+
+    var cartPromise;
+    if (isDynamic) {
+      cartPromise = updateDynamicPriceThenCart();
     } else {
-      cartPromise = addItems();
+      cartPromise = resolveBundleVariantId()
+        .catch(function (e) {
+          mbError('resolve Multiple Box variant failed (using stored id)', {
+            message: e && e.message,
+            storedShopifyVariantId: box && box.shopifyVariantId,
+            shopifyProductId: box && box.shopifyProductId,
+          });
+        })
+        .then(function () { return new Promise(function (resolve) { setTimeout(resolve, 800); }); })
+        .then(addItems);
     }
 
     cartPromise
+      .catch(function (err) {
+        var msg = err && err.message ? String(err.message).toLowerCase() : '';
+        if (msg.indexOf('cannot find variant') === -1) throw err;
+
+        return resolveBundleVariantId().then(function () {
+          return new Promise(function (resolve) { setTimeout(resolve, 1500); })
+            .then(function () {
+              if (!isDynamic) return addItems();
+              return updateDynamicPriceThenCart();
+            });
+        });
+      })
       .then(function (cartResponse) {
         hidePageLoader(true);
         try { syncThemeCartUIStandalone(cartResponse); } catch (e) { mbError('cart UI refresh failed after Multiple Box add', e); }
