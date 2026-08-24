@@ -1985,37 +1985,16 @@
     var boxIdsFilter = null;
     var rawBoxIds = root.dataset.boxIds || config.boxIds || null;
     if (rawBoxIds) {
-      boxIdsFilter = String(rawBoxIds).split(',').map(function (id) { return parseInt(id.trim(), 10); }).filter(Boolean);
+      boxIdsFilter = String(rawBoxIds).split(',').map(function (id) { return String(id || '').trim(); }).filter(Boolean);
     }
 
     // Per-box visibility filter from theme editor (box names, codes, or numeric IDs — comma/newline separated)
-    var visibleBoxNames = null;
-    var visibleBoxCodes = null;
+    var visibleBoxTokens = null;
     var rawVisible = root.dataset.visibleBoxes || config.visibleBoxes || null;
     if (rawVisible && String(rawVisible).trim()) {
-      var visTokens = String(rawVisible).split(/[\n,]+/)
-        .map(function (t) { return t.trim(); }).filter(Boolean);
-      var visIdTokens = [], visNameTokens = [], visCodeTokens = [];
-      visTokens.forEach(function (t) {
-        var n = parseInt(t, 10);
-        if (!isNaN(n) && String(n) === t) {
-          visIdTokens.push(n);
-        } else if (/^[A-Z0-9]{5}$/.test(t.toUpperCase()) && t.length === 5) {
-          // 5-char alphanumeric → treat as boxCode
-          visCodeTokens.push(t.toUpperCase());
-        } else {
-          visNameTokens.push(t.toLowerCase());
-        }
-      });
-      if (visIdTokens.length > 0) {
-        boxIdsFilter = (boxIdsFilter || []).concat(visIdTokens);
-      }
-      if (visNameTokens.length > 0) {
-        visibleBoxNames = visNameTokens;
-      }
-      if (visCodeTokens.length > 0) {
-        visibleBoxCodes = visCodeTokens;
-      }
+      visibleBoxTokens = String(rawVisible).split(/[\n,]+/)
+        .map(function (t) { return String(t || '').trim(); })
+        .filter(Boolean);
     }
 
     // Current page handle passed from Liquid
@@ -2165,20 +2144,10 @@
         });
       }
       if (boxIdsFilter && boxIdsFilter.length > 0) {
-        boxes = boxes.filter(function (b) { return boxIdsFilter.indexOf(b.id) !== -1; });
+        boxes = filterBoxesByVisibleTokens(boxes, boxIdsFilter);
       }
-      // Filter by visible box names set in theme editor
-      if (visibleBoxNames && visibleBoxNames.length > 0) {
-        boxes = boxes.filter(function (b) {
-          var name = String(b.boxName || b.displayTitle || '').trim().toLowerCase();
-          return visibleBoxNames.indexOf(name) !== -1;
-        });
-      }
-      // Filter by box code (5-char unique code)
-      if (visibleBoxCodes && visibleBoxCodes.length > 0) {
-        boxes = boxes.filter(function (b) {
-          return b.boxCode && visibleBoxCodes.indexOf(String(b.boxCode).toUpperCase()) !== -1;
-        });
+      if (visibleBoxTokens && visibleBoxTokens.length > 0) {
+        boxes = filterBoxesByVisibleTokens(boxes, visibleBoxTokens);
       }
       // Filter by page assignment: show box if pageHandle is null (all pages) or matches current page
       if (currentPageHandle && !productBoxOnly && !showAllBoxes) {
@@ -2375,6 +2344,39 @@
     if (!Array.isArray(boxes)) return [];
     return boxes.filter(function (box) {
       return isBoxAllowedForCustomer(box, customerId, customerTags);
+    });
+  }
+
+  function normalizeVisibleBoxToken(value) {
+    return String(value == null ? '' : value).trim().toLowerCase();
+  }
+
+  function boxMatchesVisibleToken(box, token) {
+    if (!box || !token) return false;
+    var normalizedToken = normalizeVisibleBoxToken(token);
+    var candidates = [
+      box.id,
+      box.boxId,
+      box.shopifyProductId,
+      normalizeShopifyProductId(box.shopifyProductId),
+      box.boxCode,
+      box.boxName,
+      box.displayTitle,
+    ];
+
+    for (var i = 0; i < candidates.length; i++) {
+      if (normalizeVisibleBoxToken(candidates[i]) === normalizedToken) return true;
+    }
+    return false;
+  }
+
+  function filterBoxesByVisibleTokens(boxes, tokens) {
+    if (!Array.isArray(boxes)) return [];
+    if (!Array.isArray(tokens) || tokens.length === 0) return boxes;
+    return boxes.filter(function (box) {
+      return tokens.some(function (token) {
+        return boxMatchesVisibleToken(box, token);
+      });
     });
   }
 
