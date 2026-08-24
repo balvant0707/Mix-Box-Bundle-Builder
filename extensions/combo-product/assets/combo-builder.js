@@ -6998,7 +6998,7 @@
     }
 
     function resolveBundleVariantId() {
-      if (!box || !box.id || !shop || !box.shopifyProductId || !resolvedApiBase) {
+      if (!box || !box.id || !shop || !resolvedApiBase) {
         return Promise.reject(new Error('Cannot resolve combo variant'));
       }
 
@@ -7018,6 +7018,7 @@
           if (!data || !data.shopifyVariantId) {
             throw new Error('Variant repair failed');
           }
+          if (data.shopifyProductId) box.shopifyProductId = String(data.shopifyProductId);
           box.shopifyVariantId = String(data.shopifyVariantId);
           return box.shopifyVariantId;
         });
@@ -7103,7 +7104,7 @@
     var additionalSettingAttributes = {};
     var isDynamic = String(box.bundlePriceType || 'manual') === 'dynamic';
 
-    if (box.shopifyVariantId) {
+    if (box && box.id) {
       var totalMrp = 0;
       slots.forEach(function (p) {
         if (p && p.productPrice != null && parseFloat(p.productPrice) > 0) {
@@ -7145,7 +7146,7 @@
 
       var shouldIncludeGiftDetails = !!(box && box.isGiftBox && box.giftMessageEnabled);
 
-      items.push({ id: box.shopifyVariantId, quantity: 1, properties: bundleProps });
+      items.push({ id: box.shopifyVariantId || null, quantity: 1, properties: bundleProps });
 
       additionalSettingAttributes = {};
       if (shouldIncludeGiftDetails) {
@@ -7193,10 +7194,9 @@
       });
     }
 
-    // For manual mode: call the variant endpoint first so the product is guaranteed
-    // to be ACTIVE + published on the Online Store before /cart/add.js is called.
-    // For dynamic mode: updateDynamicPriceThenCart already activates + publishes.
-    function ensurePublishedThenCart() {
+    // Resolve through the app proxy first so missing/stale product links are
+    // repaired and the bundle product is published before Shopify cart APIs run.
+    function resolvePublishedVariant() {
       return resolveBundleVariantId()
         .then(function (variantId) {
           if (__CB_DEBUG__) console.log('[ComboBuilder] resolveBundleVariantId resolved:', variantId);
@@ -7206,15 +7206,20 @@
           if (__CB_DEBUG__) console.warn('[ComboBuilder] resolveBundleVariantId failed (using stored id):', e && e.message, '| stored shopifyVariantId:', box.shopifyVariantId, '| box.shopifyProductId:', box.shopifyProductId);
         })
         // Brief pause so Shopify can propagate the publish/activate from the variant endpoint
-        .then(function () { return new Promise(function (r) { setTimeout(r, 800); }); })
-        .then(function () {
-          return upsertAdditionalSettingAttributes(additionalSettingAttributes).then(function () {
-            return upsertComboLine(items[0]);
-          });
-        });
+        .then(function () { return new Promise(function (r) { setTimeout(r, 800); }); });
     }
 
-    var cartPromise = isDynamic ? updateDynamicPriceThenCart() : ensurePublishedThenCart();
+    function ensurePublishedThenCart() {
+      return resolvePublishedVariant().then(function () {
+        return upsertAdditionalSettingAttributes(additionalSettingAttributes).then(function () {
+          return upsertComboLine(items[0]);
+        });
+      });
+    }
+
+    var cartPromise = isDynamic
+      ? resolvePublishedVariant().then(updateDynamicPriceThenCart)
+      : ensurePublishedThenCart();
 
     cartPromise
       .catch(function (err) {
@@ -7330,7 +7335,7 @@
     }
 
     function resolveBundleVariantId() {
-      if (!box || !box.id || !shop || !box.shopifyProductId || !resolvedApiBase) {
+      if (!box || !box.id || !shop || !resolvedApiBase) {
         return Promise.reject(new Error('Cannot resolve combo variant'));
       }
 
@@ -7350,6 +7355,7 @@
           if (!data || !data.shopifyVariantId) {
             throw new Error('Variant repair failed');
           }
+          if (data.shopifyProductId) box.shopifyProductId = String(data.shopifyProductId);
           box.shopifyVariantId = String(data.shopifyVariantId);
           items[0].id = box.shopifyVariantId;
           return box.shopifyVariantId;
@@ -7392,7 +7398,7 @@
     bundleProps['_bundle_pack_key'] = '';
     if (packKeys.length) bundleProps['_bundle_pack_keys'] = packKeys.join(',');
 
-    var items = [{ id: box.shopifyVariantId, quantity: 1, properties: bundleProps }];
+    var items = [{ id: box.shopifyVariantId || null, quantity: 1, properties: bundleProps }];
 
     var additionalSettingAttributes = {};
     if (shouldIncludeGiftDetails) {
@@ -7447,11 +7453,8 @@
       }).then(addItems);
     }
 
-    var cartPromise;
-    if (isDynamic) {
-      cartPromise = updateDynamicPriceThenCart();
-    } else {
-      cartPromise = resolveBundleVariantId()
+    function resolvePublishedVariant() {
+      return resolveBundleVariantId()
         .catch(function (e) {
           mbError('resolve Multiple Box variant failed (using stored id)', {
             message: e && e.message,
@@ -7459,8 +7462,14 @@
             shopifyProductId: box && box.shopifyProductId,
           });
         })
-        .then(function () { return new Promise(function (resolve) { setTimeout(resolve, 800); }); })
-        .then(addItems);
+        .then(function () { return new Promise(function (resolve) { setTimeout(resolve, 800); }); });
+    }
+
+    var cartPromise;
+    if (isDynamic) {
+      cartPromise = resolvePublishedVariant().then(updateDynamicPriceThenCart);
+    } else {
+      cartPromise = resolvePublishedVariant().then(addItems);
     }
 
     cartPromise

@@ -1263,8 +1263,6 @@ export async function createShopifyBundleProduct(admin, title, bundlePrice, imag
     console.warn("[createShopifyBundleProduct] Could not find Online Store publication ID — product may not be purchasable via storefront");
   }
 
-  await hideBundleProductFromOnlineStore(admin, shopifyProductId);
-
   return { shopifyProductId, shopifyVariantId };
 }
 

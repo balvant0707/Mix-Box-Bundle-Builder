@@ -1,6 +1,6 @@
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
-import { createShopifyBundleProduct, hideBundleProductFromOnlineStore } from "../models/boxes.server";
+import { createShopifyBundleProduct } from "../models/boxes.server";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -188,8 +188,6 @@ export const loader = async ({ request, params }) => {
 
     // Case 2b: product exists — ensure it's ACTIVE and published so cart accepts it
     await ensureProductPublished(admin, productData.id);
-    await hideBundleProductFromOnlineStore(admin, productData.id);
-
     if (freshVariantId !== box.shopifyVariantId) {
       await db.comboBox.update({
         where: { id: box.id },
