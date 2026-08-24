@@ -989,138 +989,37 @@
   cursor: pointer;
 }
 
-.cb-cart-selected-products {
-  display: grid;
-  gap: 6px;
-  margin: 8px 0 0;
-  padding: 0;
-}
-
-.cb-cart-selected-product {
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.cb-cart-selected-product--name-only {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.cb-cart-selected-product__image {
-  width: 38px;
-  height: 38px;
-  object-fit: cover;
-  border-radius: 4px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: #f6f6f7;
-}
-
-.cb-cart-selected-product__title {
-  min-width: 0;
-  font-size: 14px;
-  line-height: 1.45;
-  color: inherit;
-  overflow-wrap: anywhere;
-}
-
 .cb-cart-box-image-wrap {
-  width: 120px;
-  min-width: 120px;
-  margin: 0 0 12px;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
 }
 
 .cb-cart-box-image {
   display: block;
-  width: 120px;
-  height: 120px;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
   object-fit: cover;
-  border-radius: 4px;
   background: #f6f6f7;
 }
 
-.cb-combo-line-item > .cb-cart-box-image-wrap {
-  float: left;
-  margin-right: 14px;
-}
-
-.cb-combo-line-item .cart-item__details > .cb-cart-box-image-wrap,
-.cb-combo-line-item .cart-drawer-item__details > .cb-cart-box-image-wrap,
-.cb-combo-line-item .line-item__details > .cb-cart-box-image-wrap,
-.cb-combo-line-item .line-item__info > .cb-cart-box-image-wrap {
-  float: none;
-  margin: 0 0 10px;
-}
-
-cart-drawer .cb-combo-line-item.cart-item,
-.cart-drawer .cb-combo-line-item.cart-item,
-#CartDrawer .cb-combo-line-item.cart-item {
-  grid-template-columns: 120px minmax(0, 1fr) auto;
-  align-items: start;
-  column-gap: 18px;
-  row-gap: 8px;
-}
-
-cart-drawer .cb-combo-line-item .cart-item__media,
-.cart-drawer .cb-combo-line-item .cart-item__media,
-#CartDrawer .cb-combo-line-item .cart-item__media {
-  width: 120px;
-  min-width: 120px;
-  grid-column: 1 / 2;
-  grid-row: 1 / 4;
-}
-
-cart-drawer .cb-combo-line-item .cart-item__image,
-.cart-drawer .cb-combo-line-item .cart-item__image,
-#CartDrawer .cb-combo-line-item .cart-item__image {
-  width: 120px;
-  height: 120px;
-  object-fit: cover;
-  border-radius: 4px;
-}
-
-cart-drawer .cb-combo-line-item .cart-item__details,
-.cart-drawer .cb-combo-line-item .cart-item__details,
-#CartDrawer .cb-combo-line-item .cart-item__details {
-  grid-column: 2 / 3;
+.cb-combo-line-item .cart-item__media > .cb-cart-box-image-wrap,
+.cb-combo-line-item .cart-drawer-item__media > .cb-cart-box-image-wrap,
+.cb-combo-line-item .line-item__media > .cb-cart-box-image-wrap,
+.cb-combo-line-item .cart-item__image-container > .cb-cart-box-image-wrap {
+  width: 100%;
   min-width: 0;
+  margin: 0;
 }
 
-cart-drawer .cb-combo-line-item .cart-item__totals,
-.cart-drawer .cb-combo-line-item .cart-item__totals,
-#CartDrawer .cb-combo-line-item .cart-item__totals {
-  grid-column: 3 / 4;
-  justify-self: end;
-  text-align: right;
-}
-
-cart-drawer .cb-combo-line-item .cart-item__quantity,
-cart-drawer .cb-combo-line-item .cart-item__quantity-wrapper,
-.cart-drawer .cb-combo-line-item .cart-item__quantity,
-.cart-drawer .cb-combo-line-item .cart-item__quantity-wrapper,
-#CartDrawer .cb-combo-line-item .cart-item__quantity,
-#CartDrawer .cb-combo-line-item .cart-item__quantity-wrapper {
-  grid-column: 2 / 4;
-  grid-row: auto;
-}
-
-.cb-combo-line-item .cart-item__name,
-.cb-combo-line-item .cart-item__name:hover,
-.cb-combo-line-item .line-item__title,
-.cb-combo-line-item .cart-drawer-item__name {
-  font-size: 18px;
-  line-height: 1.25;
-  font-weight: 500;
-  color: rgb(18, 18, 18);
-  text-decoration: none;
-}
-
-.cb-combo-line-item .price,
-.cb-combo-line-item .cart-item__price-wrapper,
-.cb-combo-line-item .cart-item__totals {
-  font-size: 18px;
-  line-height: 1.25;
+.cb-combo-line-item .cart-item__media > .cb-cart-box-image-wrap .cb-cart-box-image,
+.cb-combo-line-item .cart-drawer-item__media > .cb-cart-box-image-wrap .cb-cart-box-image,
+.cb-combo-line-item .line-item__media > .cb-cart-box-image-wrap .cb-cart-box-image,
+.cb-combo-line-item .cart-item__image-container > .cb-cart-box-image-wrap .cb-cart-box-image {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
 }
 
 .cb-combo-line-item .product-option,
