@@ -23,7 +23,9 @@
     productHandle:  '{{ product.handle }}',
     autoProductBox: true,
     productBoxOnly: true,
-    layoutMode: 'grid'
+    layoutMode: 'grid',
+    boxTypeFilter:  '{{ block.settings.box_type_filter | default: "all" }}',
+    visibleBoxes:   {{ block.settings.visible_boxes | json }}
   });
   {% endif %}
 </script>
@@ -44,6 +46,8 @@
     data-auto-product-box="true"
     data-product-box-only="true"
     data-layout-mode="grid"
+    data-box-type-filter="{{ block.settings.box_type_filter | default: 'all' }}"
+    data-visible-boxes="{{ block.settings.visible_boxes | escape }}"
   ></div>
 {% endif %}
 
@@ -51,6 +55,24 @@
 {
   "name": "Build Your Box Auto",
   "target": "body",
-  "settings": []
+  "settings": [
+    {
+      "type": "select",
+      "id": "box_type_filter",
+      "label": "Show bundle boxes",
+      "options": [
+        { "value": "all", "label": "All boxes" },
+        { "value": "single", "label": "Single boxes" },
+        { "value": "multiple", "label": "Multiple boxes" }
+      ],
+      "default": "all"
+    },
+    {
+      "type": "textarea",
+      "id": "visible_boxes",
+      "label": "Visible boxes",
+      "info": "Optional. Enter box IDs, names, or 5-character box codes separated by commas or new lines. Leave blank to show every mapped box from the selected type."
+    }
+  ]
 }
 {% endschema %}

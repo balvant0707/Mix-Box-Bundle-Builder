@@ -1447,6 +1447,22 @@
       }
     }
 
+    function hidePreviewSiblings(container) {
+      if (!container || !container.contains(root)) return;
+      var children = Array.prototype.slice.call(container.children || []);
+      children.forEach(function (child) {
+        if (!child || child === root || child.contains(root) || root.contains(child)) return;
+        if (child.closest && child.closest('.combo-builder-root')) return;
+        child.setAttribute('data-cb-preview-hidden', '1');
+        child.style.setProperty('display', 'none', 'important');
+      });
+    }
+
+    var rootProductInfo = root.closest && root.closest(
+      '.product__info-wrapper, .product__info-container, .product__column-sticky, .product-main__info, [data-product-blocks], [data-product-information], .product-single__meta, .productView-details, .product-info, .main-product__info, .product-page-info'
+    );
+    hidePreviewSiblings(rootProductInfo);
+
     // If theme layout is two-column product media/info, hide the sibling info column too.
     var productContainers = document.querySelectorAll('.product, .main-product, [data-section-type="product"]');
     for (var pi = 0; pi < productContainers.length; pi++) {
@@ -1458,6 +1474,7 @@
         infoSibling.setAttribute('data-cb-preview-hidden', '1');
         infoSibling.style.setProperty('display', 'none', 'important');
       }
+      hidePreviewSiblings(pc);
     }
 
     // Generated bundle products should behave like a dedicated builder page:
@@ -2268,6 +2285,7 @@
       layoutMode: el.dataset.layoutMode || 'grid',
       heading: el.dataset.heading || 'Build Your Own Box!',
       boxIds: el.dataset.boxIds || null,
+      visibleBoxes: el.dataset.visibleBoxes || null,
       productId: el.dataset.productId || null,
       autoProductBox: el.dataset.autoProductBox || false,
       boxTypeFilter: el.dataset.boxTypeFilter || 'all',
@@ -2813,6 +2831,7 @@
     card.setAttribute('role', 'button');
     card.setAttribute('tabindex', '0');
     card.setAttribute('data-box-id', String(box.id));
+    card.setAttribute('aria-pressed', 'false');
 
     var designStyle = buildBoxDesignStyle(box.designSettings);
     if (designStyle) card.setAttribute('style', designStyle);
@@ -2846,9 +2865,9 @@
     }
 
     // Checkmark badge (shown when selected)
-    var check = document.createElement('div');
+    var check = document.createElement('span');
     check.className = 'cb-box-check';
-    check.innerHTML = '&#10003;';
+    check.setAttribute('aria-hidden', 'true');
     card.appendChild(check);
 
     // Body text
@@ -2896,9 +2915,13 @@
     function onSelect() {
       var cardScope = ctx && ctx.rootEl ? ctx.rootEl : card.closest('.combo-builder-root');
       if (cardScope) {
-        cardScope.querySelectorAll('.cb-box-card').forEach(function (c) { c.classList.remove('cb-box-card--active'); });
+        cardScope.querySelectorAll('.cb-box-card').forEach(function (c) {
+          c.classList.remove('cb-box-card--active');
+          c.setAttribute('aria-pressed', 'false');
+        });
       }
       card.classList.add('cb-box-card--active');
+      card.setAttribute('aria-pressed', 'true');
       setActiveBoxBanner(ctx, box);
       openBuilder(box, ctx);
     }
@@ -6602,26 +6625,9 @@
       lineItem.classList.add('cb-combo-line-item');
     });
 
-    if (!document.getElementById('cb-combo-cart-hide-qty')) {
-      var style = document.createElement('style');
-      style.id = 'cb-combo-cart-hide-qty';
-      style.textContent =
-        '.cb-combo-line-item quantity-input,' +
-        '.cb-combo-line-item .quantity,' +
-        '.cb-combo-line-item .cart-item__quantity,' +
-        '.cb-combo-line-item .cart-item__quantity-wrapper,' +
-        '.cb-combo-line-item .cart-drawer__quantity,' +
-        '.cb-combo-line-item .quantity-popover-container,' +
-        '.cb-combo-line-item .js-qty,' +
-        '.cb-combo-line-item .js-qty__wrapper,' +
-        '.cb-combo-line-item [data-quantity-selector],' +
-        '.cb-combo-line-item button.quantity__button,' +
-        '.cb-combo-line-item [name=\"plus\"],' +
-        '.cb-combo-line-item [name=\"minus\"],' +
-        '.cb-combo-line-item input[name=\"updates[]\"],' +
-        '.cb-combo-line-item input[name^=\"updates[\"]' +
-        '{display:none !important;}';
-      document.head.appendChild(style);
+    var oldHideQtyStyle = document.getElementById('cb-combo-cart-hide-qty');
+    if (oldHideQtyStyle && oldHideQtyStyle.parentNode) {
+      oldHideQtyStyle.parentNode.removeChild(oldHideQtyStyle);
     }
   }
 
@@ -6768,6 +6774,9 @@
       existingImg.alt = imageAlt || existingImg.alt || 'Bundle product image';
       existingImg.loading = existingImg.loading || 'lazy';
       existingImg.style.display = '';
+      var oldFallback = lineItem.querySelector('.cb-cart-box-image-wrap');
+      if (oldFallback && oldFallback.parentNode) oldFallback.parentNode.removeChild(oldFallback);
+      return;
     }
 
     var existingFallback = lineItem.querySelector('.cb-cart-box-image-wrap');
