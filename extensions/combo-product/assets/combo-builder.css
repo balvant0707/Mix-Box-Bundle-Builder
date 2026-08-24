@@ -992,6 +992,10 @@
   min-width: 0;
 }
 
+.cb-cart-selected-product--name-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .cb-cart-selected-product__image {
   width: 38px;
   height: 38px;
