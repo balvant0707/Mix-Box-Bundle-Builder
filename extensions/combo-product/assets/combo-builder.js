@@ -6576,11 +6576,13 @@
 
     if (!propertyNode || propertyNode === lineItem) propertyNode = node;
     propertyNode.style.display = 'none';
+    propertyNode.setAttribute('data-cb-hidden-property', '1');
 
     if (node.tagName && node.tagName.toLowerCase() === 'dt') {
       var next = node.nextElementSibling;
       if (next && next.tagName && next.tagName.toLowerCase() === 'dd') {
         next.style.display = 'none';
+        next.setAttribute('data-cb-hidden-property', '1');
       }
     }
   }
@@ -6597,25 +6599,35 @@
       if (!text) return;
       var lower = text.toLowerCase();
 
+      var isItemPropertyLabel = /^item\s*\d+\s*:?\s*/.test(lower) || /^item\d+\s*:?\s*/.test(lower);
+      var previousSibling = node.previousElementSibling;
+      if (
+        node.tagName &&
+        node.tagName.toLowerCase() === 'dd' &&
+        previousSibling &&
+        previousSibling.getAttribute &&
+        previousSibling.getAttribute('data-cb-hidden-property') === '1'
+      ) {
+        hideComboCartPropertyNode(node);
+        return;
+      }
+
       // Safety cleanup for previously-created visible properties.
       if (
         lower.indexOf('bundle:') === 0 ||
         lower.indexOf('combo price:') === 0 ||
         lower.indexOf('selected items total:') === 0 ||
-        lower.indexOf('mrp:') === 0
+        lower.indexOf('mrp:') === 0 ||
+        isItemPropertyLabel
       ) {
         hideComboCartPropertyNode(node);
       }
 
-      if (lower.indexOf('item 1:') === 0 || lower.indexOf('item1:') === 0) {
+      if (/^item\s*1\s*:?\s*/.test(lower) || /^item1\s*:?\s*/.test(lower)) {
         var lineItem = getComboCartLineItemForNode(node);
         if (lineItem && comboLineItems.indexOf(lineItem) === -1) {
           comboLineItems.push(lineItem);
         }
-      }
-
-      if (/^item\s*\d+\s*:/.test(lower) || /^item\d+\s*:/.test(lower)) {
-        hideComboCartPropertyNode(node);
       }
     });
 
@@ -6848,11 +6860,7 @@
     });
 
     var anchor = lineItem.querySelector('.cart-item__details, .cart-drawer-item__details, .line-item__details, .line-item__info') || lineItem;
-    if (anchor && anchor.parentNode && anchor !== lineItem) {
-      anchor.parentNode.insertBefore(list, anchor.nextSibling);
-    } else {
-      lineItem.appendChild(list);
-    }
+    anchor.appendChild(list);
   }
 
   function waitForComboCartPresentation(expectedItemsCount) {
