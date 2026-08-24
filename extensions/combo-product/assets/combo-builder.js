@@ -1715,7 +1715,7 @@
       if (typeof callback === 'function') callback();
     };
 
-    card.querySelectorAll('.cb-product-card-action-spinner').forEach(function (node) {
+    button.querySelectorAll('.cb-product-card-action-spinner').forEach(function (node) {
       if (node && node.parentNode) node.parentNode.removeChild(node);
     });
 
@@ -1723,13 +1723,16 @@
     spinner.className = 'cb-product-card-action-spinner';
     spinner.setAttribute('aria-hidden', 'true');
     spinner.innerHTML = '<span class="combo-builder-spinner" aria-hidden="true"></span>';
-    button.parentNode.insertBefore(spinner, button);
+    button.appendChild(spinner);
 
     button.disabled = true;
     card.classList.add('cb-product-card--selecting');
 
     return function (callback) {
       setTimeout(function () {
+        if (spinner && spinner.parentNode) spinner.parentNode.removeChild(spinner);
+        button.disabled = false;
+        card.classList.remove('cb-product-card--selecting');
         if (typeof callback === 'function') callback();
       }, 180);
     };
@@ -6641,6 +6644,13 @@
     }
   }
 
+  function scheduleComboCartPresentationRefresh(root) {
+    cleanupComboCartPresentation(root || document);
+    [50, 150, 400, 900].forEach(function (delay) {
+      setTimeout(function () { cleanupComboCartPresentation(root || document); }, delay);
+    });
+  }
+
   function getCartItemProperties(item) {
     if (!item) return {};
     var props = item.properties || item.line_level_properties || {};
@@ -6683,6 +6693,7 @@
       if (typeof item.featured_image.url === 'string' && item.featured_image.url.trim()) return item.featured_image.url;
       if (typeof item.featured_image.src === 'string' && item.featured_image.src.trim()) return item.featured_image.src;
     }
+    if (typeof props._combo_product_image === 'string' && props._combo_product_image.trim()) return props._combo_product_image;
     return props._combo_bundle_image || '';
   }
 
@@ -6780,7 +6791,9 @@
       '.cart-item__media,' +
       '.cart-drawer-item__media,' +
       '.line-item__media,' +
-      '.cart-item__image-container'
+      '.cart-item__image-container,' +
+      '.cart-item__image-wrapper,' +
+      '.cart-item__image-link'
     );
 
     var existingImg = media
@@ -6795,8 +6808,12 @@
       existingImg.alt = imageAlt || existingImg.alt || 'Bundle product image';
       existingImg.loading = existingImg.loading || 'lazy';
       existingImg.style.display = '';
+      if (existingImg.parentElement) existingImg.parentElement.style.display = '';
+      if (media) media.style.display = '';
       var oldFallback = lineItem.querySelector('.cb-cart-box-image-wrap');
-      if (oldFallback && oldFallback.parentNode) oldFallback.parentNode.removeChild(oldFallback);
+      if (oldFallback && !oldFallback.contains(existingImg) && oldFallback.parentNode) {
+        oldFallback.parentNode.removeChild(oldFallback);
+      }
       return;
     }
 
@@ -6816,6 +6833,7 @@
     if (media) {
       media.appendChild(wrap);
       media.style.display = '';
+      if (media.parentElement) media.parentElement.style.display = '';
       return;
     }
 
@@ -7263,6 +7281,7 @@
       bundleProps['_combo_selected_count'] = String(selectedItemsCount);
       if (bundleImageSrc && !/^(data:|blob:)/i.test(String(bundleImageSrc))) {
         bundleProps['_combo_bundle_image'] = bundleImageSrc;
+        bundleProps['_combo_product_image'] = bundleImageSrc;
       }
       // Identifies this line as the qualifying Bundle Product for a specific
       // Box (+ pack, for Multiple Box), so the Free Gift sync below — and any
@@ -7368,7 +7387,7 @@
 
         // cart/add.js returns sections HTML when requested — use it to refresh drawer content
         syncThemeCartUI(cartResponse);
-        cleanupComboCartPresentation(document);
+        scheduleComboCartPresentationRefresh(document);
 
         // This box's own Free Gift Product (if configured) isn't added by Shopify's
         // automatic BXGY discount — that only makes an existing gift line free.
@@ -7520,6 +7539,7 @@
     bundleProps['_combo_selected_count'] = String(selectedCount);
     if (bundleImageSrc && !/^(data:|blob:)/i.test(String(bundleImageSrc))) {
       bundleProps['_combo_bundle_image'] = bundleImageSrc;
+      bundleProps['_combo_product_image'] = bundleImageSrc;
     }
     bundleProps['_bundle_box_id'] = comboBoxId;
     bundleProps['_bundle_pack_key'] = '';
@@ -7615,6 +7635,7 @@
       .then(function (cartResponse) {
         hidePageLoader(true);
         try { syncThemeCartUIStandalone(cartResponse); } catch (e) { mbError('cart UI refresh failed after Multiple Box add', e); }
+        scheduleComboCartPresentationRefresh(document);
         scheduleGiftReconcile(shop, resolvedApiBase, 0);
         document.dispatchEvent(new CustomEvent('cart:refresh', { bubbles: true }));
         document.dispatchEvent(new CustomEvent('cart:updated', { bubbles: true }));

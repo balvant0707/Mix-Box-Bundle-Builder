@@ -71,6 +71,8 @@
       "type": "textarea",
       "id": "visible_boxes",
       "label": "Visible boxes",
+      "placeholder": "12345,45678,00123",
+      "visible_if": "{{ block.settings.box_type_filter != 'all' }}",
       "info": "Optional. Enter box IDs, names, or 5-character box codes separated by commas or new lines. Leave blank to show every mapped box from the selected type."
     }
   ]

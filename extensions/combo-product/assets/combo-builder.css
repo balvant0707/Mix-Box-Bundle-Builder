@@ -1007,7 +1007,9 @@
 .cb-combo-line-item .cart-item__media > .cb-cart-box-image-wrap,
 .cb-combo-line-item .cart-drawer-item__media > .cb-cart-box-image-wrap,
 .cb-combo-line-item .line-item__media > .cb-cart-box-image-wrap,
-.cb-combo-line-item .cart-item__image-container > .cb-cart-box-image-wrap {
+.cb-combo-line-item .cart-item__image-container > .cb-cart-box-image-wrap,
+.cb-combo-line-item .cart-item__image-wrapper > .cb-cart-box-image-wrap,
+.cb-combo-line-item .cart-item__image-link > .cb-cart-box-image-wrap {
   width: 100%;
   min-width: 0;
   margin: 0;
@@ -1016,7 +1018,9 @@
 .cb-combo-line-item .cart-item__media > .cb-cart-box-image-wrap .cb-cart-box-image,
 .cb-combo-line-item .cart-drawer-item__media > .cb-cart-box-image-wrap .cb-cart-box-image,
 .cb-combo-line-item .line-item__media > .cb-cart-box-image-wrap .cb-cart-box-image,
-.cb-combo-line-item .cart-item__image-container > .cb-cart-box-image-wrap .cb-cart-box-image {
+.cb-combo-line-item .cart-item__image-container > .cb-cart-box-image-wrap .cb-cart-box-image,
+.cb-combo-line-item .cart-item__image-wrapper > .cb-cart-box-image-wrap .cb-cart-box-image,
+.cb-combo-line-item .cart-item__image-link > .cb-cart-box-image-wrap .cb-cart-box-image {
   width: 100%;
   height: auto;
   aspect-ratio: 1 / 1;
@@ -1897,7 +1901,9 @@
 
 /* ADD TO BOX button */
 .cb-add-btn {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   padding: 11px 0;
   margin-top: 10px;
@@ -1910,6 +1916,7 @@
   letter-spacing: 1px;
   text-transform: uppercase;
   cursor: pointer;
+  position: relative;
   transition: background var(--cb-transition);
 }
 
@@ -1940,12 +1947,18 @@
 }
 
 .cb-product-card-action-spinner {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 18px;
-  margin: 8px 0 -2px;
-  color: var(--cb-box-cta-bg);
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  color: currentColor;
+  pointer-events: none;
 }
 
 .cb-product-card-action-spinner .combo-builder-spinner {
