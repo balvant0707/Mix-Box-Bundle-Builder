@@ -1191,7 +1191,7 @@
 
     var loadingEl = document.createElement('span');
     loadingEl.className = 'cb-variant-picker-loading';
-    loadingEl.textContent = 'Loading…';
+    loadingEl.innerHTML = '<span class="combo-builder-spinner" aria-hidden="true"></span>';
     picker.appendChild(loadingEl);
 
     function closePicker() {
@@ -1678,10 +1678,44 @@
   function showPageLoader(text) {
     var overlay = ensurePageLoader();
     var textEl = overlay.querySelector('#cb-page-loader-text');
-    if (textEl) textEl.textContent = text || '';
+    if (textEl) {
+      textEl.textContent = text || '';
+      textEl.hidden = !text;
+    }
     _pageLoaderActiveCount++;
     overlay.hidden = false;
     overlay.setAttribute('aria-hidden', 'false');
+  }
+
+  function renderInlineLoadingSpinner(target) {
+    if (!target) return null;
+    target.innerHTML = '<div class="cb-section-loading"><span class="combo-builder-spinner" aria-hidden="true"></span></div>';
+    return target.firstChild;
+  }
+
+  function showProductSelectionSpinner(card, button) {
+    if (!card || !button) return function (callback) {
+      if (typeof callback === 'function') callback();
+    };
+
+    card.querySelectorAll('.cb-product-card-action-spinner').forEach(function (node) {
+      if (node && node.parentNode) node.parentNode.removeChild(node);
+    });
+
+    var spinner = document.createElement('span');
+    spinner.className = 'cb-product-card-action-spinner';
+    spinner.setAttribute('aria-hidden', 'true');
+    spinner.innerHTML = '<span class="combo-builder-spinner" aria-hidden="true"></span>';
+    button.parentNode.insertBefore(spinner, button);
+
+    button.disabled = true;
+    card.classList.add('cb-product-card--selecting');
+
+    return function (callback) {
+      setTimeout(function () {
+        if (typeof callback === 'function') callback();
+      }, 180);
+    };
   }
 
   function hidePageLoader(force) {
@@ -2696,9 +2730,8 @@
       return;
     }
 
-    showPageLoader('Loading products...');
+    renderInlineLoadingSpinner(builderArea);
     fetchProducts(box.id, childCtx.shop, childCtx.apiBase, box.scopeType, null, childCtx, function (err, products) {
-      hidePageLoader(true);
       if (err || !products || products.length === 0) {
         builderArea.innerHTML = '<p class="cb-error">Failed to load products. Please reload and try again.</p>';
         return;
@@ -3020,9 +3053,8 @@
         builderArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 0);
     } else {
-      showPageLoader('Loading products…');
+      renderInlineLoadingSpinner(builderArea);
       fetchProducts(box.id, ctx.shop, ctx.apiBase, box.scopeType, null, ctx, function (err, products) {
-        hidePageLoader(true);
         if (ctx._openBoxId !== box.id) return;
         if (err || !products || products.length === 0) {
           builderArea.innerHTML = '<p class="cb-error">Failed to load products. Please reload and try again.</p>';
@@ -3978,13 +4010,11 @@
         attachFinalCartButton();
       }
 
-      showPageLoader('Loading products…');
       var loadToken = ++stepLoadToken;
       stepArea.innerHTML = '';
+      renderInlineLoadingSpinner(stepArea);
 
       getPackProducts(index, packBox, function (err, products, pageInfo) {
-        hidePageLoader(true);
-
         if (destroyed || loadToken !== stepLoadToken) return;
         if (ctx._openBoxId !== box.id) return;
 
@@ -5131,6 +5161,7 @@
           ;(function (p, aBtn, blockedVariantIdsForProduct) {
             function doAddToSlot(variantId, variantTitle, variantPrice, variantCompareAtPrice) {
               if (cardSoldOut || aBtn.disabled) return;
+              var finishSelection = showProductSelectionSpinner(card, aBtn);
               aBtn.textContent = '\u2713 ' + productGridBtnLabel;
               aBtn.classList.add('cb-add-btn--added');
 
@@ -5168,9 +5199,11 @@
               }
               if (next !== -1) activeSlotIndex = next;
 
-              renderSlots();
-              renderProductGrid();
-              updateCartButton();
+              finishSelection(function () {
+                renderSlots();
+                renderProductGrid();
+                updateCartButton();
+              });
             }
 
             function onProductClick(showInfoModal) {
@@ -5247,7 +5280,7 @@
 
       var pageLabel = document.createElement('span');
       pageLabel.className = 'cb-product-page-label';
-      pageLabel.textContent = wholeStoreLoading ? 'Loading products...' : 'Product page';
+      pageLabel.textContent = wholeStoreLoading ? '' : 'Product page';
 
       var nextBtn = document.createElement('button');
       nextBtn.type = 'button';
@@ -6278,6 +6311,7 @@
           ;(function (p, aBtn) {
             function doAddToSlot(variantId, variantTitle, variantPrice, variantCompareAtPrice) {
               if (cardSoldOut || aBtn.disabled) return;
+              var finishSelection = showProductSelectionSpinner(card, aBtn);
               aBtn.textContent = '\u2713 ' + productGridBtnLabel;
               aBtn.classList.add('cb-add-btn--added');
 
@@ -6303,9 +6337,11 @@
               var next = findNextEmptySlot(activeSlotIndex);
               if (next !== -1) activeSlotIndex = next;
 
-              renderSlots();
-              loadAndRenderGrid();
-              updateCartButton();
+              finishSelection(function () {
+                renderSlots();
+                loadAndRenderGrid();
+                updateCartButton();
+              });
             }
 
             function onProductClick(showInfoModal) {
@@ -6371,9 +6407,8 @@
       var gridOverlay = document.createElement('div');
       gridOverlay.className = 'cb-grid-overlay';
       gridOverlay.innerHTML =
-        '<span class="combo-builder-spinner" aria-hidden="true"></span>' +
-        '<span class="cb-grid-overlay-text">Loading products\u2026</span>';
-      productSection.appendChild(gridOverlay);
+        '<span class="combo-builder-spinner" aria-hidden="true"></span>';
+      productSection.insertBefore(gridOverlay, productGrid);
       var token = ++gridLoadToken;
       var startedAt = Date.now();
       var minVisibleMs = 220;
@@ -6526,7 +6561,7 @@
       }
     });
 
-    enhanceComboCartPresentation(comboLineItems);
+    enhanceComboCartPresentation(comboLineItems, root);
 
     comboLineItems.forEach(function (lineItem) {
       lineItem.classList.add('cb-combo-line-item');
@@ -6601,26 +6636,81 @@
     );
   }
 
-  function enhanceComboCartPresentation(comboLineItems) {
-    if (!Array.isArray(comboLineItems) || comboLineItems.length === 0 || !window.fetch) return;
+  function getCartLineCandidates(root) {
+    var scope = root || document;
+    var selector = [
+      '[data-cart-item]',
+      '.cart-item',
+      '.drawer__cart-item',
+      '.cart-drawer-item',
+      '.line-item',
+      'cart-remove-button',
+      'tr',
+      'li'
+    ].join(',');
+    var nodes = Array.prototype.slice.call(scope.querySelectorAll(selector));
+    var out = [];
+    nodes.forEach(function (node) {
+      var line = node.closest && node.closest('[data-cart-item], .cart-item, .drawer__cart-item, .cart-drawer-item, .line-item, tr, li');
+      line = line || node;
+      if (out.indexOf(line) === -1 && (line.textContent || '').trim()) out.push(line);
+    });
+    return out;
+  }
+
+  function findCartLineForItem(item, candidates, used) {
+    if (!item || !Array.isArray(candidates)) return null;
+    var title = String(item.product_title || item.title || item.final_line_price || '').trim().toLowerCase();
+    var variantTitle = String(item.variant_title || '').trim().toLowerCase();
+
+    for (var i = 0; i < candidates.length; i++) {
+      if (used[i]) continue;
+      var text = String(candidates[i].textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      if (!text) continue;
+      if (title && text.indexOf(title) !== -1) {
+        used[i] = true;
+        return candidates[i];
+      }
+      if (variantTitle && text.indexOf(variantTitle) !== -1) {
+        used[i] = true;
+        return candidates[i];
+      }
+    }
+    return null;
+  }
+
+  function enhanceComboCartPresentation(comboLineItems, root) {
+    if (!window.fetch) return;
+    comboLineItems = Array.isArray(comboLineItems) ? comboLineItems : [];
 
     fetch('/cart.js', { headers: { 'Accept': 'application/json' } })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (cart) {
         if (!cart || !Array.isArray(cart.items)) return;
         var comboCartItems = cart.items
-          .map(function (item) {
+          .map(function (item, cartIndex) {
             return {
               item: item,
+              cartIndex: cartIndex,
               selections: getComboCartSelectionFromItem(item),
               bundleImage: getComboCartLineImageFromItem(item),
             };
           })
-          .filter(function (entry) { return entry.selections.length > 0; });
+          .filter(function (entry) {
+            var props = getCartItemProperties(entry.item);
+            return entry.selections.length > 0 || !!props._bundle_box_id;
+          });
 
-        comboLineItems.forEach(function (lineItem, index) {
-          var entry = comboCartItems[index] || comboCartItems[0];
+        if (!comboCartItems.length) return;
+
+        var candidates = getCartLineCandidates(root || document);
+        var usedCandidateIndexes = {};
+
+        comboCartItems.forEach(function (entry, index) {
+          var lineItem = comboLineItems[index] || findCartLineForItem(entry.item, candidates, usedCandidateIndexes);
           if (!entry || !entry.selections.length) return;
+          if (!lineItem) return;
+          lineItem.classList.add('cb-combo-line-item');
           renderComboCartLineImage(lineItem, entry.bundleImage, entry.item && (entry.item.product_title || entry.item.title));
           renderComboCartSelectionList(lineItem, entry.selections);
         });
@@ -6646,7 +6736,6 @@
       existingImg.alt = imageAlt || existingImg.alt || 'Bundle product image';
       existingImg.loading = existingImg.loading || 'lazy';
       existingImg.style.display = '';
-      return;
     }
 
     var existingFallback = lineItem.querySelector('.cb-cart-box-image-wrap');
@@ -6662,18 +6751,28 @@
     img.loading = 'lazy';
     wrap.appendChild(img);
 
+    var details = lineItem.querySelector(
+      '.cart-item__details,' +
+      '.cart-drawer-item__details,' +
+      '.line-item__details,' +
+      '.line-item__info'
+    );
+
+    if (details) {
+      details.insertBefore(wrap, details.firstChild);
+      return;
+    }
+
     var media = lineItem.querySelector(
       '.cart-item__media,' +
       '.cart-drawer-item__media,' +
       '.line-item__media,' +
       '.cart-item__image-container'
     );
-
     if (media) {
       media.appendChild(wrap);
       return;
     }
-
     lineItem.insertBefore(wrap, lineItem.firstChild);
   }
 
