@@ -6677,6 +6677,12 @@
 
   function getComboCartLineImageFromItem(item) {
     var props = getCartItemProperties(item);
+    if (item && typeof item.image === 'string' && item.image.trim()) return item.image;
+    if (item && item.featured_image) {
+      if (typeof item.featured_image === 'string' && item.featured_image.trim()) return item.featured_image;
+      if (typeof item.featured_image.url === 'string' && item.featured_image.url.trim()) return item.featured_image.url;
+      if (typeof item.featured_image.src === 'string' && item.featured_image.src.trim()) return item.featured_image.src;
+    }
     return props._combo_bundle_image || '';
   }
 
