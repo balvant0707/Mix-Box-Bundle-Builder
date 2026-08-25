@@ -401,11 +401,31 @@ function GrowthAppsSlider({ apps }) {
 
   return (
     <BlockStack gap="300">
-      <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
-        {slides[activeSlide].map((appItem) => (
-          <PromotedAppBox key={appItem.key} appItem={appItem} />
-        ))}
-      </InlineGrid>
+      <div style={{ overflow: "hidden" }}>
+        <div
+          style={{
+            display: "flex",
+            transform: `translateX(-${activeSlide * 100}%)`,
+            transition: "transform 420ms ease",
+          }}
+        >
+          {slides.map((slide) => (
+            <div
+              key={slide.map((appItem) => appItem.key).join("-")}
+              style={{
+                flex: "0 0 100%",
+                minWidth: "100%",
+              }}
+            >
+              <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+                {slide.map((appItem) => (
+                  <PromotedAppBox key={appItem.key} appItem={appItem} />
+                ))}
+              </InlineGrid>
+            </div>
+          ))}
+        </div>
+      </div>
       {slideCount > 1 && (
         <InlineStack align="center" blockAlign="center" gap="300">
           <Button
