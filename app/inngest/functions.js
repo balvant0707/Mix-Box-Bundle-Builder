@@ -5,6 +5,7 @@ export const syncScheduledBoxes = inngest.createFunction(
   {
     id: "sync-scheduled-box-statuses",
     name: "Sync scheduled box statuses",
+    concurrency: 1,
     triggers: { cron: "*/5 * * * *" },
   },
   async ({ step }) => {

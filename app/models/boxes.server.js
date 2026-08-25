@@ -1,4 +1,4 @@
-import db, { ensureAppTables } from "../db.server";
+import db, { ensureAppTables, withDbRetry } from "../db.server";
 import { Buffer } from "node:buffer";
 import { getSchedulePublicationStatus, isWithinSchedule } from "./box-schedule.js";
 
@@ -1373,43 +1373,46 @@ export async function listBoxes(shop, activeOnly = false, includeBannerBinary = 
 export async function syncScheduledBoxStatuses(now = new Date()) {
   await ensureAppTables();
 
-  const boxes = await db.comboBox.findMany({
-    where: {
-      deletedAt: null,
-      OR: [
-        { simpleBoxPage: { is: { scheduleType: "scheduled" } } },
-        { multipleBoxPage: { is: { scheduleType: "scheduled" } } },
-      ],
-    },
-    select: {
-      id: true,
-      isActive: true,
-      simpleBoxPage: {
-        select: {
-          id: true,
-          status: true,
-          scheduleType: true,
-          startDate: true,
-          startTime: true,
-          hasEndDate: true,
-          endDate: true,
-          endTime: true,
+  const boxes = await withDbRetry(() =>
+    db.comboBox.findMany({
+      where: {
+        deletedAt: null,
+        OR: [
+          { simpleBoxPage: { is: { scheduleType: "scheduled" } } },
+          { multipleBoxPage: { is: { scheduleType: "scheduled" } } },
+        ],
+      },
+      select: {
+        id: true,
+        isActive: true,
+        simpleBoxPage: {
+          select: {
+            id: true,
+            status: true,
+            scheduleType: true,
+            startDate: true,
+            startTime: true,
+            hasEndDate: true,
+            endDate: true,
+            endTime: true,
+          },
+        },
+        multipleBoxPage: {
+          select: {
+            id: true,
+            status: true,
+            scheduleType: true,
+            startDate: true,
+            startTime: true,
+            hasEndDate: true,
+            endDate: true,
+            endTime: true,
+          },
         },
       },
-      multipleBoxPage: {
-        select: {
-          id: true,
-          status: true,
-          scheduleType: true,
-          startDate: true,
-          startTime: true,
-          hasEndDate: true,
-          endDate: true,
-          endTime: true,
-        },
-      },
-    },
-  });
+    }),
+    { retries: 4, delayMs: 750 },
+  );
 
   let updated = 0;
 
@@ -1433,10 +1436,14 @@ export async function syncScheduledBoxStatuses(now = new Date()) {
 
     if (!Object.keys(data).length) continue;
 
-    await db.comboBox.update({
-      where: { id: box.id },
-      data,
-    });
+    await withDbRetry(
+      () =>
+        db.comboBox.update({
+          where: { id: box.id },
+          data,
+        }),
+      { retries: 4, delayMs: 750 },
+    );
     updated += 1;
   }
 
