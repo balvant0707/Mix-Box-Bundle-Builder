@@ -304,7 +304,7 @@ function PromotedAppBox({ appItem }) {
   return (
     <div
       style={{
-        minHeight: "260px",
+        minHeight: "200px",
         padding: "16px",
         border: "1px solid #dcdfe4",
         background: "#ffffff",
