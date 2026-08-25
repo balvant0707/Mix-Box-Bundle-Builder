@@ -28,6 +28,11 @@ const sessionDbRetryDelayMs = Number.parseInt(process.env.SESSION_DB_RETRY_DELAY
 const sessionReadyProbeCooldownMs =
   Number.parseInt(process.env.SESSION_READY_PROBE_COOLDOWN_MS || "15000", 10) || 15000;
 
+function isLegacyOfflineSession(session) {
+  if (!session || session.isOnline) return false;
+  return !session.expires || !session.refreshToken;
+}
+
 class RetryPrismaSessionStorage extends PrismaSessionStorage {
   _lastReadyProbeAt = 0;
 
@@ -50,7 +55,16 @@ class RetryPrismaSessionStorage extends PrismaSessionStorage {
   async loadSession(id) {
     return withDbRetry(async () => {
       await this.ensureSessionStorageReady();
-      return super.loadSession(id);
+      const session = await super.loadSession(id);
+      if (isLegacyOfflineSession(session)) {
+        console.warn("[Session] Deleted legacy non-expiring offline token session", {
+          shop: session.shop,
+          sessionId: session.id,
+        });
+        await super.deleteSession(id);
+        return undefined;
+      }
+      return session;
     }, { retries: sessionDbRetries, delayMs: sessionDbRetryDelayMs });
   }
 
