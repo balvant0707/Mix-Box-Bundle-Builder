@@ -695,7 +695,7 @@ export default function DashboardPage() {
                 <BlockStack gap="300">
                   <div style={{ width: "fit-content" }}>
                   <InlineStack gap="200" blockAlign="center">
-                    <Icon source={EmailIcon} tone="subdued" />
+                    <Icon source={EmailIcon} tone="base" />
                     <Text as="h3" variant="headingSm">Support ticket</Text>
                   </InlineStack>
                   </div>
@@ -720,7 +720,7 @@ export default function DashboardPage() {
                 <BlockStack gap="300">
                   <div style={{ width: "fit-content" }}>
                   <InlineStack gap="200" blockAlign="center">
-                    <Icon source={QuestionCircleIcon} tone="subdued" />
+                    <Icon source={QuestionCircleIcon} tone="Base" />
                     <Text as="h3" variant="headingSm">Knowledge base</Text>
                   </InlineStack>
                   </div>
