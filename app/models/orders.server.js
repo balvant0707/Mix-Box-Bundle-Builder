@@ -62,6 +62,23 @@ function buildDailySkeleton(fromDate, toDate) {
   return days;
 }
 
+function parseDateBoundary(value, boundary) {
+  const date = value ? new Date(value) : null;
+  const safeDate = date && !Number.isNaN(date.getTime()) ? date : new Date();
+  const isDateOnly = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+  if (isDateOnly || boundary === "start" || boundary === "end") {
+    const [year, month, day] = isDateOnly
+      ? value.split("-").map((part) => Number.parseInt(part, 10))
+      : [safeDate.getFullYear(), safeDate.getMonth() + 1, safeDate.getDate()];
+    return boundary === "end"
+      ? new Date(year, month - 1, day, 23, 59, 59, 999)
+      : new Date(year, month - 1, day, 0, 0, 0, 0);
+  }
+
+  return safeDate;
+}
+
 function serializeSelectedProducts(value) {
   if (Array.isArray(value)) {
     return JSON.stringify(
@@ -221,8 +238,10 @@ export async function getAnalytics(shop, from, to, options = {}) {
     if (Number.isFinite(parsed) && parsed > 0) return parsed;
     return 10;
   })();
-  const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const toDate = to ? new Date(to) : new Date();
+  const fromDate = from
+    ? parseDateBoundary(from, "start")
+    : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const toDate = to ? parseDateBoundary(to, "end") : new Date();
 
   // Previous period: same duration, immediately before current period
   const periodMs = toDate.getTime() - fromDate.getTime();

@@ -38,6 +38,7 @@ import {
 } from "@shopify/polaris";
 import {
   CalendarIcon,
+  ClipboardIcon,
   GiftCardIcon,
   MenuHorizontalIcon,
 } from "@shopify/polaris-icons";
@@ -170,6 +171,35 @@ function buildBoxImageUrl(box, field, page, requestSearch = "") {
   if (version) params.set("v", version);
   const query = params.toString();
   return `/api/admin/boxes/${box.id}/image/${field}${query ? `?${query}` : ""}`;
+}
+
+async function copyTextToClipboard(text) {
+  if (!text) return false;
+
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall back to a temporary textarea for older embedded browsers.
+  }
+
+  try {
+    if (typeof document === "undefined") return false;
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand("copy");
+    document.body.removeChild(textarea);
+    return copied;
+  } catch {
+    return false;
+  }
 }
 
 function getBoxListImageSrc(box, requestSearch = "") {
@@ -847,7 +877,8 @@ export default function ManageBoxesPage() {
                             <InlineStack gap="150" blockAlign="center">
                               <button
                                 type="button"
-                                onClick={() => {
+                                onClick={(event) => {
+                                  event.stopPropagation();
                                   const editPath = box.boxType === "single"
                                     ? `/app/boxes/${box.id}/edit-single`
                                     : box.boxType === "multiple"
@@ -882,9 +913,28 @@ export default function ManageBoxesPage() {
 
                       {/* Code */}
                       <IndexTable.Cell>
-                        <Text as="span" variant="bodySm" tone={box.boxCode ? undefined : "subdued"}>
-                          {box.boxCode || "-"}
-                        </Text>
+                        <InlineStack gap="100" blockAlign="center" wrap={false}>
+                          <Text as="span" variant="bodySm" tone={box.boxCode ? undefined : "subdued"}>
+                            {box.boxCode || "-"}
+                          </Text>
+                          {box.boxCode && (
+                            <Tooltip content="Copy code">
+                              <Button
+                                variant="plain"
+                                size="micro"
+                                icon={ClipboardIcon}
+                                accessibilityLabel={`Copy code ${box.boxCode}`}
+                                onClick={async (event) => {
+                                  event.stopPropagation();
+                                  const copied = await copyTextToClipboard(String(box.boxCode));
+                                  showPolarisToast(copied ? "Code copied" : "Could not copy code", {
+                                    isError: !copied,
+                                  });
+                                }}
+                              />
+                            </Tooltip>
+                          )}
+                        </InlineStack>
                       </IndexTable.Cell>
 
                       {/* Type */}
@@ -919,9 +969,10 @@ export default function ManageBoxesPage() {
                               size="slim"
                               icon={MenuHorizontalIcon}
                               accessibilityLabel="More actions"
-                              onClick={() =>
+                              onClick={(event) => {
+                                event.stopPropagation();
                                 setOpenActionMenuId((current) => (current === box.id ? null : box.id))
-                              }
+                              }}
                             />
                           }
                         >
