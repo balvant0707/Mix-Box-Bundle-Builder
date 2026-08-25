@@ -22,6 +22,7 @@ import {
   Tooltip,
 } from "@shopify/polaris";
 import {
+  CalendarIcon,
   EmailIcon,
   QuestionCircleIcon,
   StarFilledIcon,
