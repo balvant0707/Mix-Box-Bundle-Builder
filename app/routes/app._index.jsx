@@ -294,7 +294,7 @@ const promotedApps = [
     key: "aria-ai-chatbot-live-chat",
     title: "Aria AI Chatbot & Live Chat",
     tag: "AI Support",
-    url: "https://apps.shopify.com/aria-ai-sales-support-agen",
+    url: "https://apps.shopify.com/aria-ai-sales-support-agent",
     image: "/images/AI-chat.png",
     description: "Help shoppers faster with AI-powered chat and live support.",
   },
