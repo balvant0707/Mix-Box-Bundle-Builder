@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLoaderData, useLocation, useNavigate, useNavigation } from "react-router";
 import {
   Badge,
@@ -22,6 +22,8 @@ import {
   Tooltip,
 } from "@shopify/polaris";
 import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
   EmailIcon,
   PhoneIcon,
   QuestionCircleIcon,
@@ -289,6 +291,161 @@ const promotedApps = [
     description: "Create a high-converting cart drawer with upsells and progress offers.",
   },
 ];
+
+function chunkItems(items, size) {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function PromotedAppBox({ appItem }) {
+  return (
+    <div
+      style={{
+        minHeight: "260px",
+        padding: "16px",
+        border: "1px solid #dcdfe4",
+        background: "#ffffff",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "12px",
+          height: "100%",
+        }}
+      >
+        <InlineStack align="space-between" blockAlign="start" wrap={false}>
+          <img
+            src={appItem.image}
+            alt={appItem.title}
+            loading="lazy"
+            style={{
+              width: "58px",
+              height: "58px",
+              objectFit: "contain",
+              borderRadius: "8px",
+              flexShrink: 0,
+            }}
+          />
+          <Box
+            background="bg-surface-secondary"
+            borderRadius="200"
+            paddingBlock="200"
+            paddingInline="300"
+          >
+            <Text as="span" variant="bodySm" fontWeight="semibold">
+              {appItem.tag}
+            </Text>
+          </Box>
+        </InlineStack>
+        <Text as="h3" variant="headingSm" fontWeight="bold">
+          {appItem.title}
+        </Text>
+        <Text as="p" tone="subdued" variant="bodyMd">
+          {appItem.description}
+        </Text>
+        <div style={{ marginTop: "auto" }}>
+          <a
+            href={appItem.url}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: "34px",
+              padding: "6px 16px",
+              borderRadius: "8px",
+              background: "#303030",
+              color: "#ffffff",
+              fontWeight: 700,
+              textDecoration: "none",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.22), 0 1px 2px rgba(0,0,0,0.18)",
+            }}
+          >
+            View app
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GrowthAppsSlider({ apps }) {
+  const slides = chunkItems(apps, 2);
+  const [activeSlide, setActiveSlide] = useState(0);
+  const slideCount = slides.length;
+
+  useEffect(() => {
+    if (slideCount <= 1) return undefined;
+    const timer = window.setInterval(() => {
+      setActiveSlide((current) => (current + 1) % slideCount);
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [slideCount]);
+
+  if (slideCount === 0) return null;
+
+  const goToPrevious = () => {
+    setActiveSlide((current) => (current - 1 + slideCount) % slideCount);
+  };
+  const goToNext = () => {
+    setActiveSlide((current) => (current + 1) % slideCount);
+  };
+
+  return (
+    <BlockStack gap="300">
+      <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+        {slides[activeSlide].map((appItem) => (
+          <PromotedAppBox key={appItem.key} appItem={appItem} />
+        ))}
+      </InlineGrid>
+      {slideCount > 1 && (
+        <InlineStack align="center" blockAlign="center" gap="300">
+          <Button
+            variant="plain"
+            icon={ChevronLeftIcon}
+            accessibilityLabel="Previous recommended apps"
+            onClick={goToPrevious}
+          />
+          <InlineStack gap="100" blockAlign="center">
+            {slides.map((slide, index) => (
+              <button
+                key={slide.map((appItem) => appItem.key).join("-")}
+                type="button"
+                aria-label={`Show recommended apps slide ${index + 1}`}
+                aria-current={index === activeSlide ? "true" : undefined}
+                onClick={() => setActiveSlide(index)}
+                style={{
+                  width: "8px",
+                  height: "8px",
+                  borderRadius: "999px",
+                  border: 0,
+                  padding: 0,
+                  cursor: "pointer",
+                  background: index === activeSlide ? "#303030" : "#c9cccf",
+                }}
+              />
+            ))}
+          </InlineStack>
+          <Button
+            variant="plain"
+            icon={ChevronRightIcon}
+            accessibilityLabel="Next recommended apps"
+            onClick={goToNext}
+          />
+        </InlineStack>
+      )}
+    </BlockStack>
+  );
+}
+
 function StatCard({ label, value, sub }) {
   return (
     <Card>
@@ -759,83 +916,7 @@ export default function DashboardPage() {
                 Recommended Our Growth Apps
               </Text>
             </InlineStack>
-            <InlineGrid columns={{ xs: 1, md: 4 }} gap="400">
-              {promotedApps.map((appItem) => (
-                <div
-                  key={appItem.key}
-                  style={{
-                    height: "260px",
-                    padding: "16px",
-                    border: "1px solid #dcdfe4",
-                    background: "#ffffff",
-                    display: "flex",
-                    flexDirection: "column",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "12px",
-                      height: "100%",
-                    }}
-                  >
-                    <InlineStack align="space-between" blockAlign="start" wrap={false}>
-                      <img
-                        src={appItem.image}
-                        alt={appItem.title}
-                        loading="lazy"
-                        style={{
-                          width: "58px",
-                          height: "58px",
-                          objectFit: "contain",
-                          borderRadius: "8px",
-                          flexShrink: 0,
-                        }}
-                      />
-                      <Box
-                        background="bg-surface-secondary"
-                        borderRadius="200"
-                        paddingBlock="200"
-                        paddingInline="300"
-                      >
-                        <Text as="span" variant="bodySm" fontWeight="semibold">
-                          {appItem.tag}
-                        </Text>
-                      </Box>
-                    </InlineStack>
-                    <Text as="h3" variant="headingSm" fontWeight="bold">
-                      {appItem.title}
-                    </Text>
-                    <Text as="p" tone="subdued" variant="bodyMd">
-                      {appItem.description}
-                    </Text>
-                    <div style={{ marginTop: "auto" }}>
-                      <a
-                        href={appItem.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          minHeight: "34px",
-                          padding: "6px 16px",
-                          borderRadius: "8px",
-                          background: "#303030",
-                          color: "#ffffff",
-                          fontWeight: 700,
-                          textDecoration: "none",
-                          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.22), 0 1px 2px rgba(0,0,0,0.18)",
-                        }}
-                      >
-                        View app
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </InlineGrid>
+            <GrowthAppsSlider apps={promotedApps} />
           </BlockStack>
         </Card>
       </BlockStack>
