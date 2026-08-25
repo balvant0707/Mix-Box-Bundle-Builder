@@ -300,14 +300,6 @@ const promotedApps = [
   },
 ];
 
-function chunkItems(items, size) {
-  const chunks = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-}
-
 function PromotedAppBox({ appItem }) {
   return (
     <div
@@ -386,40 +378,45 @@ function PromotedAppBox({ appItem }) {
 }
 
 function GrowthAppsSlider({ apps }) {
-  const slides = chunkItems(apps, 3);
-  const [activeSlide, setActiveSlide] = useState(0);
+  const visibleCount = Math.min(3, apps.length);
+  const [activeIndex, setActiveIndex] = useState(0);
   const [transitionEnabled, setTransitionEnabled] = useState(true);
-  const slideCount = slides.length;
-  const renderedSlides = slideCount > 1 ? [...slides, slides[0]] : slides;
+  const renderedApps = apps.length > visibleCount
+    ? [...apps, ...apps.slice(0, visibleCount)]
+    : apps;
+  const canSlide = apps.length > visibleCount;
 
   useEffect(() => {
-    if (slideCount <= 1) return undefined;
+    if (!canSlide) return undefined;
     const timer = window.setInterval(() => {
       setTransitionEnabled(true);
-      setActiveSlide((current) => current + 1);
-    }, 5000);
+      setActiveIndex((current) => current + 1);
+    }, 3500);
     return () => window.clearInterval(timer);
-  }, [slideCount]);
+  }, [canSlide]);
 
-  if (slideCount === 0) return null;
+  if (apps.length === 0) return null;
 
   const goToPrevious = () => {
     setTransitionEnabled(true);
-    setActiveSlide((current) => (current - 1 + slideCount) % slideCount);
+    setActiveIndex((current) => (current - 1 + apps.length) % apps.length);
   };
   const goToNext = () => {
     setTransitionEnabled(true);
-    if (activeSlide >= slideCount) return;
-    setActiveSlide((current) => current + 1);
+    if (activeIndex >= apps.length) return;
+    setActiveIndex((current) => current + 1);
   };
   const handleTrackTransitionEnd = () => {
-    if (slideCount <= 1 || activeSlide < slideCount) return;
+    if (!canSlide || activeIndex < apps.length) return;
     setTransitionEnabled(false);
-    setActiveSlide(0);
+    setActiveIndex(0);
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => setTransitionEnabled(true));
     });
   };
+  const trackWidth = `${(renderedApps.length * 100) / visibleCount}%`;
+  const itemWidth = `${100 / renderedApps.length}%`;
+  const translatePercent = (activeIndex * 100) / renderedApps.length;
 
   return (
     <BlockStack gap="300">
@@ -427,29 +424,27 @@ function GrowthAppsSlider({ apps }) {
         <div
           style={{
             display: "flex",
-            transform: `translateX(-${activeSlide * 100}%)`,
-            transition: transitionEnabled ? "transform 520ms ease" : "none",
+            width: trackWidth,
+            transform: `translateX(-${translatePercent}%)`,
+            transition: transitionEnabled ? "transform 650ms ease" : "none",
           }}
           onTransitionEnd={handleTrackTransitionEnd}
         >
-          {renderedSlides.map((slide, slideIndex) => (
+          {renderedApps.map((appItem, index) => (
             <div
-              key={`${slide.map((appItem) => appItem.key).join("-")}-${slideIndex}`}
+              key={`${appItem.key}-${index}`}
               style={{
-                flex: "0 0 100%",
-                minWidth: "100%",
+                flex: `0 0 ${itemWidth}`,
+                paddingInlineEnd: "16px",
+                boxSizing: "border-box",
               }}
             >
-              <InlineGrid columns={{ xs: 1, sm: 2, md: 3 }} gap="400">
-                {slide.map((appItem) => (
-                  <PromotedAppBox key={appItem.key} appItem={appItem} />
-                ))}
-              </InlineGrid>
+              <PromotedAppBox appItem={appItem} />
             </div>
           ))}
         </div>
       </div>
-      {slideCount > 1 && (
+      {canSlide && (
         <InlineStack align="center" blockAlign="center" gap="300">
           <Button
             variant="plain"
@@ -458,15 +453,15 @@ function GrowthAppsSlider({ apps }) {
             onClick={goToPrevious}
           />
           <InlineStack gap="100" blockAlign="center">
-            {slides.map((slide, index) => (
+            {apps.map((appItem, index) => (
               <button
-                key={slide.map((appItem) => appItem.key).join("-")}
+                key={appItem.key}
                 type="button"
-                aria-label={`Show recommended apps slide ${index + 1}`}
-                aria-current={index === activeSlide % slideCount ? "true" : undefined}
+                aria-label={`Show recommended app ${index + 1}`}
+                aria-current={index === activeIndex % apps.length ? "true" : undefined}
                 onClick={() => {
                   setTransitionEnabled(true);
-                  setActiveSlide(index);
+                  setActiveIndex(index);
                 }}
                 style={{
                   width: "8px",
@@ -475,7 +470,7 @@ function GrowthAppsSlider({ apps }) {
                   border: 0,
                   padding: 0,
                   cursor: "pointer",
-                  background: index === activeSlide % slideCount ? "#303030" : "#c9cccf",
+                  background: index === activeIndex % apps.length ? "#303030" : "#c9cccf",
                 }}
               />
             ))}
