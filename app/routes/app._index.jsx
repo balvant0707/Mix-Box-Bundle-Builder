@@ -693,7 +693,7 @@ export default function DashboardPage() {
               {/* Support ticket */}
               <Card>
                 <BlockStack gap="300">
-                  <InlineStack gap="200" blockAlign="center">
+                  <InlineStack gap="200" blockAlign="center" style={{ width: "fit-content" }}>
                     <Icon source={EmailIcon} tone="subdued" />
                     <Text as="h3" variant="headingSm">Support ticket</Text>
                   </InlineStack>
