@@ -386,14 +386,17 @@ function PromotedAppBox({ appItem }) {
 }
 
 function GrowthAppsSlider({ apps }) {
-  const slides = chunkItems(apps, 2);
+  const slides = chunkItems(apps, 3);
   const [activeSlide, setActiveSlide] = useState(0);
+  const [transitionEnabled, setTransitionEnabled] = useState(true);
   const slideCount = slides.length;
+  const renderedSlides = slideCount > 1 ? [...slides, slides[0]] : slides;
 
   useEffect(() => {
     if (slideCount <= 1) return undefined;
     const timer = window.setInterval(() => {
-      setActiveSlide((current) => (current + 1) % slideCount);
+      setTransitionEnabled(true);
+      setActiveSlide((current) => current + 1);
     }, 5000);
     return () => window.clearInterval(timer);
   }, [slideCount]);
@@ -401,10 +404,21 @@ function GrowthAppsSlider({ apps }) {
   if (slideCount === 0) return null;
 
   const goToPrevious = () => {
+    setTransitionEnabled(true);
     setActiveSlide((current) => (current - 1 + slideCount) % slideCount);
   };
   const goToNext = () => {
-    setActiveSlide((current) => (current + 1) % slideCount);
+    setTransitionEnabled(true);
+    if (activeSlide >= slideCount) return;
+    setActiveSlide((current) => current + 1);
+  };
+  const handleTrackTransitionEnd = () => {
+    if (slideCount <= 1 || activeSlide < slideCount) return;
+    setTransitionEnabled(false);
+    setActiveSlide(0);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => setTransitionEnabled(true));
+    });
   };
 
   return (
@@ -414,18 +428,19 @@ function GrowthAppsSlider({ apps }) {
           style={{
             display: "flex",
             transform: `translateX(-${activeSlide * 100}%)`,
-            transition: "transform 420ms ease",
+            transition: transitionEnabled ? "transform 520ms ease" : "none",
           }}
+          onTransitionEnd={handleTrackTransitionEnd}
         >
-          {slides.map((slide) => (
+          {renderedSlides.map((slide, slideIndex) => (
             <div
-              key={slide.map((appItem) => appItem.key).join("-")}
+              key={`${slide.map((appItem) => appItem.key).join("-")}-${slideIndex}`}
               style={{
                 flex: "0 0 100%",
                 minWidth: "100%",
               }}
             >
-              <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+              <InlineGrid columns={{ xs: 1, sm: 2, md: 3 }} gap="400">
                 {slide.map((appItem) => (
                   <PromotedAppBox key={appItem.key} appItem={appItem} />
                 ))}
@@ -448,8 +463,11 @@ function GrowthAppsSlider({ apps }) {
                 key={slide.map((appItem) => appItem.key).join("-")}
                 type="button"
                 aria-label={`Show recommended apps slide ${index + 1}`}
-                aria-current={index === activeSlide ? "true" : undefined}
-                onClick={() => setActiveSlide(index)}
+                aria-current={index === activeSlide % slideCount ? "true" : undefined}
+                onClick={() => {
+                  setTransitionEnabled(true);
+                  setActiveSlide(index);
+                }}
                 style={{
                   width: "8px",
                   height: "8px",
@@ -457,7 +475,7 @@ function GrowthAppsSlider({ apps }) {
                   border: 0,
                   padding: 0,
                   cursor: "pointer",
-                  background: index === activeSlide ? "#303030" : "#c9cccf",
+                  background: index === activeSlide % slideCount ? "#303030" : "#c9cccf",
                 }}
               />
             ))}
