@@ -22,8 +22,8 @@ import {
   Tooltip,
 } from "@shopify/polaris";
 import {
-  CalendarIcon,
   EmailIcon,
+  PhoneIcon,
   QuestionCircleIcon,
   StarFilledIcon,
   ViewIcon,
@@ -683,7 +683,7 @@ export default function DashboardPage() {
                 <BlockStack gap="300">
                   <InlineStack align="space-between" blockAlign="center" gap="200" wrap={false}>
                     <Text as="h3" variant="headingSm">Book a free 30-minute setup call</Text>
-                    <Icon source={CalendarIcon} tone="base" />
+                    <Icon source={PhoneIcon} tone="base" />
                   </InlineStack>
                   <Text as="p" variant="bodySm" tone="subdued">
                     Get help with app setup, best practices, and growth recommendations.
