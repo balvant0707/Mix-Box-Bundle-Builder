@@ -693,10 +693,12 @@ export default function DashboardPage() {
               {/* Support ticket */}
               <Card>
                 <BlockStack gap="300">
-                  <InlineStack gap="200" blockAlign="center" style={{ width: "fit-content" }}>
+                  <div style={{ width: "fit-content" }}>
+                  <InlineStack gap="200" blockAlign="center">
                     <Icon source={EmailIcon} tone="subdued" />
                     <Text as="h3" variant="headingSm">Support ticket</Text>
                   </InlineStack>
+                  </div>
                   <Text as="p" variant="bodySm" tone="subdued">
                     Reach our team during office hours for issue resolution and guidance.
                   </Text>
@@ -716,10 +718,12 @@ export default function DashboardPage() {
               {/* Knowledge base */}
               <Card>
                 <BlockStack gap="300">
+                  <div style={{ width: "fit-content" }}>
                   <InlineStack gap="200" blockAlign="center">
                     <Icon source={QuestionCircleIcon} tone="subdued" />
                     <Text as="h3" variant="headingSm">Knowledge base</Text>
                   </InlineStack>
+                  </div>
                   <Text as="p" variant="bodySm" tone="subdued">
                     Browse setup guides and troubleshooting docs.
                   </Text>
