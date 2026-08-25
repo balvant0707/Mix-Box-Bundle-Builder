@@ -75,13 +75,11 @@ export const loader = async ({ request }) => {
     toDate = toD.toISOString().slice(0, 10);
   }
 
-  const [analytics, currencyCode] = await Promise.all([
-    getAnalytics(session.shop, fromDate, toDate, {
-      comboTypeFilter: comboType,
-      recentOrdersLimit: null, // show full order list for selected period
-    }),
-    getShopCurrencyCode(session.shop),
-  ]);
+  const analytics = await getAnalytics(session.shop, fromDate, toDate, {
+    comboTypeFilter: comboType,
+    recentOrdersLimit: null, // show full order list for selected period
+  });
+  const currencyCode = await getShopCurrencyCode(session.shop);
 
   const orderLabelsFromAdmin = await fetchOrderLabelsByOrderIds(
     admin,

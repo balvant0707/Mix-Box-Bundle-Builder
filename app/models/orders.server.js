@@ -1,4 +1,4 @@
-import db from "../db.server";
+import db, { withDbRetry } from "../db.server";
 
 function toDateKey(date) {
   return date.toISOString().slice(0, 10);
@@ -248,47 +248,59 @@ export async function getAnalytics(shop, from, to, options = {}) {
   const prevFromDate = new Date(fromDate.getTime() - periodMs);
   const prevToDate = new Date(fromDate.getTime());
 
-  const [rawOrders, rawPrevOrders, rawActiveBoxes] = await Promise.all([
-    db.bundleOrder.findMany({
-      where: { shop, orderDate: { gte: fromDate, lte: toDate } },
-      include: {
-        box: {
-          select: {
-            displayTitle: true,
-            itemCount: true,
-            comboStepsConfig: true,
-            simpleBoxPage: { select: { id: true } },
-            multipleBoxPage: { select: { id: true } },
+  const rawOrders = await withDbRetry(
+    () =>
+      db.bundleOrder.findMany({
+        where: { shop, orderDate: { gte: fromDate, lte: toDate } },
+        include: {
+          box: {
+            select: {
+              displayTitle: true,
+              itemCount: true,
+              comboStepsConfig: true,
+              simpleBoxPage: { select: { id: true } },
+              multipleBoxPage: { select: { id: true } },
+            },
           },
         },
-      },
-      orderBy: { orderDate: "asc" },
-    }),
-    db.bundleOrder.findMany({
-      where: { shop, orderDate: { gte: prevFromDate, lte: prevToDate } },
-      include: {
-        box: {
-          select: {
-            comboStepsConfig: true,
-            simpleBoxPage: { select: { id: true } },
-            multipleBoxPage: { select: { id: true } },
+        orderBy: { orderDate: "asc" },
+      }),
+    { retries: 4, delayMs: 750 },
+  );
+
+  const rawPrevOrders = await withDbRetry(
+    () =>
+      db.bundleOrder.findMany({
+        where: { shop, orderDate: { gte: prevFromDate, lte: prevToDate } },
+        include: {
+          box: {
+            select: {
+              comboStepsConfig: true,
+              simpleBoxPage: { select: { id: true } },
+              multipleBoxPage: { select: { id: true } },
+            },
           },
         },
-      },
-      orderBy: { orderDate: "asc" },
-    }),
-    db.comboBox.findMany({
-      where: { shop, isActive: true, deletedAt: null },
-      select: {
-        id: true,
-        displayTitle: true,
-        comboStepsConfig: true,
-        simpleBoxPage: { select: { id: true } },
-        multipleBoxPage: { select: { id: true } },
-      },
-      orderBy: { sortOrder: "asc" },
-    }),
-  ]);
+        orderBy: { orderDate: "asc" },
+      }),
+    { retries: 4, delayMs: 750 },
+  );
+
+  const rawActiveBoxes = await withDbRetry(
+    () =>
+      db.comboBox.findMany({
+        where: { shop, isActive: true, deletedAt: null },
+        select: {
+          id: true,
+          displayTitle: true,
+          comboStepsConfig: true,
+          simpleBoxPage: { select: { id: true } },
+          multipleBoxPage: { select: { id: true } },
+        },
+        orderBy: { sortOrder: "asc" },
+      }),
+    { retries: 4, delayMs: 750 },
+  );
 
   const orders = rawOrders.filter((order) => matchesComboTypeFilter(order.box, comboTypeFilter));
   const prevOrders = rawPrevOrders.filter((order) => matchesComboTypeFilter(order.box, comboTypeFilter));
