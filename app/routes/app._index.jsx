@@ -290,6 +290,14 @@ const promotedApps = [
     image: "/images/cartlift.png",
     description: "Create a high-converting cart drawer with upsells and progress offers.",
   },
+  {
+    key: "aria-ai-chatbot-live-chat",
+    title: "Aria AI Chatbot & Live Chat",
+    tag: "AI Support",
+    url: "https://apps.shopify.com/aria-ai-sales-support-agen",
+    image: "/images/AI-chat.png",
+    description: "Help shoppers faster with AI-powered chat and live support.",
+  },
 ];
 
 function chunkItems(items, size) {
